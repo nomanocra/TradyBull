@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, Compass } from 'lucide-react';
 
 interface NavItem {
   name: string;
@@ -62,12 +62,13 @@ export function Sidebar() {
         {/* Exploration - Standalone link */}
         <Link
           href="/"
-          className={`block mx-2 px-3 py-2 rounded-md text-xs font-medium transition-colors ${
+          className={`flex items-center gap-2 mx-2 px-3 py-2 rounded-md text-xs font-medium transition-colors ${
             isExplorationActive
               ? 'text-[#C59471] bg-[#C59471]/10'
               : 'text-gray-300 hover:text-white hover:bg-[#141414]'
           }`}
         >
+          <Compass size={14} />
           Exploration
         </Link>
 

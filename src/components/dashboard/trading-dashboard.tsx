@@ -61,6 +61,7 @@ export function TradingDashboard({
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastFetchRef = useRef<string | null>(null);
+  const isClosingRef = useRef(false);
 
   const handleMessage = useCallback((event: MessageEvent) => {
     try {
@@ -78,11 +79,22 @@ export function TradingDashboard({
         setLastUpdate(new Date());
         setIsLoading(false);
 
-        // Reset countdown when new data arrives
-        if (message.last_fetch && message.last_fetch !== lastFetchRef.current) {
+        // Sync countdown with server's last_fetch time
+        if (message.last_fetch) {
           lastFetchRef.current = message.last_fetch;
+
+          // Parse last_fetch time (format: "HH:MM:SS")
+          const [hours, minutes, seconds] = message.last_fetch.split(':').map(Number);
+          const now = new Date();
+          const lastFetchDate = new Date();
+          lastFetchDate.setHours(hours, minutes, seconds, 0);
+
+          // Calculate seconds elapsed since last fetch
+          const elapsedSeconds = Math.floor((now.getTime() - lastFetchDate.getTime()) / 1000);
+          const remaining = Math.max(0, FETCH_INTERVAL - elapsedSeconds);
+
           setIsResetting(true);
-          setCountdown(FETCH_INTERVAL);
+          setCountdown(remaining);
           setTimeout(() => setIsResetting(false), 50);
         }
       }
@@ -96,6 +108,7 @@ export function TradingDashboard({
       return;
     }
 
+    isClosingRef.current = false;
     console.log('[WS] Connecting...');
     const ws = new WebSocket(WS_URL);
 
@@ -108,20 +121,20 @@ export function TradingDashboard({
     ws.onmessage = handleMessage;
 
     ws.onclose = () => {
-      console.log('[WS] Disconnected');
       setWsConnected(false);
       wsRef.current = null;
 
-      // Reconnect after 2 seconds
-      reconnectTimeoutRef.current = setTimeout(() => {
-        console.log('[WS] Reconnecting...');
-        connectWebSocket();
-      }, 2000);
+      // Only reconnect if not intentionally closing
+      if (!isClosingRef.current) {
+        console.log('[WS] Disconnected, reconnecting...');
+        reconnectTimeoutRef.current = setTimeout(() => {
+          connectWebSocket();
+        }, 2000);
+      }
     };
 
-    ws.onerror = (err) => {
-      console.error('[WS] Error:', err);
-      setError('WebSocket connection error');
+    ws.onerror = () => {
+      // Silent error - connection errors are handled by onclose with reconnect
     };
 
     wsRef.current = ws;
@@ -141,6 +154,7 @@ export function TradingDashboard({
         clearTimeout(reconnectTimeoutRef.current);
       }
       if (wsRef.current) {
+        isClosingRef.current = true;
         wsRef.current.close();
       }
     };
