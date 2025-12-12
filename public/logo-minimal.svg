@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <!-- Logo TradyBull - Version minimaliste -->
+
+  <!-- Forme abstraite du taureau -->
+  <g fill="#C59471">
+    <!-- Corne gauche -->
+    <path d="M15 55 Q5 35 12 15 Q18 25 25 40 Z"/>
+
+    <!-- Corne droite -->
+    <path d="M85 55 Q95 35 88 15 Q82 25 75 40 Z"/>
+
+    <!-- Tête principale - forme géométrique moderne -->
+    <path d="M25 40
+             Q25 30 35 28
+             L50 25
+             L65 28
+             Q75 30 75 40
+             L78 55
+             Q78 75 50 85
+             Q22 75 22 55
+             Z"/>
+  </g>
+
+  <!-- Détails du museau -->
+  <ellipse cx="50" cy="65" rx="15" ry="12" fill="#A67B5B"/>
+
+  <!-- Narines stylisées -->
+  <circle cx="42" cy="67" r="3" fill="#8B6347"/>
+  <circle cx="58" cy="67" r="3" fill="#8B6347"/>
+
+  <!-- Yeux minimalistes -->
+  <circle cx="38" cy="45" r="4" fill="#2D2D2D"/>
+  <circle cx="62" cy="45" r="4" fill="#2D2D2D"/>
+
+  <!-- Anneau doré - symbolise le trading -->
+  <circle cx="50" cy="76" r="5" stroke="#D4AF37" stroke-width="2" fill="none"/>
+</svg>
