@@ -493,35 +493,36 @@ export function CandlestickChart({
   }, [data, showBollinger]);
 
   // Calculate Bollinger buy signals: when candle closes below lower band
-  // Signal appears on the NEXT candle, and no consecutive signals until price goes back above lower band
+  // Signal appears on the NEXT candle (i+1), no consecutive signals until entire candle is above lower band
   const bollingerBuySignals = useMemo(() => {
-    if (!showBollingerSignals || !bollingerData || data.length < 2) return [];
+    if (!showBollingerSignals || !bollingerData || data.length < 3) return [];
 
     const signals: BuySignal[] = [];
     let waitingForRecovery = false; // Flag to prevent consecutive signals
 
-    for (let i = 1; i < data.length; i++) {
-      const prevCandle = data[i - 1];
-      const prevLowerBand = bollingerData.lower[i - 1];
+    for (let i = 0; i < data.length - 1; i++) {
+      const currentCandle = data[i];
       const currentLowerBand = bollingerData.lower[i];
+      const nextCandle = data[i + 1];
 
-      if (prevLowerBand === null) continue;
+      if (currentLowerBand === null) continue;
 
-      // Check if price recovered above lower band (reset the flag)
-      if (waitingForRecovery && currentLowerBand !== null && data[i].close > currentLowerBand) {
+      // Check if ENTIRE candle is above lower band (low > lowerBand) = recovery complete
+      if (waitingForRecovery && currentCandle.low > currentLowerBand) {
         waitingForRecovery = false;
       }
 
-      // If previous candle closed below lower band and we're not waiting for recovery
-      if (!waitingForRecovery && prevCandle.close < prevLowerBand) {
+      // If current candle closed below lower band and we're not waiting for recovery
+      // Place signal on the NEXT candle
+      if (!waitingForRecovery && currentCandle.close < currentLowerBand) {
         signals.push({
-          time: data[i].time as Time,
+          time: nextCandle.time as Time,
           position: 'belowBar',
           color: '#eab308', // Yellow
           shape: 'arrowUp',
           text: 'Buy',
         });
-        waitingForRecovery = true; // Wait for price to recover before next signal
+        waitingForRecovery = true; // Wait for entire candle to be above lower band
       }
     }
     return signals;
