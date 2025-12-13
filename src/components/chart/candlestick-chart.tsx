@@ -493,30 +493,30 @@ export function CandlestickChart({
   }, [data, showBollinger]);
 
   // Calculate Bollinger buy signals: when candle LOW goes below lower band
-  // Signal appears on the NEXT candle (i+1), no consecutive signals until entire candle is above lower band
+  // Signal appears on the NEXT candle, no consecutive signals until entire candle is above lower band
   const bollingerBuySignals = useMemo(() => {
-    if (!showBollingerSignals || !bollingerData || data.length < 3) return [];
+    if (!showBollingerSignals || !bollingerData || data.length < 2) return [];
 
     const signals: BuySignal[] = [];
     let waitingForRecovery = false; // Flag to prevent consecutive signals
 
-    for (let i = 0; i < data.length - 1; i++) {
+    // Start at i=1 so we can check previous candle (i-1) and place signal on current (i)
+    for (let i = 1; i < data.length; i++) {
+      const prevCandle = data[i - 1];
+      const prevLowerBand = bollingerData.lower[i - 1];
       const currentCandle = data[i];
       const currentLowerBand = bollingerData.lower[i];
-      const nextCandle = data[i + 1];
 
-      if (currentLowerBand === null) continue;
-
-      // Check if ENTIRE candle is above lower band (low > lowerBand) = recovery complete
-      if (waitingForRecovery && currentCandle.low > currentLowerBand) {
+      // Check if ENTIRE current candle is above lower band (low > lowerBand) = recovery complete
+      if (waitingForRecovery && currentLowerBand !== null && currentCandle.low > currentLowerBand) {
         waitingForRecovery = false;
       }
 
-      // If current candle LOW went below lower band and we're not waiting for recovery
-      // Place signal on the NEXT candle
-      if (!waitingForRecovery && currentCandle.low < currentLowerBand) {
+      // If PREVIOUS candle's LOW went below lower band and we're not waiting for recovery
+      // Place signal on CURRENT candle (the one after the cross)
+      if (!waitingForRecovery && prevLowerBand !== null && prevCandle.low < prevLowerBand) {
         signals.push({
-          time: nextCandle.time as Time,
+          time: currentCandle.time as Time,
           position: 'belowBar',
           color: '#eab308', // Yellow
           shape: 'arrowUp',
