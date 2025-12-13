@@ -39,8 +39,10 @@ const MA_SHORT = 20;
 const MA_MEDIUM = 50;
 const MA_LONG = 200;
 
-// RSI settings
-const RSI_PERIOD = 14;
+// Stochastic RSI settings
+const STOCH_RSI_PERIOD = 14;
+const STOCH_RSI_K_SMOOTH = 3;
+const STOCH_RSI_D_SMOOTH = 3;
 
 // Calculate SMA
 function calculateSMA(data: number[], period: number): (number | null)[] {
@@ -210,12 +212,21 @@ function calculateIchimoku(highs: number[], lows: number[], closes: number[]) {
   return { tenkan, kijun, senkouA, senkouB, chikou };
 }
 
-// Calculate RSI
-function calculateRSI(closes: number[]): (number | null)[] {
-  const result: (number | null)[] = [];
+// Calculate Stochastic RSI
+// Returns { k: %K line, d: %D line (signal) }
+function calculateStochRSI(closes: number[]): { k: (number | null)[], d: (number | null)[] } {
+  const period = STOCH_RSI_PERIOD;
+  const kSmooth = STOCH_RSI_K_SMOOTH;
+  const dSmooth = STOCH_RSI_D_SMOOTH;
 
-  if (closes.length < RSI_PERIOD + 1) {
-    return closes.map(() => null);
+  // First calculate RSI
+  const rsi: (number | null)[] = [];
+
+  if (closes.length < period + 1) {
+    return {
+      k: closes.map(() => null),
+      d: closes.map(() => null)
+    };
   }
 
   // Calculate price changes
@@ -224,42 +235,114 @@ function calculateRSI(closes: number[]): (number | null)[] {
     changes.push(closes[i] - closes[i - 1]);
   }
 
-  // First RSI_PERIOD values are null
-  for (let i = 0; i < RSI_PERIOD; i++) {
-    result.push(null);
+  // First period values are null
+  for (let i = 0; i < period; i++) {
+    rsi.push(null);
   }
 
   // Calculate initial average gain and loss
   let avgGain = 0;
   let avgLoss = 0;
-  for (let i = 0; i < RSI_PERIOD; i++) {
+  for (let i = 0; i < period; i++) {
     if (changes[i] > 0) {
       avgGain += changes[i];
     } else {
       avgLoss += Math.abs(changes[i]);
     }
   }
-  avgGain /= RSI_PERIOD;
-  avgLoss /= RSI_PERIOD;
+  avgGain /= period;
+  avgLoss /= period;
 
   // Calculate first RSI
   let rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
-  result.push(100 - (100 / (1 + rs)));
+  rsi.push(100 - (100 / (1 + rs)));
 
-  // Calculate subsequent RSI values using smoothed averages
-  for (let i = RSI_PERIOD; i < changes.length; i++) {
+  // Calculate subsequent RSI values
+  for (let i = period; i < changes.length; i++) {
     const change = changes[i];
     const gain = change > 0 ? change : 0;
     const loss = change < 0 ? Math.abs(change) : 0;
 
-    avgGain = (avgGain * (RSI_PERIOD - 1) + gain) / RSI_PERIOD;
-    avgLoss = (avgLoss * (RSI_PERIOD - 1) + loss) / RSI_PERIOD;
+    avgGain = (avgGain * (period - 1) + gain) / period;
+    avgLoss = (avgLoss * (period - 1) + loss) / period;
 
     rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
-    result.push(100 - (100 / (1 + rs)));
+    rsi.push(100 - (100 / (1 + rs)));
   }
 
-  return result;
+  // Now apply stochastic formula to RSI values
+  const stochRsi: (number | null)[] = [];
+  const minPeriod = period + period - 1; // Need enough RSI values
+
+  for (let i = 0; i < closes.length; i++) {
+    if (i < minPeriod || rsi[i] === null) {
+      stochRsi.push(null);
+    } else {
+      // Get RSI values for lookback period
+      const rsiSlice: number[] = [];
+      for (let j = i - period + 1; j <= i; j++) {
+        if (rsi[j] !== null) {
+          rsiSlice.push(rsi[j]!);
+        }
+      }
+
+      if (rsiSlice.length < period) {
+        stochRsi.push(null);
+      } else {
+        const minRsi = Math.min(...rsiSlice);
+        const maxRsi = Math.max(...rsiSlice);
+        const range = maxRsi - minRsi;
+
+        if (range === 0) {
+          stochRsi.push(50); // Middle value when no range
+        } else {
+          stochRsi.push(((rsi[i]! - minRsi) / range) * 100);
+        }
+      }
+    }
+  }
+
+  // Calculate %K (SMA of stochRsi)
+  const k: (number | null)[] = [];
+  for (let i = 0; i < closes.length; i++) {
+    if (i < minPeriod + kSmooth - 1) {
+      k.push(null);
+    } else {
+      const slice: number[] = [];
+      for (let j = i - kSmooth + 1; j <= i; j++) {
+        if (stochRsi[j] !== null) {
+          slice.push(stochRsi[j]!);
+        }
+      }
+      if (slice.length === kSmooth) {
+        k.push(slice.reduce((a, b) => a + b, 0) / kSmooth);
+      } else {
+        k.push(null);
+      }
+    }
+  }
+
+  // Calculate %D (SMA of %K)
+  const d: (number | null)[] = [];
+  for (let i = 0; i < closes.length; i++) {
+    if (i < minPeriod + kSmooth + dSmooth - 2) {
+      d.push(null);
+    } else {
+      const slice: number[] = [];
+      for (let j = i - dSmooth + 1; j <= i; j++) {
+        if (k[j] !== null) {
+          slice.push(k[j]!);
+        }
+      }
+      if (slice.length === dSmooth) {
+        d.push(slice.reduce((a, b) => a + b, 0) / dSmooth);
+      } else {
+        d.push(null);
+      }
+    }
+  }
+
+  return { k, d };
 }
 
 export function CandlestickChart({
@@ -300,9 +383,10 @@ export function CandlestickChart({
   const maMediumRef = useRef<ISeriesApi<'Line'> | null>(null);
   const maLongRef = useRef<ISeriesApi<'Line'> | null>(null);
   // RSI refs
-  const rsiLineRef = useRef<ISeriesApi<'Line'> | null>(null);
-  const rsiOverboughtRef = useRef<ISeriesApi<'Line'> | null>(null);
-  const rsiOversoldRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const stochRsiKRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const stochRsiDRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const stochRsiOverboughtRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const stochRsiOversoldRef = useRef<ISeriesApi<'Line'> | null>(null);
   const isInitialLoadRef = useRef(true);
 
   // Resizable divider states (separate for MACD and RSI)
@@ -417,10 +501,10 @@ export function CandlestickChart({
     return calculateIchimoku(highs, lows, closes);
   }, [data, showIchimoku]);
 
-  const rsiData = useMemo(() => {
+  const stochRsiData = useMemo(() => {
     if (!showRSI || data.length === 0) return null;
     const closes = data.map(d => d.close);
-    return calculateRSI(closes);
+    return calculateStochRSI(closes);
   }, [data, showRSI]);
 
   const movingAveragesData = useMemo(() => {
@@ -683,25 +767,36 @@ export function CandlestickChart({
       });
     }
 
-    // RSI series
-    let rsiLine: ISeriesApi<'Line'> | null = null;
-    let rsiOverbought: ISeriesApi<'Line'> | null = null;
-    let rsiOversold: ISeriesApi<'Line'> | null = null;
+    // Stochastic RSI series
+    let stochRsiK: ISeriesApi<'Line'> | null = null;
+    let stochRsiD: ISeriesApi<'Line'> | null = null;
+    let stochRsiOverbought: ISeriesApi<'Line'> | null = null;
+    let stochRsiOversold: ISeriesApi<'Line'> | null = null;
     if (showRSI && rsiChart) {
-      rsiLine = rsiChart.addSeries(LineSeries, {
+      // %K line (fast)
+      stochRsiK = rsiChart.addSeries(LineSeries, {
         color: '#8b5cf6',
         lineWidth: 2,
         priceLineVisible: false,
         lastValueVisible: false,
       });
-      rsiOverbought = rsiChart.addSeries(LineSeries, {
+      // %D line (signal/slow)
+      stochRsiD = rsiChart.addSeries(LineSeries, {
+        color: '#f97316',
+        lineWidth: 1,
+        priceLineVisible: false,
+        lastValueVisible: false,
+      });
+      // Overbought line (80 for Stoch RSI)
+      stochRsiOverbought = rsiChart.addSeries(LineSeries, {
         color: '#ef4444',
         lineWidth: 1,
         lineStyle: 2,
         priceLineVisible: false,
         lastValueVisible: false,
       });
-      rsiOversold = rsiChart.addSeries(LineSeries, {
+      // Oversold line (20 for Stoch RSI)
+      stochRsiOversold = rsiChart.addSeries(LineSeries, {
         color: '#10b981',
         lineWidth: 1,
         lineStyle: 2,
@@ -718,7 +813,7 @@ export function CandlestickChart({
       if (time !== undefined) {
         if (source !== 'main') mainChart.setCrosshairPosition(0, time, candlestickSeries);
         if (source !== 'macd' && macdChart && macdHistogram) macdChart.setCrosshairPosition(0, time, macdHistogram);
-        if (source !== 'rsi' && rsiChart && rsiLine) rsiChart.setCrosshairPosition(0, time, rsiLine);
+        if (source !== 'rsi' && rsiChart && stochRsiK) rsiChart.setCrosshairPosition(0, time, stochRsiK);
       } else {
         if (source !== 'main') mainChart.clearCrosshairPosition();
         if (source !== 'macd' && macdChart) macdChart.clearCrosshairPosition();
@@ -750,9 +845,10 @@ export function CandlestickChart({
     macdLineRef.current = macdLine;
     macdSignalRef.current = macdSignal;
     macdHistogramRef.current = macdHistogram;
-    rsiLineRef.current = rsiLine;
-    rsiOverboughtRef.current = rsiOverbought;
-    rsiOversoldRef.current = rsiOversold;
+    stochRsiKRef.current = stochRsiK;
+    stochRsiDRef.current = stochRsiD;
+    stochRsiOverboughtRef.current = stochRsiOverbought;
+    stochRsiOversoldRef.current = stochRsiOversold;
 
     // Handle resize
     const handleResize = () => {
@@ -922,19 +1018,28 @@ export function CandlestickChart({
       }
     }
 
-    // RSI data
-    let rsiLineData: (LineData<Time> | { time: Time })[] = [];
-    let rsiOverboughtData: LineData<Time>[] = [];
-    let rsiOversoldData: LineData<Time>[] = [];
-    if (rsiData) {
+    // Stochastic RSI data
+    let stochRsiKData: (LineData<Time> | { time: Time })[] = [];
+    let stochRsiDData: (LineData<Time> | { time: Time })[] = [];
+    let stochRsiOverboughtData: LineData<Time>[] = [];
+    let stochRsiOversoldData: LineData<Time>[] = [];
+    if (stochRsiData) {
       for (let i = 0; i < data.length; i++) {
-        if (rsiData[i] != null) {
-          rsiLineData.push({ time: chartTimes[i], value: rsiData[i]! });
+        // %K line
+        if (stochRsiData.k[i] != null) {
+          stochRsiKData.push({ time: chartTimes[i], value: stochRsiData.k[i]! });
         } else {
-          rsiLineData.push({ time: chartTimes[i] });
+          stochRsiKData.push({ time: chartTimes[i] });
         }
-        rsiOverboughtData.push({ time: chartTimes[i], value: 70 });
-        rsiOversoldData.push({ time: chartTimes[i], value: 30 });
+        // %D line
+        if (stochRsiData.d[i] != null) {
+          stochRsiDData.push({ time: chartTimes[i], value: stochRsiData.d[i]! });
+        } else {
+          stochRsiDData.push({ time: chartTimes[i] });
+        }
+        // Overbought/Oversold at 80/20 for Stoch RSI
+        stochRsiOverboughtData.push({ time: chartTimes[i], value: 80 });
+        stochRsiOversoldData.push({ time: chartTimes[i], value: 20 });
       }
     }
 
@@ -944,9 +1049,9 @@ export function CandlestickChart({
       ichimokuTenkanData, ichimokuKijunData, ichimokuSenkouAData, ichimokuSenkouBData, ichimokuChikouData,
       maShortData, maMediumData, maLongData,
       macdLineData, macdSignalData, macdHistogramData,
-      rsiLineData, rsiOverboughtData, rsiOversoldData,
+      stochRsiKData, stochRsiDData, stochRsiOverboughtData, stochRsiOversoldData,
     };
-  }, [data, chartTimes, bollingerData, ichimokuData, movingAveragesData, macdData, rsiData]);
+  }, [data, chartTimes, bollingerData, ichimokuData, movingAveragesData, macdData, stochRsiData]);
 
   // Update data when it changes - now uses memoized arrays
   useEffect(() => {
@@ -985,11 +1090,12 @@ export function CandlestickChart({
       macdHistogramRef.current?.setData(chartDataArrays.macdHistogramData);
     }
 
-    // Set RSI data
-    if (showRSI && rsiData) {
-      rsiLineRef.current?.setData(chartDataArrays.rsiLineData);
-      rsiOverboughtRef.current?.setData(chartDataArrays.rsiOverboughtData);
-      rsiOversoldRef.current?.setData(chartDataArrays.rsiOversoldData);
+    // Set Stochastic RSI data
+    if (showRSI && stochRsiData) {
+      stochRsiKRef.current?.setData(chartDataArrays.stochRsiKData);
+      stochRsiDRef.current?.setData(chartDataArrays.stochRsiDData);
+      stochRsiOverboughtRef.current?.setData(chartDataArrays.stochRsiOverboughtData);
+      stochRsiOversoldRef.current?.setData(chartDataArrays.stochRsiOversoldData);
     }
 
     // Only set visible range on initial load
@@ -1026,7 +1132,7 @@ export function CandlestickChart({
       });
     }
 
-  }, [chartDataArrays, showBollinger, showMACD, showIchimoku, showMovingAverages, showRSI, bollingerData, ichimokuData, movingAveragesData, macdData, rsiData, data.length, timeframe]);
+  }, [chartDataArrays, showBollinger, showMACD, showIchimoku, showMovingAverages, showRSI, bollingerData, ichimokuData, movingAveragesData, macdData, stochRsiData, data.length, timeframe]);
 
   return (
     <div className="h-full w-full bg-[#0d0d0d] flex flex-col">
@@ -1048,7 +1154,7 @@ export function CandlestickChart({
           {showIchimoku && <span className="text-[9px] text-gray-600 ml-2">Ichimoku</span>}
           {showMovingAverages && <span className="text-[9px] text-gray-600 ml-2">SMA(20,50,200)</span>}
           {showMACD && <span className="text-[9px] text-gray-600">MACD(12,26,9)</span>}
-          {showRSI && <span className="text-[9px] text-gray-600">RSI(14)</span>}
+          {showRSI && <span className="text-[9px] text-gray-600">Stoch RSI(14,14,3,3)</span>}
         </div>
       </div>
 

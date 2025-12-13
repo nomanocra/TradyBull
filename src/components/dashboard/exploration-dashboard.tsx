@@ -18,7 +18,7 @@ const indicators: IndicatorToggle[] = [
   { id: 'macd', label: 'MACD', shortLabel: 'MACD', color: '#f97316', prop: 'showMACD' },
   { id: 'ichimoku', label: 'Ichimoku Cloud', shortLabel: 'Ichimoku', color: '#8b5cf6', prop: 'showIchimoku' },
   { id: 'ma', label: 'Moving Averages', shortLabel: 'MA', color: '#eab308', prop: 'showMovingAverages' },
-  { id: 'rsi', label: 'RSI', shortLabel: 'RSI', color: '#10b981', prop: 'showRSI' },
+  { id: 'rsi', label: 'Stochastic RSI', shortLabel: 'Stoch', color: '#10b981', prop: 'showRSI' },
 ];
 
 export function ExplorationDashboard() {

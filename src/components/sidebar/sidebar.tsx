@@ -24,7 +24,7 @@ const navigation: NavSection[] = [
       { name: 'MACD', href: '/strategies/macd' },
       { name: 'Ichimoku', href: '/strategies/ichimoku' },
       { name: 'Moving Averages', href: '/strategies/moving-averages' },
-      { name: 'RSI', href: '/strategies/rsi' },
+      { name: 'Stochastic RSI', href: '/strategies/stochastic-rsi' },
     ],
   },
   {

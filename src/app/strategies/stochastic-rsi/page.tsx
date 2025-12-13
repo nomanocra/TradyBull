@@ -1,9 +1,9 @@
 import { TradingDashboard } from '@/components/dashboard/trading-dashboard';
 
-export default function RSIPage() {
+export default function StochasticRSIPage() {
   return (
     <TradingDashboard
-      pageName="RSI"
+      pageName="Stochastic RSI"
       showRSI={true}
     />
   );
