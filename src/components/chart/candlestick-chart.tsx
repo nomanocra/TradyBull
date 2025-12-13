@@ -492,24 +492,36 @@ export function CandlestickChart({
     return calculateBollingerBands(closes);
   }, [data, showBollinger]);
 
-  // Calculate Bollinger buy signals: when previous candle closed below lower band
+  // Calculate Bollinger buy signals: when candle closes below lower band
+  // Signal appears on the NEXT candle, and no consecutive signals until price goes back above lower band
   const bollingerBuySignals = useMemo(() => {
     if (!showBollingerSignals || !bollingerData || data.length < 2) return [];
 
     const signals: BuySignal[] = [];
+    let waitingForRecovery = false; // Flag to prevent consecutive signals
+
     for (let i = 1; i < data.length; i++) {
       const prevCandle = data[i - 1];
       const prevLowerBand = bollingerData.lower[i - 1];
+      const currentLowerBand = bollingerData.lower[i];
 
-      // If previous candle closed below lower band, signal buy on current candle
-      if (prevLowerBand !== null && prevCandle.close < prevLowerBand) {
+      if (prevLowerBand === null) continue;
+
+      // Check if price recovered above lower band (reset the flag)
+      if (waitingForRecovery && currentLowerBand !== null && data[i].close > currentLowerBand) {
+        waitingForRecovery = false;
+      }
+
+      // If previous candle closed below lower band and we're not waiting for recovery
+      if (!waitingForRecovery && prevCandle.close < prevLowerBand) {
         signals.push({
           time: data[i].time as Time,
           position: 'belowBar',
-          color: '#10b981',
+          color: '#eab308', // Yellow
           shape: 'arrowUp',
           text: 'Buy',
         });
+        waitingForRecovery = true; // Wait for price to recover before next signal
       }
     }
     return signals;
