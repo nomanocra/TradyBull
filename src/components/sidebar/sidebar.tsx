@@ -29,7 +29,9 @@ const navigation: NavSection[] = [
   },
   {
     title: 'Backtesting',
-    items: [],
+    items: [
+      { name: 'Strat 1', href: '/backtesting/strat-1' },
+    ],
   },
 ];
 
