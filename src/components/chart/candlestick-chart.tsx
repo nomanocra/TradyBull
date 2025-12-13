@@ -811,22 +811,6 @@ export function CandlestickChart({
     });
   }, [macdHeightPercent, rsiHeightPercent]);
 
-  // Helper to create future times for Ichimoku Senkou displacement
-  const createFutureTime = useCallback((baseTime: Time, periodsAhead: number): Time => {
-    if (typeof baseTime === 'object' && 'year' in baseTime) {
-      const date = new Date(baseTime.year, baseTime.month - 1, baseTime.day);
-      date.setDate(date.getDate() + periodsAhead);
-      return {
-        year: date.getFullYear(),
-        month: date.getMonth() + 1,
-        day: date.getDate(),
-      } as BusinessDay;
-    } else {
-      const secondsPerPeriod = timeframe === '15min' ? 15 * 60 : 60 * 60;
-      return (baseTime as number) + (periodsAhead * secondsPerPeriod) as Time;
-    }
-  }, [timeframe]);
-
   // Memoized chart data arrays - only recalculate when source data changes
   const chartDataArrays = useMemo(() => {
     if (data.length === 0 || chartTimes.length === 0) return null;
@@ -861,6 +845,8 @@ export function CandlestickChart({
     }
 
     // Ichimoku data
+    // Note: Senkou spans are NOT displaced to future to avoid timeScale issues with lightweight-charts
+    // Chikou span is NOT displaced to past for the same reason
     let ichimokuTenkanData: LineData<Time>[] = [];
     let ichimokuKijunData: LineData<Time>[] = [];
     let ichimokuSenkouAData: LineData<Time>[] = [];
@@ -874,17 +860,15 @@ export function CandlestickChart({
         if (ichimokuData.kijun[i] != null) {
           ichimokuKijunData.push({ time: chartTimes[i], value: ichimokuData.kijun[i]! });
         }
+        // Senkou A & B displayed at current time (no future displacement)
         if (ichimokuData.senkouA[i] != null) {
-          const futureTime = createFutureTime(chartTimes[i], ICHIMOKU_DISPLACEMENT);
-          ichimokuSenkouAData.push({ time: futureTime, value: ichimokuData.senkouA[i]! });
+          ichimokuSenkouAData.push({ time: chartTimes[i], value: ichimokuData.senkouA[i]! });
         }
         if (ichimokuData.senkouB[i] != null) {
-          const futureTime = createFutureTime(chartTimes[i], ICHIMOKU_DISPLACEMENT);
-          ichimokuSenkouBData.push({ time: futureTime, value: ichimokuData.senkouB[i]! });
+          ichimokuSenkouBData.push({ time: chartTimes[i], value: ichimokuData.senkouB[i]! });
         }
-        if (i >= ICHIMOKU_DISPLACEMENT) {
-          ichimokuChikouData.push({ time: chartTimes[i - ICHIMOKU_DISPLACEMENT], value: closes[i] });
-        }
+        // Chikou displayed at current time (no past displacement)
+        ichimokuChikouData.push({ time: chartTimes[i], value: closes[i] });
       }
     }
 
@@ -962,7 +946,7 @@ export function CandlestickChart({
       macdLineData, macdSignalData, macdHistogramData,
       rsiLineData, rsiOverboughtData, rsiOversoldData,
     };
-  }, [data, chartTimes, bollingerData, ichimokuData, movingAveragesData, macdData, rsiData, createFutureTime]);
+  }, [data, chartTimes, bollingerData, ichimokuData, movingAveragesData, macdData, rsiData]);
 
   // Update data when it changes - now uses memoized arrays
   useEffect(() => {
