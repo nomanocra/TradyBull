@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useMemo, useState, useCallback, memo } from 'react';
-import { createChart, IChartApi, ISeriesApi, CandlestickSeries, LineSeries, HistogramSeries, CandlestickData, LineData, HistogramData, Time, BusinessDay } from 'lightweight-charts';
+import { createChart, IChartApi, ISeriesApi, CandlestickSeries, LineSeries, HistogramSeries, CandlestickData, LineData, HistogramData, Time, BusinessDay, createSeriesMarkers, SeriesMarker, ISeriesMarkersPluginApi } from 'lightweight-charts';
 import { CandleData, TimeFrame } from '@/types/market';
 
 interface CandlestickChartProps {
@@ -10,11 +10,14 @@ interface CandlestickChartProps {
   data: CandleData[];
   isLoading?: boolean;
   showBollinger?: boolean;
+  showBollingerSignals?: boolean;
   showMACD?: boolean;
   showIchimoku?: boolean;
   showMovingAverages?: boolean;
   showRSI?: boolean;
 }
+
+type BuySignal = SeriesMarker<Time>;
 
 // Cache for timezone offsets to avoid repeated calculations
 const timezoneOffsetCache = new Map<number, number>();
@@ -351,6 +354,7 @@ export function CandlestickChart({
   data,
   isLoading = false,
   showBollinger = false,
+  showBollingerSignals = false,
   showMACD = false,
   showIchimoku = false,
   showMovingAverages = false,
@@ -387,6 +391,7 @@ export function CandlestickChart({
   const stochRsiDRef = useRef<ISeriesApi<'Line'> | null>(null);
   const stochRsiOverboughtRef = useRef<ISeriesApi<'Line'> | null>(null);
   const stochRsiOversoldRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const markersPluginRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
   const isInitialLoadRef = useRef(true);
 
   // Resizable divider states (separate for MACD and RSI)
@@ -486,6 +491,29 @@ export function CandlestickChart({
     const closes = data.map(d => d.close);
     return calculateBollingerBands(closes);
   }, [data, showBollinger]);
+
+  // Calculate Bollinger buy signals: when previous candle closed below lower band
+  const bollingerBuySignals = useMemo(() => {
+    if (!showBollingerSignals || !bollingerData || data.length < 2) return [];
+
+    const signals: BuySignal[] = [];
+    for (let i = 1; i < data.length; i++) {
+      const prevCandle = data[i - 1];
+      const prevLowerBand = bollingerData.lower[i - 1];
+
+      // If previous candle closed below lower band, signal buy on current candle
+      if (prevLowerBand !== null && prevCandle.close < prevLowerBand) {
+        signals.push({
+          time: data[i].time as Time,
+          position: 'belowBar',
+          color: '#10b981',
+          shape: 'arrowUp',
+          text: 'Buy',
+        });
+      }
+    }
+    return signals;
+  }, [data, bollingerData, showBollingerSignals]);
 
   const macdData = useMemo(() => {
     if (!showMACD || data.length === 0) return null;
@@ -1067,6 +1095,18 @@ export function CandlestickChart({
       bbLowerRef.current?.setData(chartDataArrays.bbLowerData);
     }
 
+    // Set Bollinger buy signals as markers
+    if (showBollingerSignals && candlestickSeriesRef.current) {
+      // Create markers plugin if it doesn't exist
+      if (!markersPluginRef.current) {
+        markersPluginRef.current = createSeriesMarkers(candlestickSeriesRef.current, bollingerBuySignals);
+      } else {
+        markersPluginRef.current.setMarkers(bollingerBuySignals);
+      }
+    } else if (!showBollingerSignals && markersPluginRef.current) {
+      markersPluginRef.current.setMarkers([]);
+    }
+
     // Set Ichimoku data
     if (showIchimoku && ichimokuData) {
       ichimokuTenkanRef.current?.setData(chartDataArrays.ichimokuTenkanData);
@@ -1132,7 +1172,7 @@ export function CandlestickChart({
       });
     }
 
-  }, [chartDataArrays, showBollinger, showMACD, showIchimoku, showMovingAverages, showRSI, bollingerData, ichimokuData, movingAveragesData, macdData, stochRsiData, data.length, timeframe]);
+  }, [chartDataArrays, showBollinger, showBollingerSignals, bollingerBuySignals, showMACD, showIchimoku, showMovingAverages, showRSI, bollingerData, ichimokuData, movingAveragesData, macdData, stochRsiData, data.length, timeframe]);
 
   return (
     <div className="h-full w-full bg-[#0d0d0d] flex flex-col">

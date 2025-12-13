@@ -26,6 +26,7 @@ interface WebSocketMessage {
 interface TradingDashboardProps {
   pageName?: string;
   showBollinger?: boolean;
+  showBollingerSignals?: boolean;
   showMACD?: boolean;
   showIchimoku?: boolean;
   showMovingAverages?: boolean;
@@ -39,6 +40,7 @@ const FETCH_INTERVAL = 10; // Must match backend FETCH_INTERVAL
 export function TradingDashboard({
   pageName = 'MACD & Bollinger',
   showBollinger = false,
+  showBollingerSignals = false,
   showMACD = false,
   showIchimoku = false,
   showMovingAverages = false,
@@ -268,6 +270,7 @@ export function TradingDashboard({
             data={data['1h']}
             isLoading={isLoading}
             showBollinger={showBollinger}
+            showBollingerSignals={showBollingerSignals}
             showMACD={showMACD}
             showIchimoku={showIchimoku}
             showMovingAverages={showMovingAverages}
@@ -284,6 +287,7 @@ export function TradingDashboard({
               data={data['1day']}
               isLoading={isLoading}
               showBollinger={showBollinger}
+              showBollingerSignals={showBollingerSignals}
               showMACD={showMACD}
               showIchimoku={showIchimoku}
               showMovingAverages={showMovingAverages}
@@ -297,6 +301,7 @@ export function TradingDashboard({
               data={data['15min']}
               isLoading={isLoading}
               showBollinger={showBollinger}
+              showBollingerSignals={showBollingerSignals}
               showMACD={showMACD}
               showIchimoku={showIchimoku}
               showMovingAverages={showMovingAverages}
