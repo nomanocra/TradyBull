@@ -5,7 +5,8 @@ export default function BollingerPage() {
     <TradingDashboard
       pageName="Bollinger Bands"
       showBollinger={true}
-      showBollingerSignals={true}
+      enableSignalsToggle={true}
+      defaultSignalsEnabled={true}
     />
   );
 }

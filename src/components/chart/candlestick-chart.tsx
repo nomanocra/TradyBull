@@ -493,40 +493,67 @@ export function CandlestickChart({
   }, [data, showBollinger]);
 
   // Calculate Bollinger buy signals: when candle LOW goes below lower band
-  // Signal appears on the NEXT candle, no consecutive signals until entire candle is above lower band
+  // Signal appears on the NEXT candle (buy at open), no consecutive signals until recovery
+  // Only ONE major signal per day (first after 7:00 AM), others are secondary (transparent)
   const bollingerBuySignals = useMemo(() => {
-    if (!showBollingerSignals || !bollingerData || data.length < 2) return [];
+    if (!showBollingerSignals || !bollingerData || data.length < 2 || chartTimes.length < 2) return [];
 
     const signals: BuySignal[] = [];
-    let waitingForRecovery = false; // Flag to prevent consecutive signals
+    let waitingForRecovery = false;
+    let lastMajorSignalDate: string | null = null; // Track date of last major signal
 
-    // Start at i=1 so we can check previous candle (i-1) and place signal on current (i)
-    for (let i = 1; i < data.length; i++) {
-      const prevCandle = data[i - 1];
-      const prevLowerBand = bollingerData.lower[i - 1];
-      const currentCandle = data[i];
-      const currentLowerBand = bollingerData.lower[i];
+    // Check each candle, if it crosses below, place signal on the NEXT candle
+    for (let i = 0; i < data.length - 1; i++) {
+      const candle = data[i];
+      const lowerBand = bollingerData.lower[i];
+      const nextCandle = data[i + 1];
 
-      // Check if ENTIRE current candle is above lower band (low > lowerBand) = recovery complete
-      if (waitingForRecovery && currentLowerBand !== null && currentCandle.low > currentLowerBand) {
+      // Recovery: current candle's low is above lower band
+      if (waitingForRecovery && lowerBand !== null && candle.low > lowerBand) {
         waitingForRecovery = false;
       }
 
-      // If PREVIOUS candle's LOW went below lower band and we're not waiting for recovery
-      // Place signal on CURRENT candle (the one after the cross)
-      if (!waitingForRecovery && prevLowerBand !== null && prevCandle.low < prevLowerBand) {
-        signals.push({
-          time: currentCandle.time as Time,
-          position: 'belowBar',
-          color: '#eab308', // Yellow
-          shape: 'arrowUp',
-          text: 'Buy',
-        });
-        waitingForRecovery = true; // Wait for entire candle to be above lower band
+      // Trigger: current candle's low went below lower band
+      // Place signal on NEXT candle (we buy at the open of the next candle)
+      if (!waitingForRecovery && lowerBand !== null && candle.low < lowerBand) {
+        // Get the date and hour of the NEXT candle (where signal will appear)
+        const signalDate = new Date(nextCandle.time * 1000);
+        const signalDateStr = signalDate.toISOString().split('T')[0]; // YYYY-MM-DD
+        const signalHour = signalDate.getUTCHours();
+
+        // Adjust for Paris timezone (roughly +1 or +2 depending on DST)
+        const parisDate = new Date(signalDate.toLocaleString('en-US', { timeZone: 'Europe/Paris' }));
+        const parisHour = parisDate.getHours();
+        const parisDateStr = parisDate.toLocaleDateString('en-CA'); // YYYY-MM-DD format
+
+        // Check if this is a major signal (first after 7:00 AM Paris time for this day)
+        const isAfter7AM = parisHour >= 7;
+        const isMajorSignal = isAfter7AM && lastMajorSignalDate !== parisDateStr;
+
+        if (isMajorSignal) {
+          lastMajorSignalDate = parisDateStr;
+          signals.push({
+            time: chartTimes[i + 1],
+            position: 'belowBar',
+            color: '#eab308', // Yellow - major signal
+            shape: 'arrowUp',
+            text: 'Buy',
+          });
+        } else {
+          // Secondary signal - small transparent arrow, no text
+          signals.push({
+            time: chartTimes[i + 1],
+            position: 'belowBar',
+            color: 'rgba(234, 179, 8, 0.35)', // Transparent yellow
+            shape: 'arrowUp',
+            text: '',
+          });
+        }
+        waitingForRecovery = true;
       }
     }
     return signals;
-  }, [data, bollingerData, showBollingerSignals]);
+  }, [data, bollingerData, showBollingerSignals, chartTimes]);
 
   const macdData = useMemo(() => {
     if (!showMACD || data.length === 0) return null;

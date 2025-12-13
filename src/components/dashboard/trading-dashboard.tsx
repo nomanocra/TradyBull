@@ -2,7 +2,11 @@
 
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { MemoizedCandlestickChart } from '@/components/chart/candlestick-chart';
+import { Checkbox } from '@/components/ui/checkbox';
 import { CandleData } from '@/types/market';
+
+// Storage key prefix for signals preference
+const SIGNALS_STORAGE_PREFIX = 'tradybull-signals-';
 
 interface ChartData {
   '1h': CandleData[];
@@ -26,12 +30,15 @@ interface WebSocketMessage {
 interface TradingDashboardProps {
   pageName?: string;
   showBollinger?: boolean;
-  showBollingerSignals?: boolean;
   showMACD?: boolean;
   showIchimoku?: boolean;
   showMovingAverages?: boolean;
   showRSI?: boolean;
   topBar?: React.ReactNode;
+  /** Show the signals toggle checkbox (for pages that support signals) */
+  enableSignalsToggle?: boolean;
+  /** Initial state of signals toggle */
+  defaultSignalsEnabled?: boolean;
 }
 
 const WS_URL = 'ws://localhost:8000/ws';
@@ -40,12 +47,13 @@ const FETCH_INTERVAL = 10; // Must match backend FETCH_INTERVAL
 export function TradingDashboard({
   pageName = 'MACD & Bollinger',
   showBollinger = false,
-  showBollingerSignals = false,
   showMACD = false,
   showIchimoku = false,
   showMovingAverages = false,
   showRSI = false,
-  topBar
+  topBar,
+  enableSignalsToggle = false,
+  defaultSignalsEnabled = true
 }: TradingDashboardProps) {
   const [data, setData] = useState<ChartData>({
     '1h': [],
@@ -61,6 +69,30 @@ export function TradingDashboard({
   const [countdown, setCountdown] = useState(FETCH_INTERVAL);
   const [isResetting, setIsResetting] = useState(false);
   const [wsConnected, setWsConnected] = useState(false);
+
+  // Signals state with localStorage persistence
+  const storageKey = useMemo(
+    () => `${SIGNALS_STORAGE_PREFIX}${pageName.toLowerCase().replace(/\s+/g, '-')}`,
+    [pageName]
+  );
+  const [signalsEnabled, setSignalsEnabled] = useState(defaultSignalsEnabled);
+  const [isHydrated, setIsHydrated] = useState(false);
+
+  // Load from localStorage after hydration
+  useEffect(() => {
+    const saved = localStorage.getItem(storageKey);
+    if (saved !== null) {
+      setSignalsEnabled(saved === 'true');
+    }
+    setIsHydrated(true);
+  }, [storageKey]);
+
+  // Save signals preference to localStorage (only after hydration)
+  useEffect(() => {
+    if (isHydrated) {
+      localStorage.setItem(storageKey, String(signalsEnabled));
+    }
+  }, [signalsEnabled, storageKey, isHydrated]);
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -177,9 +209,20 @@ export function TradingDashboard({
     <div className="h-full w-full bg-[#0a0a0a] flex flex-col overflow-hidden">
       {/* Header */}
       <header className="flex items-center justify-between px-3 py-1.5 border-b border-[#1a1a1a] bg-[#0d0d0d]">
-        {/* Page name - Left */}
-        <div className="flex-1">
+        {/* Page name + Signals toggle - Left */}
+        <div className="flex-1 flex items-center gap-3">
           <span className="text-xs font-semibold text-[#C59471]">{pageName}</span>
+          {enableSignalsToggle && (
+            <label htmlFor="signals-toggle" className="flex items-center gap-1.5 cursor-pointer select-none">
+              <Checkbox
+                id="signals-toggle"
+                checked={signalsEnabled}
+                onCheckedChange={(checked) => setSignalsEnabled(checked === true)}
+                className="size-4 data-[state=checked]:!bg-[#C59471] data-[state=checked]:!border-[#C59471] data-[state=checked]:!text-white"
+              />
+              <span className="text-[10px] text-gray-400">Signals</span>
+            </label>
+          )}
         </div>
 
         {/* Symbol and price - Center */}
@@ -270,7 +313,7 @@ export function TradingDashboard({
             data={data['1h']}
             isLoading={isLoading}
             showBollinger={showBollinger}
-            showBollingerSignals={showBollingerSignals}
+            showBollingerSignals={showBollinger && signalsEnabled}
             showMACD={showMACD}
             showIchimoku={showIchimoku}
             showMovingAverages={showMovingAverages}
@@ -287,7 +330,6 @@ export function TradingDashboard({
               data={data['1day']}
               isLoading={isLoading}
               showBollinger={showBollinger}
-              showBollingerSignals={showBollingerSignals}
               showMACD={showMACD}
               showIchimoku={showIchimoku}
               showMovingAverages={showMovingAverages}
@@ -301,7 +343,6 @@ export function TradingDashboard({
               data={data['15min']}
               isLoading={isLoading}
               showBollinger={showBollinger}
-              showBollingerSignals={showBollingerSignals}
               showMACD={showMACD}
               showIchimoku={showIchimoku}
               showMovingAverages={showMovingAverages}
