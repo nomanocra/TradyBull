@@ -55,6 +55,7 @@ def get_db():
 def init_db():
     """Initialize the database tables"""
     with get_db() as conn:
+        # Real-time candles table (with retention limits)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS candles (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -69,6 +70,25 @@ def init_db():
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_interval_timestamp ON candles(interval, timestamp)")
+
+        # Backtest candles table (no retention, grows indefinitely)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS backtest_candles (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT NOT NULL DEFAULT 'NQ=F',
+                timestamp INTEGER NOT NULL,
+                open REAL NOT NULL,
+                high REAL NOT NULL,
+                low REAL NOT NULL,
+                close REAL NOT NULL,
+                volume INTEGER,
+                source TEXT DEFAULT 'yfinance',
+                UNIQUE(symbol, timestamp)
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_backtest_timestamp ON backtest_candles(timestamp)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_backtest_symbol_timestamp ON backtest_candles(symbol, timestamp)")
+
         conn.commit()
 
 
@@ -96,6 +116,32 @@ def store_candles(interval: str, candles: list):
         conn.commit()
 
 
+def store_backtest_candles(candles: list):
+    """Store 1h candles in backtest table (no retention limit, grows indefinitely)"""
+    if not candles:
+        return 0
+
+    with get_db() as conn:
+        cursor = conn.cursor()
+        for candle in candles:
+            cursor.execute("""
+                INSERT OR IGNORE INTO backtest_candles
+                (symbol, timestamp, open, high, low, close, volume, source)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                SYMBOL,
+                candle["time"],
+                candle["open"],
+                candle["high"],
+                candle["low"],
+                candle["close"],
+                candle.get("volume", 0),
+                "yfinance"
+            ))
+        conn.commit()
+        return cursor.rowcount
+
+
 def get_candles_from_db(interval: str) -> list:
     """Get all candles for an interval from database"""
     with get_db() as conn:
@@ -114,6 +160,12 @@ def get_candles_from_db(interval: str) -> list:
             }
             for row in rows
         ]
+
+
+def is_weekend() -> bool:
+    """Check if it's weekend (Saturday or Sunday)"""
+    now = datetime.now(PARIS_TZ)
+    return now.weekday() >= 5
 
 
 def is_market_open() -> bool:
@@ -218,6 +270,11 @@ def fetch_and_store_data(interval: str) -> list:
     # Store in database
     store_candles(yf_interval, candles)
 
+    # Also store 1h candles in backtest table (for backtesting, no retention)
+    if yf_interval == "1h" and candles:
+        store_backtest_candles(candles)
+        print(f"    -> Also stored {len(candles)} candles in backtest table")
+
     return candles
 
 
@@ -227,6 +284,7 @@ def get_all_data_payload() -> dict:
         "type": "data_update",
         "symbol": SYMBOL,
         "market_open": is_market_open(),
+        "standby": is_weekend(),
         "last_fetch": last_fetch_time.strftime("%H:%M:%S") if last_fetch_time else None,
         "data": {
             "15min": get_candles_from_db("15m"),
@@ -321,16 +379,30 @@ def has_sufficient_data() -> bool:
     return True
 
 
+STANDBY_INTERVAL = 60  # seconds between status updates in standby mode
+
+
 def background_fetcher():
     """Background thread that fetches data periodically"""
     import time
 
     while True:
-        fetch_all_intervals()
+        if is_weekend():
+            # Weekend standby mode: no fetch, just broadcast status
+            print(f"[{datetime.now(PARIS_TZ).strftime('%H:%M:%S')}] Weekend standby mode")
+            if connected_clients:
+                broadcast_to_clients(get_all_data_payload())
 
-        # Sleep for FETCH_INTERVAL seconds
-        for _ in range(FETCH_INTERVAL):
-            time.sleep(1)
+            # Sleep longer in standby mode
+            for _ in range(STANDBY_INTERVAL):
+                time.sleep(1)
+        else:
+            # Normal mode: fetch data
+            fetch_all_intervals()
+
+            # Sleep for FETCH_INTERVAL seconds
+            for _ in range(FETCH_INTERVAL):
+                time.sleep(1)
 
 
 # Initialize database on startup
@@ -413,6 +485,105 @@ def get_status():
         "next_fetch": next_fetch,
         "fetch_interval_seconds": FETCH_INTERVAL
     }
+
+
+@app.get("/api/backtest/info")
+def get_backtest_info():
+    """Get information about available backtesting data"""
+    try:
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT
+                    COUNT(*) as count,
+                    MIN(timestamp) as min_ts,
+                    MAX(timestamp) as max_ts
+                FROM backtest_candles
+                WHERE symbol = ?
+            """, (SYMBOL,))
+            row = cursor.fetchone()
+
+            if row["count"] == 0:
+                return {
+                    "symbol": SYMBOL,
+                    "count": 0,
+                    "message": "No backtesting data available. Run bootstrap script."
+                }
+
+            min_date = datetime.fromtimestamp(row["min_ts"], tz=PARIS_TZ)
+            max_date = datetime.fromtimestamp(row["max_ts"], tz=PARIS_TZ)
+            days_coverage = (max_date - min_date).days
+
+            return {
+                "symbol": SYMBOL,
+                "interval": "1h",
+                "count": row["count"],
+                "start_date": min_date.strftime("%Y-%m-%d %H:%M"),
+                "end_date": max_date.strftime("%Y-%m-%d %H:%M"),
+                "days_coverage": days_coverage,
+                "start_timestamp": row["min_ts"],
+                "end_timestamp": row["max_ts"]
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/backtest/data")
+def get_backtest_data(
+    start: Optional[int] = Query(None, description="Start timestamp (Unix)"),
+    end: Optional[int] = Query(None, description="End timestamp (Unix)"),
+    limit: int = Query(10000, description="Max candles to return")
+):
+    """Get backtesting data with optional date range filter"""
+    try:
+        with get_db() as conn:
+            if start and end:
+                query = """
+                    SELECT timestamp, open, high, low, close, volume
+                    FROM backtest_candles
+                    WHERE symbol = ? AND timestamp >= ? AND timestamp <= ?
+                    ORDER BY timestamp ASC
+                    LIMIT ?
+                """
+                rows = conn.execute(query, (SYMBOL, start, end, limit)).fetchall()
+            elif start:
+                query = """
+                    SELECT timestamp, open, high, low, close, volume
+                    FROM backtest_candles
+                    WHERE symbol = ? AND timestamp >= ?
+                    ORDER BY timestamp ASC
+                    LIMIT ?
+                """
+                rows = conn.execute(query, (SYMBOL, start, limit)).fetchall()
+            else:
+                query = """
+                    SELECT timestamp, open, high, low, close, volume
+                    FROM backtest_candles
+                    WHERE symbol = ?
+                    ORDER BY timestamp ASC
+                    LIMIT ?
+                """
+                rows = conn.execute(query, (SYMBOL, limit)).fetchall()
+
+            candles = [
+                {
+                    "time": row["timestamp"],
+                    "open": row["open"],
+                    "high": row["high"],
+                    "low": row["low"],
+                    "close": row["close"],
+                    "volume": row["volume"]
+                }
+                for row in rows
+            ]
+
+            return {
+                "symbol": SYMBOL,
+                "interval": "1h",
+                "data": candles,
+                "count": len(candles)
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.websocket("/ws")

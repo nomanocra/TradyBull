@@ -14,6 +14,7 @@ interface WebSocketMessage {
   type: string;
   symbol: string;
   market_open: boolean;
+  standby: boolean;
   last_fetch: string | null;
   data: {
     '15min': CandleData[];
@@ -53,6 +54,7 @@ export function TradingDashboard({
   const [error, setError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [marketOpen, setMarketOpen] = useState(false);
+  const [standby, setStandby] = useState(false);
   const [dataSource, setDataSource] = useState<string>('');
   const [countdown, setCountdown] = useState(FETCH_INTERVAL);
   const [isResetting, setIsResetting] = useState(false);
@@ -74,6 +76,7 @@ export function TradingDashboard({
           '15min': message.data['15min'] || [],
         });
         setMarketOpen(message.market_open);
+        setStandby(message.standby || false);
         setDataSource(message.symbol);
         setError(null);
         setLastUpdate(new Date());
@@ -199,31 +202,33 @@ export function TradingDashboard({
           {error && (
             <span className="text-xs text-red-500">{error}</span>
           )}
-          {/* Circular countdown spinner */}
-          <div className="relative w-4 h-4" title={`${countdown}s`}>
-            <svg className="w-4 h-4 -rotate-90" viewBox="0 0 16 16">
-              <circle
-                cx="8"
-                cy="8"
-                r="6"
-                fill="none"
-                stroke="#27272a"
-                strokeWidth="2"
-              />
-              <circle
-                cx="8"
-                cy="8"
-                r="6"
-                fill="none"
-                stroke="#71717a"
-                strokeWidth="2"
-                strokeDasharray={2 * Math.PI * 6}
-                strokeDashoffset={2 * Math.PI * 6 * (countdown / FETCH_INTERVAL)}
-                strokeLinecap="round"
-                className={isResetting ? '' : 'transition-all duration-1000 ease-linear'}
-              />
-            </svg>
-          </div>
+          {/* Circular countdown spinner - hidden in standby mode */}
+          {!standby && (
+            <div className="relative w-4 h-4" title={`${countdown}s`}>
+              <svg className="w-4 h-4 -rotate-90" viewBox="0 0 16 16">
+                <circle
+                  cx="8"
+                  cy="8"
+                  r="6"
+                  fill="none"
+                  stroke="#27272a"
+                  strokeWidth="2"
+                />
+                <circle
+                  cx="8"
+                  cy="8"
+                  r="6"
+                  fill="none"
+                  stroke="#71717a"
+                  strokeWidth="2"
+                  strokeDasharray={2 * Math.PI * 6}
+                  strokeDashoffset={2 * Math.PI * 6 * (countdown / FETCH_INTERVAL)}
+                  strokeLinecap="round"
+                  className={isResetting ? '' : 'transition-all duration-1000 ease-linear'}
+                />
+              </svg>
+            </div>
+          )}
           {lastUpdate && (
             <span className="text-[10px] text-gray-600 font-mono">
               {lastUpdate.toLocaleTimeString('fr-FR')}
@@ -236,10 +241,16 @@ export function TradingDashboard({
           <div
             className={`w-1.5 h-1.5 rounded-full ${
               error ? 'bg-red-500' :
-              wsConnected ? (marketOpen ? 'bg-emerald-500 animate-pulse' : 'bg-emerald-500') :
-              'bg-yellow-500 animate-pulse'
+              !wsConnected ? 'bg-yellow-500 animate-pulse' :
+              standby ? 'bg-gray-500' :
+              marketOpen ? 'bg-emerald-500 animate-pulse' : 'bg-emerald-500'
             }`}
-            title={wsConnected ? 'Connected' : 'Connecting...'}
+            title={
+              error ? 'Error' :
+              !wsConnected ? 'Connecting...' :
+              standby ? 'Standby (Weekend)' :
+              marketOpen ? 'Market Open' : 'Market Closed'
+            }
           />
         </div>
       </header>

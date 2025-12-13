@@ -1,7 +1,9 @@
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { TradingDashboard } from './trading-dashboard';
+
+const STORAGE_KEY = 'tradybull-exploration-indicators';
 
 interface IndicatorToggle {
   id: string;
@@ -20,7 +22,25 @@ const indicators: IndicatorToggle[] = [
 ];
 
 export function ExplorationDashboard() {
-  const [activeIndicators, setActiveIndicators] = useState<Set<string>>(new Set());
+  const [activeIndicators, setActiveIndicators] = useState<Set<string>>(() => {
+    // Load from localStorage on initial render (client-side only)
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        try {
+          return new Set(JSON.parse(saved));
+        } catch {
+          return new Set();
+        }
+      }
+    }
+    return new Set();
+  });
+
+  // Save to localStorage when indicators change
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([...activeIndicators]));
+  }, [activeIndicators]);
 
   // Memoize toggle function to prevent re-renders
   const toggleIndicator = useCallback((id: string) => {

@@ -72,8 +72,6 @@ export function Sidebar() {
           Exploration
         </Link>
 
-        <div className="my-3 mx-3 border-t border-[#1a1a1a]" />
-
         {/* Sections */}
         {navigation.map((section) => (
           <div key={section.title} className="mb-1">
