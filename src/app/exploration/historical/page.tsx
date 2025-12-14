@@ -1,5 +1,5 @@
 import { SandboxDashboard } from '@/components/dashboard/sandbox-dashboard';
 
-export default function SandboxPage() {
+export default function HistoricalMultiIndicatorPage() {
   return <SandboxDashboard />;
 }

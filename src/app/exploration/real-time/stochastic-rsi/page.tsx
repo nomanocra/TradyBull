@@ -1,10 +1,10 @@
 import { TradingDashboard } from '@/components/dashboard/trading-dashboard';
 
-export default function IchimokuPage() {
+export default function StochasticRSIRealTimePage() {
   return (
     <TradingDashboard
-      pageName="Ichimoku Cloud"
-      showIchimoku={true}
+      pageName="Stochastic RSI"
+      showRSI={true}
     />
   );
 }

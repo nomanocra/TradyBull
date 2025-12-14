@@ -1,11 +1,10 @@
 import { TradingDashboard } from '@/components/dashboard/trading-dashboard';
 
-export default function MACDPage() {
+export default function MovingAveragesRealTimePage() {
   return (
     <TradingDashboard
-      pageName="MACD"
-      showBollinger={false}
-      showMACD={true}
+      pageName="Moving Averages"
+      showMovingAverages={true}
     />
   );
 }

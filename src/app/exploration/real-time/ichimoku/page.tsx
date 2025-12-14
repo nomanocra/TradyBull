@@ -1,10 +1,10 @@
 import { TradingDashboard } from '@/components/dashboard/trading-dashboard';
 
-export default function MovingAveragesPage() {
+export default function IchimokuRealTimePage() {
   return (
     <TradingDashboard
-      pageName="Moving Averages"
-      showMovingAverages={true}
+      pageName="Ichimoku Cloud"
+      showIchimoku={true}
     />
   );
 }

@@ -1,57 +1,32 @@
 'use client';
 
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { MemoizedCandlestickChart } from '@/components/chart/candlestick-chart';
 import { CandleData } from '@/types/market';
 
-const STORAGE_KEY = 'tradybull-sandbox-indicators';
 const API_URL = 'http://localhost:8000/api/backtest/data';
 
-interface IndicatorToggle {
-  id: string;
-  label: string;
-  shortLabel: string;
-  color: string;
-  prop: 'showBollinger' | 'showMACD' | 'showIchimoku' | 'showMovingAverages' | 'showRSI';
+interface HistoricalDashboardProps {
+  pageName?: string;
+  showBollinger?: boolean;
+  showMACD?: boolean;
+  showIchimoku?: boolean;
+  showMovingAverages?: boolean;
+  showRSI?: boolean;
 }
 
-const indicators: IndicatorToggle[] = [
-  { id: 'bollinger', label: 'Bollinger Bands', shortLabel: 'BB', color: '#3b82f6', prop: 'showBollinger' },
-  { id: 'macd', label: 'MACD', shortLabel: 'MACD', color: '#f97316', prop: 'showMACD' },
-  { id: 'ichimoku', label: 'Ichimoku Cloud', shortLabel: 'Ichimoku', color: '#8b5cf6', prop: 'showIchimoku' },
-  { id: 'ma', label: 'Moving Averages', shortLabel: 'MA', color: '#eab308', prop: 'showMovingAverages' },
-  { id: 'rsi', label: 'Stochastic RSI', shortLabel: 'Stoch', color: '#10b981', prop: 'showRSI' },
-];
-
-export function SandboxDashboard() {
+export function HistoricalDashboard({
+  pageName = 'Historical',
+  showBollinger = false,
+  showMACD = false,
+  showIchimoku = false,
+  showMovingAverages = false,
+  showRSI = false,
+}: HistoricalDashboardProps) {
   const [data, setData] = useState<CandleData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dataInfo, setDataInfo] = useState<{ count: number; symbol: string } | null>(null);
-
-  // Indicators state
-  const [activeIndicators, setActiveIndicators] = useState<Set<string>>(new Set());
-  const [isHydrated, setIsHydrated] = useState(false);
-
-  // Load from localStorage after hydration
-  useEffect(() => {
-    const savedIndicators = localStorage.getItem(STORAGE_KEY);
-    if (savedIndicators) {
-      try {
-        setActiveIndicators(new Set(JSON.parse(savedIndicators)));
-      } catch {
-        // Invalid JSON
-      }
-    }
-    setIsHydrated(true);
-  }, []);
-
-  // Save indicators to localStorage
-  useEffect(() => {
-    if (isHydrated) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify([...activeIndicators]));
-    }
-  }, [activeIndicators, isHydrated]);
 
   // Fetch historical data
   useEffect(() => {
@@ -76,25 +51,6 @@ export function SandboxDashboard() {
     fetchData();
   }, []);
 
-  const toggleIndicator = useCallback((id: string) => {
-    setActiveIndicators(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  }, []);
-
-  const indicatorProps = useMemo(() => {
-    return indicators.reduce((acc, indicator) => {
-      acc[indicator.prop] = activeIndicators.has(indicator.id);
-      return acc;
-    }, {} as Record<string, boolean>);
-  }, [activeIndicators]);
-
   // Price info
   const lastPrice = data.length > 0 ? data[data.length - 1].close : null;
   const prevPrice = data.length > 1 ? data[data.length - 2].close : null;
@@ -117,7 +73,7 @@ export function SandboxDashboard() {
       <header className="flex items-center justify-between px-3 py-1.5 border-b border-[#1a1a1a] bg-[#0d0d0d]">
         {/* Page name - Left */}
         <div className="flex-1 flex items-center gap-3">
-          <span className="text-xs font-semibold text-[#C59471]">Sandbox</span>
+          <span className="text-xs font-semibold text-[#C59471]">{pageName}</span>
         </div>
 
         {/* Symbol and price - Center */}
@@ -163,41 +119,6 @@ export function SandboxDashboard() {
         </div>
       </header>
 
-      {/* Indicator Bar */}
-      <div className="flex items-center gap-1.5 px-2 py-1 bg-[#0d0d0d] border-b border-[#1a1a1a]">
-        <span className="text-[9px] text-gray-500 uppercase tracking-wider mr-1">Indicateurs</span>
-        {indicators.map((indicator) => {
-          const isActive = activeIndicators.has(indicator.id);
-          return (
-            <button
-              key={indicator.id}
-              onClick={() => toggleIndicator(indicator.id)}
-              className={`
-                px-1.5 py-0.5 rounded-full text-[9px] font-medium
-                transition-all duration-200 ease-out
-                border
-                ${isActive
-                  ? 'text-white border-transparent'
-                  : 'text-gray-500 border-[#2a2a2a] hover:border-[#3a3a3a] hover:text-gray-400'
-                }
-              `}
-              style={{
-                backgroundColor: isActive ? indicator.color : 'transparent',
-                boxShadow: isActive ? `0 0 8px ${indicator.color}40` : 'none',
-              }}
-              title={indicator.label}
-            >
-              {indicator.shortLabel}
-            </button>
-          );
-        })}
-        {activeIndicators.size === 0 && (
-          <span className="text-[9px] text-gray-600 italic ml-1">
-            Sélectionnez un indicateur
-          </span>
-        )}
-      </div>
-
       {/* Single 1H Chart */}
       <div className="flex-1 p-2 bg-[#0a0a0a] min-h-0">
         <MemoizedCandlestickChart
@@ -205,7 +126,11 @@ export function SandboxDashboard() {
           timeframe="1h"
           data={data}
           isLoading={isLoading}
-          {...indicatorProps}
+          showBollinger={showBollinger}
+          showMACD={showMACD}
+          showIchimoku={showIchimoku}
+          showMovingAverages={showMovingAverages}
+          showRSI={showRSI}
         />
       </div>
     </div>

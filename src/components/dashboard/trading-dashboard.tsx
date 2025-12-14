@@ -2,11 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { MemoizedCandlestickChart } from '@/components/chart/candlestick-chart';
-import { Checkbox } from '@/components/ui/checkbox';
 import { CandleData } from '@/types/market';
-
-// Storage key prefix for signals preference
-const SIGNALS_STORAGE_PREFIX = 'tradybull-signals-';
 
 interface ChartData {
   '1h': CandleData[];
@@ -35,10 +31,6 @@ interface TradingDashboardProps {
   showMovingAverages?: boolean;
   showRSI?: boolean;
   topBar?: React.ReactNode;
-  /** Show the signals toggle checkbox (for pages that support signals) */
-  enableSignalsToggle?: boolean;
-  /** Initial state of signals toggle */
-  defaultSignalsEnabled?: boolean;
 }
 
 const WS_URL = 'ws://localhost:8000/ws';
@@ -52,8 +44,6 @@ export function TradingDashboard({
   showMovingAverages = false,
   showRSI = false,
   topBar,
-  enableSignalsToggle = false,
-  defaultSignalsEnabled = true
 }: TradingDashboardProps) {
   const [data, setData] = useState<ChartData>({
     '1h': [],
@@ -69,26 +59,6 @@ export function TradingDashboard({
   const [countdown, setCountdown] = useState(FETCH_INTERVAL);
   const [isResetting, setIsResetting] = useState(false);
   const [wsConnected, setWsConnected] = useState(false);
-
-  // Signals state with localStorage persistence
-  const storageKey = `${SIGNALS_STORAGE_PREFIX}${pageName.toLowerCase().replace(/\s+/g, '-')}`;
-  const hasLoadedRef = useRef(false);
-
-  const [signalsEnabled, setSignalsEnabled] = useState(() => {
-    // Only run on client side
-    if (typeof window === 'undefined') return defaultSignalsEnabled;
-    const saved = localStorage.getItem(storageKey);
-    return saved !== null ? saved === 'true' : defaultSignalsEnabled;
-  });
-
-  // Save signals preference to localStorage (skip first render to avoid overwriting)
-  useEffect(() => {
-    if (!hasLoadedRef.current) {
-      hasLoadedRef.current = true;
-      return;
-    }
-    localStorage.setItem(storageKey, String(signalsEnabled));
-  }, [signalsEnabled, storageKey]);
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -205,20 +175,9 @@ export function TradingDashboard({
     <div className="h-full w-full bg-[#0a0a0a] flex flex-col overflow-hidden">
       {/* Header */}
       <header className="flex items-center justify-between px-3 py-1.5 border-b border-[#1a1a1a] bg-[#0d0d0d]">
-        {/* Page name + Signals toggle - Left */}
+        {/* Page name - Left */}
         <div className="flex-1 flex items-center gap-3">
           <span className="text-xs font-semibold text-[#C59471]">{pageName}</span>
-          {enableSignalsToggle && (
-            <label htmlFor="signals-toggle" className="flex items-center gap-1.5 cursor-pointer select-none">
-              <Checkbox
-                id="signals-toggle"
-                checked={signalsEnabled}
-                onCheckedChange={(checked) => setSignalsEnabled(checked === true)}
-                className="size-3 rounded-[2px] data-[state=checked]:!bg-[#C59471] data-[state=checked]:!border-[#C59471] data-[state=checked]:!text-white [&_svg]:size-2.5"
-              />
-              <span className="text-[10px] text-gray-400">Signals</span>
-            </label>
-          )}
         </div>
 
         {/* Symbol and price - Center */}
@@ -309,7 +268,6 @@ export function TradingDashboard({
             data={data['1h']}
             isLoading={isLoading}
             showBollinger={showBollinger}
-            showBollingerSignals={showBollinger && signalsEnabled}
             showMACD={showMACD}
             showIchimoku={showIchimoku}
             showMovingAverages={showMovingAverages}

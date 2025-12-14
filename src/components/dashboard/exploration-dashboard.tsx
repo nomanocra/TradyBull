@@ -67,9 +67,6 @@ export function ExplorationDashboard() {
     }, {} as Record<string, boolean>);
   }, [activeIndicators]);
 
-  // Enable signals toggle when any signal-supporting indicator is active (Bollinger for now)
-  const hasSignalIndicator = activeIndicators.has('bollinger');
-
   const indicatorBar = (
     <div className="flex items-center gap-1.5 px-2 py-1 bg-[#0d0d0d] border-b border-[#1a1a1a]">
       <span className="text-[9px] text-gray-500 uppercase tracking-wider mr-1">Indicateurs</span>
@@ -110,8 +107,6 @@ export function ExplorationDashboard() {
     <TradingDashboard
       pageName="Exploration"
       topBar={indicatorBar}
-      enableSignalsToggle={hasSignalIndicator}
-      defaultSignalsEnabled={false}
       {...indicatorProps}
     />
   );

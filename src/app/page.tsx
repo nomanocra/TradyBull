@@ -1,5 +1,5 @@
-import { ExplorationDashboard } from '@/components/dashboard/exploration-dashboard';
+import { redirect } from 'next/navigation';
 
 export default function Home() {
-  return <ExplorationDashboard />;
+  redirect('/exploration/real-time');
 }

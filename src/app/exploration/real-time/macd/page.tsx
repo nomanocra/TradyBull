@@ -1,10 +1,10 @@
 import { TradingDashboard } from '@/components/dashboard/trading-dashboard';
 
-export default function StochasticRSIPage() {
+export default function MACDRealTimePage() {
   return (
     <TradingDashboard
-      pageName="Stochastic RSI"
-      showRSI={true}
+      pageName="MACD"
+      showMACD={true}
     />
   );
 }
