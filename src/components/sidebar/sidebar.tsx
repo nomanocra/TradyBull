@@ -1,10 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { ChevronDown, ChevronRight } from 'lucide-react';
+
+const STORAGE_KEY = 'tradybull-sidebar-sections';
 
 interface NavItem {
   name: string;
@@ -36,12 +38,35 @@ const navigation: NavSection[] = [
   },
 ];
 
+const defaultSections: Record<string, boolean> = {
+  'Real Time Strat.': true,
+  'Backtesting': false,
+};
+
 export function Sidebar() {
   const pathname = usePathname();
-  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
-    'Real Time Strat.': true,
-    'Backtesting': false,
-  });
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>(defaultSections);
+  const [isHydrated, setIsHydrated] = useState(false);
+
+  // Load from localStorage after hydration
+  useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      try {
+        setExpandedSections(JSON.parse(saved));
+      } catch {
+        // Invalid JSON, use defaults
+      }
+    }
+    setIsHydrated(true);
+  }, []);
+
+  // Save to localStorage when sections change
+  useEffect(() => {
+    if (isHydrated) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(expandedSections));
+    }
+  }, [expandedSections, isHydrated]);
 
   const toggleSection = (title: string) => {
     setExpandedSections((prev) => ({
