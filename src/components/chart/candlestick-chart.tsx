@@ -395,8 +395,8 @@ export function CandlestickChart({
   const [draggingDivider, setDraggingDivider] = useState<'macd' | 'rsi' | null>(null);
 
   const lastPrice = data.length > 0 ? data[data.length - 1].close : null;
-  const prevPrice = data.length > 1 ? data[data.length - 2].close : null;
-  const priceChange = lastPrice && prevPrice ? ((lastPrice - prevPrice) / prevPrice) * 100 : null;
+  const firstPrice = data.length > 0 ? data[0].close : null;
+  const priceChange = lastPrice && firstPrice ? ((lastPrice - firstPrice) / firstPrice) * 100 : null;
 
   // Handle divider drag
   const handleMouseDown = useCallback((divider: 'macd' | 'rsi') => (e: React.MouseEvent) => {
