@@ -2,7 +2,6 @@
 
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { MemoizedCandlestickChart } from '@/components/chart/candlestick-chart';
-import { ChartNavigator } from '@/components/chart/chart-navigator';
 import { Checkbox } from '@/components/ui/checkbox';
 import { CandleData } from '@/types/market';
 import { useSignals } from '@/hooks/useSignals';
@@ -39,10 +38,6 @@ export function SandboxDashboard() {
 
   // Signals state
   const [signalsEnabled, setSignalsEnabled] = useState(false);
-
-  // Navigator visible range state
-  const [visibleRange, setVisibleRange] = useState<{ from: number; to: number } | null>(null);
-  const [navigatorRange, setNavigatorRange] = useState<{ from: number; to: number } | null>(null);
 
   // Load from localStorage after hydration
   useEffect(() => {
@@ -108,18 +103,6 @@ export function SandboxDashboard() {
       }
       return next;
     });
-  }, []);
-
-  // Handle visible range changes from chart (source of truth for actual displayed range)
-  const handleVisibleRangeChange = useCallback((from: number, to: number) => {
-    // Always update navigator to reflect what the chart is actually showing
-    // This ensures navigator respects chart's zoom limits
-    setNavigatorRange({ from, to });
-  }, []);
-
-  // Handle range changes from navigator
-  const handleNavigatorRangeChange = useCallback((from: number, to: number) => {
-    setVisibleRange({ from, to });
   }, []);
 
   const indicatorProps = useMemo(() => {
@@ -251,28 +234,16 @@ export function SandboxDashboard() {
         )}
       </div>
 
-      {/* Single 1H Chart with Navigator */}
-      <div className="flex-1 flex flex-col bg-[#0a0a0a] min-h-0">
-        {/* Chart */}
-        <div className="flex-1 p-2 pb-0 min-h-0">
-          <MemoizedCandlestickChart
-            title="1H - Historical"
-            timeframe="1h"
-            data={data}
-            isLoading={isLoading || signalsLoading}
-            showBollingerSignals={indicatorProps.showBollinger && signalsEnabled}
-            preCalculatedSignals={preCalculatedSignals}
-            onVisibleRangeChange={handleVisibleRangeChange}
-            visibleRangeIndices={visibleRange}
-            {...indicatorProps}
-          />
-        </div>
-
-        {/* Navigator */}
-        <ChartNavigator
+      {/* Single 1H Chart */}
+      <div className="flex-1 p-2 bg-[#0a0a0a] min-h-0">
+        <MemoizedCandlestickChart
+          title="1H - Historical"
+          timeframe="1h"
           data={data}
-          visibleRange={navigatorRange}
-          onRangeChange={handleNavigatorRangeChange}
+          isLoading={isLoading || signalsLoading}
+          showBollingerSignals={indicatorProps.showBollinger && signalsEnabled}
+          preCalculatedSignals={preCalculatedSignals}
+          {...indicatorProps}
         />
       </div>
     </div>

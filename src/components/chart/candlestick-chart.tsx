@@ -18,10 +18,6 @@ interface CandlestickChartProps {
   showRSI?: boolean;
   /** Pre-calculated signals from API (skips frontend calculation if provided) */
   preCalculatedSignals?: Signal[];
-  /** Callback when visible range changes (for navigator sync) */
-  onVisibleRangeChange?: (from: number, to: number) => void;
-  /** Set visible range from outside (from navigator) */
-  visibleRangeIndices?: { from: number; to: number } | null;
 }
 
 type TradeSignal = SeriesMarker<Time> & {
@@ -371,8 +367,6 @@ export function CandlestickChart({
   showMovingAverages = false,
   showRSI = false,
   preCalculatedSignals,
-  onVisibleRangeChange,
-  visibleRangeIndices
 }: CandlestickChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mainChartContainerRef = useRef<HTMLDivElement>(null);
@@ -408,7 +402,7 @@ export function CandlestickChart({
   const markersPluginRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
   const isInitialLoadRef = useRef(true);
   const tradeSignalsRef = useRef<TradeSignal[]>([]);
-  const isExternalRangeUpdateRef = useRef(false);
+
 
   // Resizable divider states (separate for MACD and RSI)
   const [macdHeightPercent, setMacdHeightPercent] = useState(20);
@@ -767,6 +761,7 @@ export function CandlestickChart({
         timeVisible: timeframe !== '1day',
         secondsVisible: false,
         rightOffset: 5,
+        minBarSpacing: 0.5, // Zoom minimum - chart handles limit internally
       },
     });
 
@@ -802,6 +797,7 @@ export function CandlestickChart({
           timeVisible: timeframe !== '1day',
           secondsVisible: false,
           rightOffset: 5,
+          minBarSpacing: 0.5,
         },
       });
     }
@@ -836,6 +832,7 @@ export function CandlestickChart({
           timeVisible: timeframe !== '1day',
           secondsVisible: false,
           rightOffset: 5,
+          minBarSpacing: 0.5,
         },
       });
     }
@@ -848,14 +845,6 @@ export function CandlestickChart({
       if (source !== 'main' && mainChart) mainChart.timeScale().setVisibleLogicalRange(range);
       if (source !== 'macd' && macdChart) macdChart.timeScale().setVisibleLogicalRange(range);
       if (source !== 'rsi' && rsiChart) rsiChart.timeScale().setVisibleLogicalRange(range);
-
-      // Notify parent about range changes (for navigator sync)
-      if (source === 'main' && onVisibleRangeChange && !isExternalRangeUpdateRef.current) {
-        const fromIndex = Math.max(0, Math.round(range.from));
-        const toIndex = Math.min(data.length - 1, Math.round(range.to));
-        onVisibleRangeChange(fromIndex, toIndex);
-      }
-
       isSyncingRange = false;
     };
 
@@ -1126,51 +1115,7 @@ export function CandlestickChart({
       if (macdChart) macdChart.remove();
       if (rsiChart) rsiChart.remove();
     };
-  }, [timeframe, showBollinger, showMACD, showIchimoku, showMovingAverages, showRSI, data.length, onVisibleRangeChange]);
-
-  // Handle external range changes from navigator
-  const prevRangeRef = useRef<{ from: number; to: number } | null>(null);
-  useEffect(() => {
-    if (!visibleRangeIndices || !mainChartRef.current) return;
-
-    // Skip if range values haven't changed (prevents infinite loops)
-    if (prevRangeRef.current &&
-        prevRangeRef.current.from === visibleRangeIndices.from &&
-        prevRangeRef.current.to === visibleRangeIndices.to) {
-      return;
-    }
-    prevRangeRef.current = visibleRangeIndices;
-
-    isExternalRangeUpdateRef.current = true;
-    const logicalRange = {
-      from: visibleRangeIndices.from,
-      to: visibleRangeIndices.to,
-    };
-    mainChartRef.current.timeScale().setVisibleLogicalRange(logicalRange);
-    if (macdChartRef.current) {
-      macdChartRef.current.timeScale().setVisibleLogicalRange(logicalRange);
-    }
-    if (rsiChartRef.current) {
-      rsiChartRef.current.timeScale().setVisibleLogicalRange(logicalRange);
-    }
-
-    // Report actual range back after chart applies it (may be clamped)
-    requestAnimationFrame(() => {
-      isExternalRangeUpdateRef.current = false;
-
-      // Get the actual range from chart (may differ from requested due to zoom limits)
-      if (mainChartRef.current && onVisibleRangeChange) {
-        const actualRange = mainChartRef.current.timeScale().getVisibleLogicalRange();
-        if (actualRange) {
-          const fromIndex = Math.max(0, Math.round(actualRange.from));
-          const toIndex = Math.min(data.length - 1, Math.round(actualRange.to));
-          // Update prevRangeRef to prevent infinite loop
-          prevRangeRef.current = { from: fromIndex, to: toIndex };
-          onVisibleRangeChange(fromIndex, toIndex);
-        }
-      }
-    });
-  }, [visibleRangeIndices, onVisibleRangeChange, data.length]);
+  }, [timeframe, showBollinger, showMACD, showIchimoku, showMovingAverages, showRSI, data.length]);
 
   // Resize charts when divider is moved
   useEffect(() => {
