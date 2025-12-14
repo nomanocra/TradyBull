@@ -71,28 +71,24 @@ export function TradingDashboard({
   const [wsConnected, setWsConnected] = useState(false);
 
   // Signals state with localStorage persistence
-  const storageKey = useMemo(
-    () => `${SIGNALS_STORAGE_PREFIX}${pageName.toLowerCase().replace(/\s+/g, '-')}`,
-    [pageName]
-  );
-  const [signalsEnabled, setSignalsEnabled] = useState(defaultSignalsEnabled);
-  const [isHydrated, setIsHydrated] = useState(false);
+  const storageKey = `${SIGNALS_STORAGE_PREFIX}${pageName.toLowerCase().replace(/\s+/g, '-')}`;
+  const hasLoadedRef = useRef(false);
 
-  // Load from localStorage after hydration
-  useEffect(() => {
+  const [signalsEnabled, setSignalsEnabled] = useState(() => {
+    // Only run on client side
+    if (typeof window === 'undefined') return defaultSignalsEnabled;
     const saved = localStorage.getItem(storageKey);
-    if (saved !== null) {
-      setSignalsEnabled(saved === 'true');
-    }
-    setIsHydrated(true);
-  }, [storageKey]);
+    return saved !== null ? saved === 'true' : defaultSignalsEnabled;
+  });
 
-  // Save signals preference to localStorage (only after hydration)
+  // Save signals preference to localStorage (skip first render to avoid overwriting)
   useEffect(() => {
-    if (isHydrated) {
-      localStorage.setItem(storageKey, String(signalsEnabled));
+    if (!hasLoadedRef.current) {
+      hasLoadedRef.current = true;
+      return;
     }
-  }, [signalsEnabled, storageKey, isHydrated]);
+    localStorage.setItem(storageKey, String(signalsEnabled));
+  }, [signalsEnabled, storageKey]);
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -218,7 +214,7 @@ export function TradingDashboard({
                 id="signals-toggle"
                 checked={signalsEnabled}
                 onCheckedChange={(checked) => setSignalsEnabled(checked === true)}
-                className="size-4 data-[state=checked]:!bg-[#C59471] data-[state=checked]:!border-[#C59471] data-[state=checked]:!text-white"
+                className="size-3 rounded-[2px] data-[state=checked]:!bg-[#C59471] data-[state=checked]:!border-[#C59471] data-[state=checked]:!text-white [&_svg]:size-2.5"
               />
               <span className="text-[10px] text-gray-400">Signals</span>
             </label>

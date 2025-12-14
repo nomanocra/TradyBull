@@ -3,6 +3,7 @@
 import { useEffect, useRef, useMemo, useState, useCallback, memo } from 'react';
 import { createChart, IChartApi, ISeriesApi, CandlestickSeries, LineSeries, HistogramSeries, CandlestickData, LineData, HistogramData, Time, BusinessDay, createSeriesMarkers, SeriesMarker, ISeriesMarkersPluginApi } from 'lightweight-charts';
 import { CandleData, TimeFrame } from '@/types/market';
+import { Signal } from '@/hooks/useSignals';
 
 interface CandlestickChartProps {
   title: string;
@@ -15,9 +16,15 @@ interface CandlestickChartProps {
   showIchimoku?: boolean;
   showMovingAverages?: boolean;
   showRSI?: boolean;
+  /** Pre-calculated signals from API (skips frontend calculation if provided) */
+  preCalculatedSignals?: Signal[];
 }
 
-type BuySignal = SeriesMarker<Time>;
+type TradeSignal = SeriesMarker<Time> & {
+  entryPrice?: number;
+  exitPrice?: number;
+  pnlPercent?: number; // Gain/loss percentage for sell signals
+};
 
 // Cache for timezone offsets to avoid repeated calculations
 const timezoneOffsetCache = new Map<number, number>();
@@ -358,7 +365,8 @@ export function CandlestickChart({
   showMACD = false,
   showIchimoku = false,
   showMovingAverages = false,
-  showRSI = false
+  showRSI = false,
+  preCalculatedSignals
 }: CandlestickChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mainChartContainerRef = useRef<HTMLDivElement>(null);
@@ -393,11 +401,21 @@ export function CandlestickChart({
   const stochRsiOversoldRef = useRef<ISeriesApi<'Line'> | null>(null);
   const markersPluginRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
   const isInitialLoadRef = useRef(true);
+  const tradeSignalsRef = useRef<TradeSignal[]>([]);
 
   // Resizable divider states (separate for MACD and RSI)
   const [macdHeightPercent, setMacdHeightPercent] = useState(20);
   const [rsiHeightPercent, setRsiHeightPercent] = useState(20);
   const [draggingDivider, setDraggingDivider] = useState<'macd' | 'rsi' | null>(null);
+
+  // Tooltip state for trade signals
+  const [signalTooltip, setSignalTooltip] = useState<{
+    x: number;
+    y: number;
+    entryPrice?: number;
+    exitPrice?: number;
+    pnlPercent?: number;
+  } | null>(null);
 
   const lastPrice = data.length > 0 ? data[data.length - 1].close : null;
   const prevPrice = data.length > 1 ? data[data.length - 2].close : null;
@@ -485,20 +503,21 @@ export function CandlestickChart({
     });
   }, [data, timeframe]);
 
-  // Calculate indicators ONLY when needed (conditional memoization)
+  // Calculate Bollinger data when Bollinger is enabled (for bands and signals)
   const bollingerData = useMemo(() => {
     if (!showBollinger || data.length === 0) return null;
     const closes = data.map(d => d.close);
     return calculateBollingerBands(closes);
   }, [data, showBollinger]);
 
-  // Calculate Bollinger buy signals: when candle LOW goes below lower band
+  // Pre-calculate Bollinger buy signals when Bollinger is enabled (not dependent on toggle)
   // Signal appears on the NEXT candle (buy at open), no consecutive signals until recovery
   // Only ONE major signal per day (first after 7:00 AM), others are secondary (transparent)
   const bollingerBuySignals = useMemo(() => {
-    if (!showBollingerSignals || !bollingerData || data.length < 2 || chartTimes.length < 2) return [];
+    // Pre-calculate when Bollinger is enabled, regardless of signals toggle
+    if (!bollingerData || data.length < 2 || chartTimes.length < 2) return [];
 
-    const signals: BuySignal[] = [];
+    const signals: TradeSignal[] = [];
     let waitingForRecovery = false;
     let lastMajorSignalDate: string | null = null; // Track date of last major signal
 
@@ -536,24 +555,140 @@ export function CandlestickChart({
             time: chartTimes[i + 1],
             position: 'belowBar',
             color: '#eab308', // Yellow - major signal
-            shape: 'arrowUp',
-            text: 'Buy',
+            shape: 'circle',
+            text: '▲',
+            size: 0,
+            entryPrice: nextCandle.open,
           });
         } else {
-          // Secondary signal - small transparent arrow, no text
+          // Secondary signal - transparent
           signals.push({
             time: chartTimes[i + 1],
             position: 'belowBar',
             color: 'rgba(234, 179, 8, 0.35)', // Transparent yellow
-            shape: 'arrowUp',
-            text: '',
+            shape: 'circle',
+            text: '▲',
+            size: 0,
           });
         }
         waitingForRecovery = true;
       }
     }
     return signals;
-  }, [data, bollingerData, showBollingerSignals, chartTimes]);
+  }, [data, bollingerData, chartTimes]);
+
+  // Pre-calculate market close sell signals at 22h Paris time (when Bollinger is enabled)
+  const marketCloseSellSignals = useMemo(() => {
+    // Pre-calculate when Bollinger is enabled, regardless of signals toggle
+    if (!bollingerData || data.length === 0 || chartTimes.length === 0) return [];
+
+    const signals: TradeSignal[] = [];
+    const processedDates = new Set<string>();
+
+    for (let i = 0; i < data.length; i++) {
+      const candle = data[i];
+      const candleDate = new Date(candle.time * 1000);
+
+      // Convert to Paris timezone
+      const parisDate = new Date(candleDate.toLocaleString('en-US', { timeZone: 'Europe/Paris' }));
+      const parisHour = parisDate.getHours();
+      const parisDateStr = parisDate.toLocaleDateString('en-CA'); // YYYY-MM-DD format
+
+      // Signal at 22h Paris time (market close), one per day
+      if (parisHour === 22 && !processedDates.has(parisDateStr)) {
+        processedDates.add(parisDateStr);
+        signals.push({
+          time: chartTimes[i],
+          position: 'aboveBar',
+          color: '#ef4444', // Red
+          shape: 'circle',
+          text: '▼',
+          size: 0,
+          exitPrice: candle.close,
+        });
+      }
+    }
+    return signals;
+  }, [data, chartTimes, bollingerData]);
+
+  // Convert pre-calculated signals from API to chart format
+  const apiSignals = useMemo(() => {
+    if (!preCalculatedSignals || preCalculatedSignals.length === 0 || chartTimes.length === 0) {
+      return null;
+    }
+
+    // Create a map of timestamp to chartTime for quick lookup
+    const timestampToChartTime = new Map<number, Time>();
+    data.forEach((candle, i) => {
+      timestampToChartTime.set(candle.time, chartTimes[i]);
+    });
+
+    return preCalculatedSignals
+      .filter(signal => timestampToChartTime.has(signal.timestamp))
+      .map(signal => {
+        const chartTime = timestampToChartTime.get(signal.timestamp)!;
+        if (signal.signal_type === 'buy') {
+          return {
+            time: chartTime,
+            position: 'belowBar' as const,
+            color: signal.is_major ? '#eab308' : 'rgba(234, 179, 8, 0.35)',
+            shape: 'circle' as const,
+            text: '▲',
+            size: 0,
+            entryPrice: signal.price,
+          };
+        } else {
+          return {
+            time: chartTime,
+            position: 'aboveBar' as const,
+            color: '#ef4444',
+            shape: 'circle' as const,
+            text: '▼',
+            size: 0,
+            exitPrice: signal.price,
+          };
+        }
+      });
+  }, [preCalculatedSignals, chartTimes, data]);
+
+  // Combine all signals for markers and calculate PnL for sell signals
+  // Use API signals if available, otherwise fall back to calculated signals
+  const allTradeSignals = useMemo(() => {
+    const combined = apiSignals
+      ? apiSignals
+      : [...bollingerBuySignals, ...marketCloseSellSignals].sort((a, b) => {
+          const timeA = typeof a.time === 'number' ? a.time : 0;
+          const timeB = typeof b.time === 'number' ? b.time : 0;
+          return timeA - timeB;
+        });
+
+    // Calculate PnL for each sell signal based on the previous buy
+    // Reset after sell so consecutive sells don't show PnL
+    let lastBuyPrice: number | null = null;
+    return combined.map(signal => {
+      if (signal.entryPrice !== undefined) {
+        // This is a buy signal - store the entry price
+        lastBuyPrice = signal.entryPrice;
+        return signal;
+      } else if (signal.exitPrice !== undefined) {
+        // This is a sell signal
+        if (lastBuyPrice !== null) {
+          // Calculate PnL from last buy
+          const pnlPercent = ((signal.exitPrice - lastBuyPrice) / lastBuyPrice) * 100;
+          lastBuyPrice = null; // Reset - no more PnL until next buy
+          return { ...signal, pnlPercent };
+        }
+        // No previous buy - just return signal without PnL
+        return signal;
+      }
+      return signal;
+    });
+  }, [apiSignals, bollingerBuySignals, marketCloseSellSignals]);
+
+  // Sync trade signals to ref for crosshair tooltip access
+  useEffect(() => {
+    tradeSignalsRef.current = allTradeSignals;
+  }, [allTradeSignals]);
 
   const macdData = useMemo(() => {
     if (!showMACD || data.length === 0) return null;
@@ -713,15 +848,7 @@ export function CandlestickChart({
     if (macdChart) macdChart.timeScale().subscribeVisibleLogicalRangeChange(range => syncRange(range, 'macd'));
     if (rsiChart) rsiChart.timeScale().subscribeVisibleLogicalRangeChange(range => syncRange(range, 'rsi'));
 
-    // Add candlestick series to main chart
-    const candlestickSeries = mainChart.addSeries(CandlestickSeries, {
-      upColor: '#10b981',
-      downColor: '#ef4444',
-      borderDownColor: '#ef4444',
-      borderUpColor: '#10b981',
-      wickDownColor: '#ef4444',
-      wickUpColor: '#10b981',
-    });
+    // Add indicator series FIRST (so they appear BELOW candlesticks)
 
     // Bollinger Bands - only create if showBollinger
     let bbUpper: ISeriesApi<'Line'> | null = null;
@@ -812,6 +939,16 @@ export function CandlestickChart({
       });
     }
 
+    // Add candlestick series LAST on main chart (so it appears ON TOP of indicators)
+    const candlestickSeries = mainChart.addSeries(CandlestickSeries, {
+      upColor: '#10b981',
+      downColor: '#ef4444',
+      borderDownColor: '#ef4444',
+      borderUpColor: '#10b981',
+      wickDownColor: '#ef4444',
+      wickUpColor: '#10b981',
+    });
+
     // MACD series
     let macdHistogram: ISeriesApi<'Histogram'> | null = null;
     let macdLine: ISeriesApi<'Line'> | null = null;
@@ -890,7 +1027,32 @@ export function CandlestickChart({
       isSyncingCrosshair = false;
     };
 
-    mainChart.subscribeCrosshairMove((param) => syncCrosshair(param.time, 'main'));
+    mainChart.subscribeCrosshairMove((param) => {
+      syncCrosshair(param.time, 'main');
+
+      // Check if hovering near a buy signal for tooltip
+      if (param.time && param.point) {
+        const signal = tradeSignalsRef.current.find(s => {
+          // Compare times - both should be same format
+          const signalTime = s.time;
+          return signalTime === param.time && (s.entryPrice !== undefined || s.exitPrice !== undefined);
+        });
+
+        if (signal && (signal.entryPrice !== undefined || signal.exitPrice !== undefined)) {
+          setSignalTooltip({
+            x: param.point.x,
+            y: param.point.y,
+            entryPrice: signal.entryPrice,
+            exitPrice: signal.exitPrice,
+            pnlPercent: signal.pnlPercent,
+          });
+        } else {
+          setSignalTooltip(null);
+        }
+      } else {
+        setSignalTooltip(null);
+      }
+    });
     if (macdChart) macdChart.subscribeCrosshairMove((param) => syncCrosshair(param.time, 'macd'));
     if (rsiChart) rsiChart.subscribeCrosshairMove((param) => syncCrosshair(param.time, 'rsi'));
 
@@ -1135,15 +1297,14 @@ export function CandlestickChart({
       bbLowerRef.current?.setData(chartDataArrays.bbLowerData);
     }
 
-    // Set Bollinger buy signals as markers
-    if (showBollingerSignals && candlestickSeriesRef.current) {
-      // Create markers plugin if it doesn't exist
-      if (!markersPluginRef.current) {
-        markersPluginRef.current = createSeriesMarkers(candlestickSeriesRef.current, bollingerBuySignals);
-      } else {
-        markersPluginRef.current.setMarkers(bollingerBuySignals);
+    // Set trade signals as markers (buy + sell)
+    if (showBollingerSignals && candlestickSeriesRef.current && allTradeSignals.length > 0) {
+      // Always recreate markers plugin to ensure it's attached to current series
+      if (markersPluginRef.current) {
+        markersPluginRef.current.setMarkers([]);
       }
-    } else if (!showBollingerSignals && markersPluginRef.current) {
+      markersPluginRef.current = createSeriesMarkers(candlestickSeriesRef.current, allTradeSignals);
+    } else if (markersPluginRef.current) {
       markersPluginRef.current.setMarkers([]);
     }
 
@@ -1212,7 +1373,7 @@ export function CandlestickChart({
       });
     }
 
-  }, [chartDataArrays, showBollinger, showBollingerSignals, bollingerBuySignals, showMACD, showIchimoku, showMovingAverages, showRSI, bollingerData, ichimokuData, movingAveragesData, macdData, stochRsiData, data.length, timeframe]);
+  }, [chartDataArrays, showBollinger, showBollingerSignals, allTradeSignals, showMACD, showIchimoku, showMovingAverages, showRSI, bollingerData, ichimokuData, movingAveragesData, macdData, stochRsiData, data.length, timeframe]);
 
   return (
     <div className="h-full w-full bg-[#0d0d0d] flex flex-col">
@@ -1254,6 +1415,31 @@ export function CandlestickChart({
             </div>
           )}
           <div ref={mainChartContainerRef} className="w-full h-full" />
+
+          {/* Trade signal tooltip */}
+          {signalTooltip && (
+            <div
+              className="absolute pointer-events-none z-20 px-2 py-1 rounded bg-[#1f2937] border border-[#374151] text-xs font-mono text-white shadow-lg"
+              style={{
+                left: signalTooltip.x + 10,
+                top: signalTooltip.y - 30,
+              }}
+            >
+              {signalTooltip.entryPrice !== undefined && (
+                <>Entry: <span className="text-[#eab308]">{signalTooltip.entryPrice.toFixed(2)}</span></>
+              )}
+              {signalTooltip.exitPrice !== undefined && (
+                <div className="flex items-center gap-2">
+                  <span>Exit: <span className="text-[#ef4444]">{signalTooltip.exitPrice.toFixed(2)}</span></span>
+                  {signalTooltip.pnlPercent !== undefined && (
+                    <span className={signalTooltip.pnlPercent >= 0 ? 'text-emerald-500' : 'text-red-500'}>
+                      {signalTooltip.pnlPercent >= 0 ? '+' : ''}{signalTooltip.pnlPercent.toFixed(2)}%
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* MACD Section */}

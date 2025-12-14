@@ -22,25 +22,29 @@ const indicators: IndicatorToggle[] = [
 ];
 
 export function ExplorationDashboard() {
-  const [activeIndicators, setActiveIndicators] = useState<Set<string>>(() => {
-    // Load from localStorage on initial render (client-side only)
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        try {
-          return new Set(JSON.parse(saved));
-        } catch {
-          return new Set();
-        }
+  // Start with empty Set to avoid hydration mismatch
+  const [activeIndicators, setActiveIndicators] = useState<Set<string>>(new Set());
+  const [isHydrated, setIsHydrated] = useState(false);
+
+  // Load from localStorage after hydration (client-side only)
+  useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      try {
+        setActiveIndicators(new Set(JSON.parse(saved)));
+      } catch {
+        // Invalid JSON, ignore
       }
     }
-    return new Set();
-  });
+    setIsHydrated(true);
+  }, []);
 
-  // Save to localStorage when indicators change
+  // Save to localStorage when indicators change (skip initial hydration load)
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify([...activeIndicators]));
-  }, [activeIndicators]);
+    if (isHydrated) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify([...activeIndicators]));
+    }
+  }, [activeIndicators, isHydrated]);
 
   // Memoize toggle function to prevent re-renders
   const toggleIndicator = useCallback((id: string) => {

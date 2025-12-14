@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { ChevronDown, ChevronRight, Compass } from 'lucide-react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 
 interface NavItem {
   name: string;
@@ -20,6 +20,7 @@ const navigation: NavSection[] = [
   {
     title: 'Real Time Strat.',
     items: [
+      { name: 'Exploration', href: '/' },
       { name: 'Bollinger', href: '/strategies/bollinger' },
       { name: 'MACD', href: '/strategies/macd' },
       { name: 'Ichimoku', href: '/strategies/ichimoku' },
@@ -30,7 +31,7 @@ const navigation: NavSection[] = [
   {
     title: 'Backtesting',
     items: [
-      { name: 'Strat 1', href: '/backtesting/strat-1' },
+      { name: 'Sandbox', href: '/backtesting/sandbox' },
     ],
   },
 ];
@@ -49,8 +50,6 @@ export function Sidebar() {
     }));
   };
 
-  const isExplorationActive = pathname === '/';
-
   return (
     <div className="w-52 h-screen bg-[#0d0d0d] border-r border-[#1a1a1a] flex flex-col">
       {/* Logo */}
@@ -61,19 +60,6 @@ export function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto py-2">
-        {/* Exploration - Standalone link */}
-        <Link
-          href="/"
-          className={`flex items-center gap-2 mx-2 px-3 py-2 rounded-md text-xs font-medium transition-colors ${
-            isExplorationActive
-              ? 'text-[#C59471] bg-[#C59471]/10'
-              : 'text-gray-300 hover:text-white hover:bg-[#141414]'
-          }`}
-        >
-          <Compass size={14} />
-          Exploration
-        </Link>
-
         {/* Sections */}
         {navigation.map((section) => (
           <div key={section.title} className="mb-1">
