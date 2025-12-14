@@ -2,10 +2,11 @@
 
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { MemoizedCandlestickChart } from '@/components/chart/candlestick-chart';
+import { DatePicker } from '@/components/ui/date-picker';
 import { CandleData } from '@/types/market';
 
 const STORAGE_KEY = 'tradybull-sandbox-indicators';
-const API_URL = 'http://localhost:8000/api/backtest/data';
+const API_URL = 'http://localhost:8000/api/backtest';
 
 interface IndicatorToggle {
   id: string;
@@ -13,6 +14,11 @@ interface IndicatorToggle {
   shortLabel: string;
   color: string;
   prop: 'showBollinger' | 'showMACD' | 'showIchimoku' | 'showMovingAverages' | 'showRSI';
+}
+
+interface DateBounds {
+  minDate: Date;
+  maxDate: Date;
 }
 
 const indicators: IndicatorToggle[] = [
@@ -32,6 +38,11 @@ export function SandboxDashboard() {
   // Indicators state
   const [activeIndicators, setActiveIndicators] = useState<Set<string>>(new Set());
   const [isHydrated, setIsHydrated] = useState(false);
+
+  // Date range state
+  const [dateBounds, setDateBounds] = useState<DateBounds | null>(null);
+  const [startDate, setStartDate] = useState<Date | undefined>();
+  const [endDate, setEndDate] = useState<Date | undefined>();
 
   // Load from localStorage after hydration
   useEffect(() => {
@@ -53,28 +64,60 @@ export function SandboxDashboard() {
     }
   }, [activeIndicators, isHydrated]);
 
-  // Fetch historical data
+  // Fetch available date bounds
   useEffect(() => {
-    const fetchData = async () => {
+    const fetchBounds = async () => {
       try {
-        setIsLoading(true);
-        const response = await fetch(`${API_URL}?limit=50000`);
-        if (!response.ok) {
-          throw new Error('Failed to fetch backtest data');
+        const response = await fetch(`${API_URL}/info`);
+        if (!response.ok) throw new Error('Failed to fetch data info');
+        const info = await response.json();
+
+        if (info.count > 0) {
+          const minDate = new Date(info.start_timestamp * 1000);
+          const maxDate = new Date(info.end_timestamp * 1000);
+          setDateBounds({ minDate, maxDate });
+          // Initialize with full range
+          setStartDate(minDate);
+          setEndDate(maxDate);
         }
-        const result = await response.json();
-        setData(result.data || []);
-        setDataInfo({ count: result.count, symbol: result.symbol });
-        setError(null);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load data');
-      } finally {
-        setIsLoading(false);
+        console.error('Failed to fetch date bounds:', err);
       }
     };
 
-    fetchData();
+    fetchBounds();
   }, []);
+
+  // Fetch historical data when dates change
+  const fetchData = useCallback(async () => {
+    if (!startDate || !endDate) return;
+
+    try {
+      setIsLoading(true);
+      const startTs = Math.floor(startDate.getTime() / 1000);
+      // End of day for end date
+      const endDateEod = new Date(endDate);
+      endDateEod.setHours(23, 59, 59, 999);
+      const endTs = Math.floor(endDateEod.getTime() / 1000);
+
+      const response = await fetch(`${API_URL}/data?start=${startTs}&end=${endTs}&limit=50000`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch backtest data');
+      }
+      const result = await response.json();
+      setData(result.data || []);
+      setDataInfo({ count: result.count, symbol: result.symbol });
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load data');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [startDate, endDate]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const toggleIndicator = useCallback((id: string) => {
     setActiveIndicators(prev => {
@@ -95,21 +138,10 @@ export function SandboxDashboard() {
     }, {} as Record<string, boolean>);
   }, [activeIndicators]);
 
-  // Price info
+  // Price info - performance over entire period
   const lastPrice = data.length > 0 ? data[data.length - 1].close : null;
-  const prevPrice = data.length > 1 ? data[data.length - 2].close : null;
-  const priceChange = lastPrice && prevPrice ? ((lastPrice - prevPrice) / prevPrice) * 100 : null;
-
-  // Date range info
-  const dateRange = useMemo(() => {
-    if (data.length === 0) return null;
-    const firstDate = new Date(data[0].time * 1000);
-    const lastDate = new Date(data[data.length - 1].time * 1000);
-    return {
-      from: firstDate.toLocaleDateString('fr-FR'),
-      to: lastDate.toLocaleDateString('fr-FR'),
-    };
-  }, [data]);
+  const firstPrice = data.length > 0 ? data[0].close : null;
+  const priceChange = lastPrice && firstPrice ? ((lastPrice - firstPrice) / firstPrice) * 100 : null;
 
   return (
     <div className="h-full w-full bg-[#0a0a0a] flex flex-col overflow-hidden">
@@ -117,7 +149,7 @@ export function SandboxDashboard() {
       <header className="flex items-center justify-between px-3 py-1.5 border-b border-[#1a1a1a] bg-[#0d0d0d]">
         {/* Page name - Left */}
         <div className="flex-1 flex items-center gap-3">
-          <span className="text-xs font-semibold text-[#C59471]">Sandbox</span>
+          <span className="text-xs font-semibold text-[#C59471]">Multi Indicator</span>
         </div>
 
         {/* Symbol and price - Center */}
@@ -142,10 +174,28 @@ export function SandboxDashboard() {
           {error && (
             <span className="text-xs text-red-500">{error}</span>
           )}
-          {dateRange && (
-            <span className="text-[10px] text-gray-600 font-mono">
-              {dateRange.from} → {dateRange.to}
-            </span>
+          {/* Date pickers */}
+          {dateBounds && (
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1">
+                <span className="text-[9px] text-gray-500">Start</span>
+                <DatePicker
+                  date={startDate}
+                  onDateChange={setStartDate}
+                  minDate={dateBounds.minDate}
+                  maxDate={endDate || dateBounds.maxDate}
+                />
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="text-[9px] text-gray-500">End</span>
+                <DatePicker
+                  date={endDate}
+                  onDateChange={setEndDate}
+                  minDate={startDate || dateBounds.minDate}
+                  maxDate={dateBounds.maxDate}
+                />
+              </div>
+            </div>
           )}
           {dataInfo && (
             <span className="text-[10px] text-gray-500">
@@ -174,7 +224,7 @@ export function SandboxDashboard() {
               onClick={() => toggleIndicator(indicator.id)}
               className={`
                 px-1.5 py-0.5 rounded-full text-[9px] font-medium
-                transition-all duration-200 ease-out
+                transition-all duration-200 ease-out cursor-pointer
                 border
                 ${isActive
                   ? 'text-white border-transparent'

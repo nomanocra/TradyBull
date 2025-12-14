@@ -78,7 +78,7 @@ export function ExplorationDashboard() {
             onClick={() => toggleIndicator(indicator.id)}
             className={`
               px-1.5 py-0.5 rounded-full text-[9px] font-medium
-              transition-all duration-200 ease-out
+              transition-all duration-200 ease-out cursor-pointer
               border
               ${isActive
                 ? 'text-white border-transparent'
