@@ -52,7 +52,7 @@ export function TradingDashboard({
   });
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const [lastFetchTime, setLastFetchTime] = useState<string | null>(null);
   const [marketOpen, setMarketOpen] = useState(false);
   const [standby, setStandby] = useState(false);
   const [dataSource, setDataSource] = useState<string>('');
@@ -79,7 +79,7 @@ export function TradingDashboard({
         setStandby(message.standby || false);
         setDataSource(message.symbol);
         setError(null);
-        setLastUpdate(new Date());
+        setLastFetchTime(message.last_fetch);
         setIsLoading(false);
 
         // Sync countdown with server's last_fetch time
@@ -171,6 +171,26 @@ export function TradingDashboard({
     return { lastPrice: last, priceChange: change };
   }, [data]);
 
+  // Get display time: use lastFetchTime from server, or fallback to last candle timestamp
+  // In standby mode (weekend), also show the date
+  const { displayTime, displayDate } = useMemo(() => {
+    if (data['1h'].length > 0) {
+      const lastCandle = data['1h'][data['1h'].length - 1];
+      const date = new Date(lastCandle.time * 1000);
+      const time = date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+
+      if (standby) {
+        // Weekend: show date below time
+        const dateStr = date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+        return { displayTime: time, displayDate: dateStr };
+      }
+
+      // Normal mode: use server lastFetchTime or fallback to candle time
+      return { displayTime: lastFetchTime || time, displayDate: null };
+    }
+    return { displayTime: lastFetchTime, displayDate: null };
+  }, [lastFetchTime, data, standby]);
+
   return (
     <div className="h-full w-full bg-[#0a0a0a] flex flex-col overflow-hidden">
       {/* Header */}
@@ -229,10 +249,17 @@ export function TradingDashboard({
               </svg>
             </div>
           )}
-          {lastUpdate && (
-            <span className="text-[10px] text-gray-600 font-mono">
-              {lastUpdate.toLocaleTimeString('fr-FR')}
-            </span>
+          {displayTime && (
+            <div className="flex flex-col items-end leading-tight">
+              <span className="text-[10px] text-gray-600 font-mono">
+                {displayTime}
+              </span>
+              {displayDate && (
+                <span className="text-[9px] text-gray-700 font-mono">
+                  {displayDate}
+                </span>
+              )}
+            </div>
           )}
           <span className={`text-[10px] font-medium ${marketOpen ? 'text-emerald-500' : 'text-gray-600'}`}>
             {marketOpen ? 'MARKET OPEN' : 'MARKET CLOSED'}
