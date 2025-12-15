@@ -3,10 +3,9 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { MemoizedCandlestickChart } from '@/components/chart/candlestick-chart';
 import { DatePicker } from '@/components/ui/date-picker';
-import { CandleData } from '@/types/market';
+import { useHistoricalData } from '@/app/exploration/historical/historical-context';
 
 const STORAGE_KEY = 'tradybull-sandbox-indicators';
-const API_URL = 'http://localhost:8000/api/backtest';
 
 interface IndicatorToggle {
   id: string;
@@ -14,11 +13,6 @@ interface IndicatorToggle {
   shortLabel: string;
   color: string;
   prop: 'showBollinger' | 'showMACD' | 'showIchimoku' | 'showMovingAverages' | 'showRSI';
-}
-
-interface DateBounds {
-  minDate: Date;
-  maxDate: Date;
 }
 
 const indicators: IndicatorToggle[] = [
@@ -30,19 +24,21 @@ const indicators: IndicatorToggle[] = [
 ];
 
 export function SandboxDashboard() {
-  const [data, setData] = useState<CandleData[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [dataInfo, setDataInfo] = useState<{ count: number; symbol: string } | null>(null);
+  const {
+    data,
+    isLoading,
+    error,
+    dataInfo,
+    dateBounds,
+    startDate,
+    endDate,
+    setStartDate,
+    setEndDate,
+  } = useHistoricalData();
 
   // Indicators state
   const [activeIndicators, setActiveIndicators] = useState<Set<string>>(new Set());
   const [isHydrated, setIsHydrated] = useState(false);
-
-  // Date range state
-  const [dateBounds, setDateBounds] = useState<DateBounds | null>(null);
-  const [startDate, setStartDate] = useState<Date | undefined>();
-  const [endDate, setEndDate] = useState<Date | undefined>();
 
   // Load from localStorage after hydration
   useEffect(() => {
@@ -64,61 +60,6 @@ export function SandboxDashboard() {
     }
   }, [activeIndicators, isHydrated]);
 
-  // Fetch available date bounds
-  useEffect(() => {
-    const fetchBounds = async () => {
-      try {
-        const response = await fetch(`${API_URL}/info`);
-        if (!response.ok) throw new Error('Failed to fetch data info');
-        const info = await response.json();
-
-        if (info.count > 0) {
-          const minDate = new Date(info.start_timestamp * 1000);
-          const maxDate = new Date(info.end_timestamp * 1000);
-          setDateBounds({ minDate, maxDate });
-          // Initialize with full range
-          setStartDate(minDate);
-          setEndDate(maxDate);
-        }
-      } catch (err) {
-        console.error('Failed to fetch date bounds:', err);
-      }
-    };
-
-    fetchBounds();
-  }, []);
-
-  // Fetch historical data when dates change
-  const fetchData = useCallback(async () => {
-    if (!startDate || !endDate) return;
-
-    try {
-      setIsLoading(true);
-      const startTs = Math.floor(startDate.getTime() / 1000);
-      // End of day for end date
-      const endDateEod = new Date(endDate);
-      endDateEod.setHours(23, 59, 59, 999);
-      const endTs = Math.floor(endDateEod.getTime() / 1000);
-
-      const response = await fetch(`${API_URL}/data?start=${startTs}&end=${endTs}&limit=50000`);
-      if (!response.ok) {
-        throw new Error('Failed to fetch backtest data');
-      }
-      const result = await response.json();
-      setData(result.data || []);
-      setDataInfo({ count: result.count, symbol: result.symbol });
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load data');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [startDate, endDate]);
-
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
-
   const toggleIndicator = useCallback((id: string) => {
     setActiveIndicators(prev => {
       const next = new Set(prev);
@@ -139,9 +80,12 @@ export function SandboxDashboard() {
   }, [activeIndicators]);
 
   // Price info - performance over entire period
-  const lastPrice = data.length > 0 ? data[data.length - 1].close : null;
-  const firstPrice = data.length > 0 ? data[0].close : null;
-  const priceChange = lastPrice && firstPrice ? ((lastPrice - firstPrice) / firstPrice) * 100 : null;
+  const { lastPrice, priceChange } = useMemo(() => {
+    const last = data.length > 0 ? data[data.length - 1].close : null;
+    const first = data.length > 0 ? data[0].close : null;
+    const change = last && first ? ((last - first) / first) * 100 : null;
+    return { lastPrice: last, priceChange: change };
+  }, [data]);
 
   return (
     <div className="h-full w-full bg-[#0a0a0a] flex flex-col overflow-hidden">
