@@ -186,7 +186,7 @@ function ChartNavigatorComponent({
   return (
     <div
       ref={containerRef}
-      className="relative w-full bg-[#0a0a0a] border-t border-[#1a1a1a]"
+      className="relative w-full bg-[#0a0a0a] border-t border-[#1a1a1a] group"
       style={{ height: HEIGHT }}
     >
       {/* Canvas */}
@@ -206,31 +206,42 @@ function ChartNavigatorComponent({
 
       {/* Window */}
       <div
-        className="absolute top-0 bottom-0 border-l-2 border-r-2 border-[#C59471]"
+        className="absolute top-0 bottom-0"
         style={{ left: leftPx, width: widthPx }}
       >
-        {/* Left handle */}
+        {/* Border lines - top, bottom (only on hover) */}
+        <div className="absolute top-0 left-0 right-0 h-[2px] bg-[#C59471] opacity-0 group-hover:opacity-100 transition-opacity duration-150 ease-in-out" />
+        <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#C59471] opacity-0 group-hover:opacity-100 transition-opacity duration-150 ease-in-out" />
+        {/* Vertical lines - always visible */}
+        <div className="absolute top-0 bottom-0 left-0 w-[1px] bg-[#C59471]/30" />
+
+        {/* Left handle (only on hover) */}
         <div
-          className="absolute top-0 bottom-0 left-0 w-2 cursor-ew-resize hover:bg-[#C59471]/40 flex items-center justify-center"
-          style={{ marginLeft: -4 }}
+          className="absolute top-1/2 -translate-y-1/2 left-0 w-[8px] h-[20px] bg-[#2a2a2a] hover:bg-[#3a3a3a] rounded-sm cursor-ew-resize flex items-center justify-center gap-[1px] border border-[#C59471] opacity-0 group-hover:opacity-100 transition-opacity duration-150 ease-in-out"
+          style={{ marginLeft: -3 }}
           onMouseDown={(e) => handleMouseDown(e, 'left')}
         >
-          <div className="w-0.5 h-5 bg-[#C59471] rounded" />
+          <div className="w-[1px] h-2.5 bg-[#C59471]/60 rounded-full" />
+          <div className="w-[1px] h-2.5 bg-[#C59471]/60 rounded-full" />
         </div>
 
         {/* Center area */}
         <div
-          className="absolute top-0 bottom-0 left-2 right-2 cursor-grab active:cursor-grabbing"
+          className="absolute top-0 bottom-0 left-0 right-0 cursor-grab active:cursor-grabbing"
           onMouseDown={(e) => handleMouseDown(e, 'window')}
         />
 
-        {/* Right handle */}
+        {/* Right border line - always visible */}
+        <div className="absolute top-0 bottom-0 right-0 w-[1px] bg-[#C59471]/30" />
+
+        {/* Right handle (only on hover) */}
         <div
-          className="absolute top-0 bottom-0 right-0 w-2 cursor-ew-resize hover:bg-[#C59471]/40 flex items-center justify-center"
-          style={{ marginRight: -4 }}
+          className="absolute top-1/2 -translate-y-1/2 right-0 w-[8px] h-[20px] bg-[#2a2a2a] hover:bg-[#3a3a3a] rounded-sm cursor-ew-resize flex items-center justify-center gap-[1px] border border-[#C59471] opacity-0 group-hover:opacity-100 transition-opacity duration-150 ease-in-out"
+          style={{ marginRight: -3 }}
           onMouseDown={(e) => handleMouseDown(e, 'right')}
         >
-          <div className="w-0.5 h-5 bg-[#C59471] rounded" />
+          <div className="w-[1px] h-2.5 bg-[#C59471]/60 rounded-full" />
+          <div className="w-[1px] h-2.5 bg-[#C59471]/60 rounded-full" />
         </div>
       </div>
 
