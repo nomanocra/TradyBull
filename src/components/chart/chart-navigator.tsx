@@ -71,7 +71,7 @@ function ChartNavigatorComponent({
     if (!ctx) return;
 
     // Background
-    ctx.fillStyle = '#0a0a0a';
+    ctx.fillStyle = '#141414';
     ctx.fillRect(0, 0, width, height);
 
     // Find price range
@@ -188,7 +188,7 @@ function ChartNavigatorComponent({
   return (
     <div
       ref={containerRef}
-      className="relative w-full bg-[#0a0a0a] border-t border-[#1a1a1a] group"
+      className="relative w-full bg-[#141414] border-t border-[#2a2a2a] group"
       style={{ height: HEIGHT }}
     >
       {/* Canvas */}
@@ -196,13 +196,13 @@ function ChartNavigatorComponent({
 
       {/* Left dimmed area */}
       <div
-        className="absolute top-0 bottom-0 left-0 bg-black/60 pointer-events-none"
+        className="absolute top-0 bottom-0 left-0 bg-black/40 pointer-events-none"
         style={{ width: leftPx }}
       />
 
       {/* Right dimmed area */}
       <div
-        className="absolute top-0 bottom-0 bg-black/60 pointer-events-none"
+        className="absolute top-0 bottom-0 bg-black/40 pointer-events-none"
         style={{ left: rightPx, right: PRICE_SCALE_WIDTH }}
       />
 
@@ -249,7 +249,7 @@ function ChartNavigatorComponent({
 
       {/* Price scale spacer */}
       <div
-        className="absolute top-0 bottom-0 right-0 bg-[#0a0a0a] border-l border-[#1a1a1a]"
+        className="absolute top-0 bottom-0 right-0 bg-[#141414] border-l border-[#2a2a2a]"
         style={{ width: PRICE_SCALE_WIDTH }}
       />
     </div>
