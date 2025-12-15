@@ -34,7 +34,6 @@ function ChartNavigatorComponent({
 
   const HEIGHT = 40;
   const HANDLE_WIDTH = 8;
-  const PRICE_SCALE_WIDTH = 85;
 
   // Get container width
   const getContainerWidth = useCallback(() => {
@@ -43,14 +42,14 @@ function ChartNavigatorComponent({
 
   // Convert bar index to pixel position
   const barToPixel = useCallback((bar: number) => {
-    const width = getContainerWidth() - PRICE_SCALE_WIDTH;
+    const width = getContainerWidth();
     if (totalBars <= 0 || width <= 0) return 0;
     return (bar / totalBars) * width;
   }, [getContainerWidth, totalBars]);
 
   // Convert pixel position to bar index
   const pixelToBar = useCallback((pixel: number) => {
-    const width = getContainerWidth() - PRICE_SCALE_WIDTH;
+    const width = getContainerWidth();
     if (width <= 0) return 0;
     return (pixel / width) * totalBars;
   }, [getContainerWidth, totalBars]);
@@ -61,7 +60,7 @@ function ChartNavigatorComponent({
     const container = containerRef.current;
     if (!canvas || !container || data.length === 0) return;
 
-    const width = container.clientWidth - PRICE_SCALE_WIDTH;
+    const width = container.clientWidth;
     const height = HEIGHT;
 
     canvas.width = width;
@@ -203,7 +202,7 @@ function ChartNavigatorComponent({
       {/* Right dimmed area */}
       <div
         className="absolute top-0 bottom-0 bg-black/40 pointer-events-none"
-        style={{ left: rightPx, right: PRICE_SCALE_WIDTH }}
+        style={{ left: rightPx, right: 0 }}
       />
 
       {/* Window */}
@@ -247,11 +246,6 @@ function ChartNavigatorComponent({
         </div>
       </div>
 
-      {/* Price scale spacer */}
-      <div
-        className="absolute top-0 bottom-0 right-0 bg-[#141414] border-l border-[#2a2a2a]"
-        style={{ width: PRICE_SCALE_WIDTH }}
-      />
     </div>
   );
 }
