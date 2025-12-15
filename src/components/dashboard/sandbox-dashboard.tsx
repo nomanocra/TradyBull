@@ -255,6 +255,7 @@ export function SandboxDashboard() {
           timeframe="1h"
           data={data}
           isLoading={isLoading}
+          showNavigator={true}
           {...indicatorProps}
         />
       </div>

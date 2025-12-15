@@ -3,6 +3,7 @@
 import { useEffect, useRef, useMemo, useState, useCallback, memo } from 'react';
 import { createChart, IChartApi, ISeriesApi, CandlestickSeries, LineSeries, HistogramSeries, CandlestickData, LineData, HistogramData, Time, BusinessDay } from 'lightweight-charts';
 import { CandleData, TimeFrame } from '@/types/market';
+import { ChartNavigator } from './chart-navigator';
 
 interface CandlestickChartProps {
   title: string;
@@ -14,6 +15,7 @@ interface CandlestickChartProps {
   showIchimoku?: boolean;
   showMovingAverages?: boolean;
   showRSI?: boolean;
+  showNavigator?: boolean;
 }
 
 // Cache for timezone offsets to avoid repeated calculations
@@ -354,6 +356,7 @@ export function CandlestickChart({
   showIchimoku = false,
   showMovingAverages = false,
   showRSI = false,
+  showNavigator = false,
 }: CandlestickChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mainChartContainerRef = useRef<HTMLDivElement>(null);
@@ -394,9 +397,43 @@ export function CandlestickChart({
   const [rsiHeightPercent, setRsiHeightPercent] = useState(20);
   const [draggingDivider, setDraggingDivider] = useState<'macd' | 'rsi' | null>(null);
 
+  // Navigator state - simple from/to values
+  const [navFrom, setNavFrom] = useState(0);
+  const [navTo, setNavTo] = useState(data.length);
+  const [minVisibleBars, setMinVisibleBars] = useState(50);
+  const [maxVisibleBars, setMaxVisibleBars] = useState(10000);
+  const isNavigatorUpdating = useRef(false);
+
   const lastPrice = data.length > 0 ? data[data.length - 1].close : null;
   const firstPrice = data.length > 0 ? data[0].close : null;
   const priceChange = lastPrice && firstPrice ? ((lastPrice - firstPrice) / firstPrice) * 100 : null;
+
+  // Handle navigator range change - chart is the source of truth
+  const handleNavigatorRangeChange = useCallback((from: number, to: number) => {
+    if (!mainChartRef.current) return;
+    isNavigatorUpdating.current = true;
+
+    // Send request to chart
+    mainChartRef.current.timeScale().setVisibleLogicalRange({ from, to });
+
+    // Get what the chart actually applied and sync everything to that
+    const actualRange = mainChartRef.current.timeScale().getVisibleLogicalRange();
+    if (actualRange) {
+      setNavFrom(actualRange.from);
+      setNavTo(actualRange.to);
+
+      if (macdChartRef.current) {
+        macdChartRef.current.timeScale().setVisibleLogicalRange(actualRange);
+      }
+      if (rsiChartRef.current) {
+        rsiChartRef.current.timeScale().setVisibleLogicalRange(actualRange);
+      }
+    }
+
+    requestAnimationFrame(() => {
+      isNavigatorUpdating.current = false;
+    });
+  }, []);
 
   // Handle divider drag
   const handleMouseDown = useCallback((divider: 'macd' | 'rsi') => (e: React.MouseEvent) => {
@@ -633,13 +670,18 @@ export function CandlestickChart({
       });
     }
 
-    // Sync visible range between all charts
+    // Sync visible range between all charts and navigator
     let isSyncingRange = false;
     const syncRange = (range: { from: number; to: number } | null, source: 'main' | 'macd' | 'rsi') => {
       if (isSyncingRange || !range) return;
       isSyncingRange = true;
       if (source !== 'main' && mainChart) mainChart.timeScale().setVisibleLogicalRange(range);
       if (source !== 'macd' && macdChart) macdChart.timeScale().setVisibleLogicalRange(range);
+      // Update navigator state
+      if (!isNavigatorUpdating.current) {
+        setNavFrom(range.from);
+        setNavTo(range.to);
+      }
       if (source !== 'rsi' && rsiChart) rsiChart.timeScale().setVisibleLogicalRange(range);
       isSyncingRange = false;
     };
@@ -860,10 +902,17 @@ export function CandlestickChart({
     // Handle resize
     const handleResize = () => {
       if (mainChartContainerRef.current && mainChartRef.current) {
+        const width = mainChartContainerRef.current.clientWidth;
         mainChartRef.current.applyOptions({
-          width: mainChartContainerRef.current.clientWidth,
+          width: width,
           height: mainChartContainerRef.current.clientHeight,
         });
+        // Calculate min visible bars: chart width / max bar width (12px at max zoom)
+        const calculatedMin = Math.max(30, Math.floor((width - PRICE_SCALE_WIDTH) / 12));
+        setMinVisibleBars(calculatedMin);
+        // Calculate max visible bars: chart width / minBarSpacing (0.5px at min zoom)
+        const calculatedMax = Math.floor((width - PRICE_SCALE_WIDTH) / 0.5);
+        setMaxVisibleBars(calculatedMax);
       }
       if (macdChartContainerRef.current && macdChartRef.current) {
         macdChartRef.current.applyOptions({
@@ -1110,29 +1159,29 @@ export function CandlestickChart({
       requestAnimationFrame(() => {
         if (mainChartRef.current) {
           const totalBars = data.length;
+          let visibleRange: { from: number; to: number };
+
           if ((timeframe === '1day' || timeframe === '15min') && totalBars > 10) {
-            const visibleRange = {
+            visibleRange = {
               from: Math.floor(totalBars / 2),
               to: totalBars + 5,
             };
-            mainChartRef.current.timeScale().setVisibleLogicalRange(visibleRange);
-            if (macdChartRef.current) {
-              macdChartRef.current.timeScale().setVisibleLogicalRange(visibleRange);
-            }
-            if (rsiChartRef.current) {
-              rsiChartRef.current.timeScale().setVisibleLogicalRange(visibleRange);
-            }
           } else {
-            mainChartRef.current.timeScale().fitContent();
-            const range = mainChartRef.current.timeScale().getVisibleLogicalRange();
-            if (range) {
-              if (macdChartRef.current) {
-                macdChartRef.current.timeScale().setVisibleLogicalRange(range);
-              }
-              if (rsiChartRef.current) {
-                rsiChartRef.current.timeScale().setVisibleLogicalRange(range);
-              }
-            }
+            // For 1h timeframe, show all data
+            visibleRange = {
+              from: 0,
+              to: totalBars,
+            };
+          }
+
+          mainChartRef.current.timeScale().setVisibleLogicalRange(visibleRange);
+          setNavFrom(visibleRange.from);
+          setNavTo(visibleRange.to);
+          if (macdChartRef.current) {
+            macdChartRef.current.timeScale().setVisibleLogicalRange(visibleRange);
+          }
+          if (rsiChartRef.current) {
+            rsiChartRef.current.timeScale().setVisibleLogicalRange(visibleRange);
           }
           isInitialLoadRef.current = false;
         }
@@ -1223,6 +1272,19 @@ export function CandlestickChart({
           </>
         )}
       </div>
+
+      {/* Chart Navigator */}
+      {showNavigator && (
+        <ChartNavigator
+          data={data}
+          totalBars={data.length}
+          visibleFrom={navFrom}
+          visibleTo={navTo}
+          onRangeChange={handleNavigatorRangeChange}
+          minVisibleBars={minVisibleBars}
+          maxVisibleBars={maxVisibleBars}
+        />
+      )}
     </div>
   );
 }

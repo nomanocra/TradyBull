@@ -181,6 +181,7 @@ export function HistoricalDashboard({
           showIchimoku={showIchimoku}
           showMovingAverages={showMovingAverages}
           showRSI={showRSI}
+          showNavigator={true}
         />
       </div>
     </div>
