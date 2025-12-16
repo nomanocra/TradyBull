@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useMemo, useEffect } from 'react';
-import { TradingDashboard } from './trading-dashboard';
+import { RealtimeExplorationDashboard } from './realtime-exploration-dashboard';
 
 const STORAGE_KEY = 'tradybull-exploration-indicators';
 
@@ -68,8 +68,8 @@ export function ExplorationDashboard() {
   }, [activeIndicators]);
 
   const indicatorBar = (
-    <div className="flex items-center gap-1.5 px-2 py-1 bg-[#0d0d0d] border-b border-[#1a1a1a]">
-      <span className="text-[9px] text-gray-500 uppercase tracking-wider mr-1">Indicateurs</span>
+    <div className="flex items-center gap-1.5 px-2 py-1 bg-card border-b border-border">
+      <span className="text-[9px] text-muted-foreground uppercase tracking-wider mr-1">Indicateurs</span>
       {indicators.map((indicator) => {
         const isActive = activeIndicators.has(indicator.id);
         return (
@@ -82,7 +82,7 @@ export function ExplorationDashboard() {
               border
               ${isActive
                 ? 'text-white border-transparent'
-                : 'text-gray-500 border-[#2a2a2a] hover:border-[#3a3a3a] hover:text-gray-400'
+                : 'text-muted-foreground border-border hover:border-muted-foreground/50 hover:text-foreground'
               }
             `}
             style={{
@@ -96,7 +96,7 @@ export function ExplorationDashboard() {
         );
       })}
       {activeIndicators.size === 0 && (
-        <span className="text-[9px] text-gray-600 italic ml-1">
+        <span className="text-[9px] text-muted-foreground/70 italic ml-1">
           Sélectionnez un indicateur
         </span>
       )}
@@ -104,7 +104,7 @@ export function ExplorationDashboard() {
   );
 
   return (
-    <TradingDashboard
+    <RealtimeExplorationDashboard
       pageName="Exploration"
       topBar={indicatorBar}
       {...indicatorProps}

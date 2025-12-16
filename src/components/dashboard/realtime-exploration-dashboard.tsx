@@ -6,7 +6,7 @@ import { useRealtimeData } from '@/app/exploration/real-time/realtime-context';
 
 const FETCH_INTERVAL = 10;
 
-interface TradingDashboardProps {
+interface RealtimeExplorationDashboardProps {
   pageName?: string;
   showBollinger?: boolean;
   showMACD?: boolean;
@@ -16,7 +16,7 @@ interface TradingDashboardProps {
   topBar?: React.ReactNode;
 }
 
-export function TradingDashboard({
+export function RealtimeExplorationDashboard({
   pageName = 'MACD & Bollinger',
   showBollinger = false,
   showMACD = false,
@@ -24,7 +24,7 @@ export function TradingDashboard({
   showMovingAverages = false,
   showRSI = false,
   topBar,
-}: TradingDashboardProps) {
+}: RealtimeExplorationDashboardProps) {
   const {
     data,
     isLoading,
@@ -67,9 +67,9 @@ export function TradingDashboard({
   }, [lastFetchTime, data, standby]);
 
   return (
-    <div className="h-full w-full bg-[#0a0a0a] flex flex-col overflow-hidden">
+    <div className="h-full w-full bg-background flex flex-col overflow-hidden">
       {/* Header */}
-      <header className="flex items-center justify-between px-3 py-1.5 border-b border-[#1a1a1a] bg-[#0d0d0d]">
+      <header className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-card">
         {/* Page name - Left */}
         <div className="flex-1 flex items-center gap-3">
           <span className="text-xs font-semibold text-[#C59471]">{pageName}</span>
@@ -77,10 +77,10 @@ export function TradingDashboard({
 
         {/* Symbol and price - Center */}
         <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-gray-400">{dataSource || 'NASDAQ'}</span>
+          <span className="text-xs font-medium text-muted-foreground">{dataSource || 'NASDAQ'}</span>
           {lastPrice && (
             <>
-              <span className="text-sm font-mono font-semibold text-white">
+              <span className="text-sm font-mono font-semibold text-foreground">
                 {lastPrice.toFixed(2)}
               </span>
               {priceChange !== null && (
@@ -106,7 +106,7 @@ export function TradingDashboard({
                   cy="8"
                   r="6"
                   fill="none"
-                  stroke="#27272a"
+                  className="stroke-muted"
                   strokeWidth="2"
                 />
                 <circle
@@ -114,29 +114,29 @@ export function TradingDashboard({
                   cy="8"
                   r="6"
                   fill="none"
-                  stroke="#71717a"
+                  className="stroke-muted-foreground"
                   strokeWidth="2"
                   strokeDasharray={2 * Math.PI * 6}
                   strokeDashoffset={2 * Math.PI * 6 * (countdown / FETCH_INTERVAL)}
                   strokeLinecap="round"
-                  className={isResetting ? '' : 'transition-all duration-1000 ease-linear'}
+                  style={{ transition: isResetting ? 'none' : 'stroke-dashoffset 1s linear' }}
                 />
               </svg>
             </div>
           )}
           {displayTime && (
             <div className="flex flex-col items-end leading-tight">
-              <span className="text-[10px] text-gray-600 font-mono">
+              <span className="text-[10px] text-muted-foreground font-mono">
                 {displayTime}
               </span>
               {displayDate && (
-                <span className="text-[9px] text-gray-700 font-mono">
+                <span className="text-[9px] text-muted-foreground/70 font-mono">
                   {displayDate}
                 </span>
               )}
             </div>
           )}
-          <span className={`text-[10px] font-medium ${marketOpen ? 'text-emerald-500' : 'text-gray-600'}`}>
+          <span className={`text-[10px] font-medium ${marketOpen ? 'text-emerald-500' : 'text-muted-foreground'}`}>
             {marketOpen ? 'MARKET OPEN' : 'MARKET CLOSED'}
           </span>
           {/* WebSocket status indicator */}
@@ -144,7 +144,7 @@ export function TradingDashboard({
             className={`w-1.5 h-1.5 rounded-full ${
               error ? 'bg-red-500' :
               !wsConnected ? 'bg-yellow-500 animate-pulse' :
-              standby ? 'bg-gray-500' :
+              standby ? 'bg-muted-foreground' :
               marketOpen ? 'bg-emerald-500 animate-pulse' : 'bg-emerald-500'
             }`}
             title={
@@ -161,7 +161,7 @@ export function TradingDashboard({
       {topBar}
 
       {/* Charts Grid */}
-      <div className="flex-1 flex flex-col gap-2 p-2 bg-[#0a0a0a] min-h-0">
+      <div className="flex-1 flex flex-col gap-2 p-2 bg-background min-h-0">
         {/* Main Chart - 1 Hour */}
         <div className="flex-[1.2] min-h-0">
           <MemoizedCandlestickChart

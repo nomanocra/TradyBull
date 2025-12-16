@@ -1,8 +1,8 @@
-import { TradingDashboard } from '@/components/dashboard/trading-dashboard';
+import { RealtimeExplorationDashboard } from '@/components/dashboard/realtime-exploration-dashboard';
 
 export default function IchimokuRealTimePage() {
   return (
-    <TradingDashboard
+    <RealtimeExplorationDashboard
       pageName="Ichimoku Cloud"
       showIchimoku={true}
     />

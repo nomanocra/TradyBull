@@ -1,5 +1,5 @@
-import { SandboxDashboard } from '@/components/dashboard/sandbox-dashboard';
+import { MultiIndicatorHistoricalDashboard } from '@/components/dashboard/multi-indicator-historical-dashboard';
 
 export default function HistoricalMultiIndicatorPage() {
-  return <SandboxDashboard />;
+  return <MultiIndicatorHistoricalDashboard />;
 }

@@ -1,8 +1,8 @@
-import { TradingDashboard } from '@/components/dashboard/trading-dashboard';
+import { RealtimeExplorationDashboard } from '@/components/dashboard/realtime-exploration-dashboard';
 
 export default function BollingerRealTimePage() {
   return (
-    <TradingDashboard
+    <RealtimeExplorationDashboard
       pageName="Bollinger Bands"
       showBollinger={true}
     />

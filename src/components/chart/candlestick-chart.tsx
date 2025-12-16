@@ -32,6 +32,7 @@ const chartColors = {
     border: '#1a1a1a',
     crosshair: '#4b5563',
     crosshairLabel: '#1f2937',
+    signalBuy: '#facc15', // Bright yellow
   },
   light: {
     background: '#ffffff',
@@ -41,6 +42,7 @@ const chartColors = {
     border: '#e5e7eb',
     crosshair: '#9ca3af',
     crosshairLabel: '#f3f4f6',
+    signalBuy: '#eab308', // Slightly darker yellow
   },
 };
 
@@ -622,12 +624,12 @@ export function CandlestickChart({
       .map(signal => ({
         time: timeMap.get(signal.time)!,
         position: signal.type === 'buy' ? 'belowBar' as const : 'aboveBar' as const,
-        color: signal.type === 'buy' ? '#facc15' : '#ef4444', // Yellow for buy, red for sell
+        color: signal.type === 'buy' ? colors.signalBuy : '#ef4444', // Yellow for buy, red for sell
         shape: signal.type === 'buy' ? 'arrowUp' as const : 'arrowDown' as const,
         text: signal.label || '',
         size: 1,
       }));
-  }, [signals, data, chartTimes]);
+  }, [signals, data, chartTimes, colors.signalBuy]);
 
   // Initialize charts
   useEffect(() => {
@@ -1012,7 +1014,70 @@ export function CandlestickChart({
       if (macdChart) macdChart.remove();
       if (rsiChart) rsiChart.remove();
     };
-  }, [timeframe, showBollinger, showMACD, showIchimoku, showMovingAverages, showRSI, data.length, isDark, colors]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timeframe, showBollinger, showMACD, showIchimoku, showMovingAverages, showRSI, data.length]);
+
+  // Update chart theme colors without recreating the chart
+  useEffect(() => {
+    if (!mainChartRef.current) return;
+
+    const showTimeAxisOnMacd = !showRSI;
+
+    mainChartRef.current.applyOptions({
+      layout: {
+        background: { color: colors.background },
+        textColor: colors.text,
+      },
+      grid: {
+        vertLines: { color: colors.grid },
+        horzLines: { color: colors.grid },
+      },
+      crosshair: {
+        vertLine: { color: colors.crosshair, labelBackgroundColor: colors.crosshairLabel },
+        horzLine: { color: colors.crosshair, labelBackgroundColor: colors.crosshairLabel },
+      },
+      rightPriceScale: { borderColor: colors.border },
+      timeScale: { borderColor: colors.border },
+    });
+
+    if (macdChartRef.current) {
+      macdChartRef.current.applyOptions({
+        layout: {
+          background: { color: colors.backgroundAlt },
+          textColor: colors.text,
+        },
+        grid: {
+          vertLines: { color: colors.grid },
+          horzLines: { color: colors.grid },
+        },
+        crosshair: {
+          vertLine: { color: colors.crosshair, labelVisible: showTimeAxisOnMacd, labelBackgroundColor: colors.crosshairLabel },
+          horzLine: { color: colors.crosshair, labelBackgroundColor: colors.crosshairLabel },
+        },
+        rightPriceScale: { borderColor: colors.border },
+        timeScale: { borderColor: colors.border },
+      });
+    }
+
+    if (rsiChartRef.current) {
+      rsiChartRef.current.applyOptions({
+        layout: {
+          background: { color: colors.backgroundAlt },
+          textColor: colors.text,
+        },
+        grid: {
+          vertLines: { color: colors.grid },
+          horzLines: { color: colors.grid },
+        },
+        crosshair: {
+          vertLine: { color: colors.crosshair, labelBackgroundColor: colors.crosshairLabel },
+          horzLine: { color: colors.crosshair, labelBackgroundColor: colors.crosshairLabel },
+        },
+        rightPriceScale: { borderColor: colors.border },
+        timeScale: { borderColor: colors.border },
+      });
+    }
+  }, [isDark, colors, showMACD, showRSI]);
 
   // Resize charts when divider is moved
   useEffect(() => {
@@ -1229,41 +1294,41 @@ export function CandlestickChart({
       stochRsiOversoldRef.current?.setData(chartDataArrays.stochRsiOversoldData);
     }
 
-    // Only set visible range on initial load
+    // Set visible range on initial load only
     if (isInitialLoadRef.current) {
       requestAnimationFrame(() => {
-        if (mainChartRef.current) {
-          const totalBars = data.length;
-          let visibleRange: { from: number; to: number };
+        if (!mainChartRef.current) return;
 
-          if ((timeframe === '1day' || timeframe === '15min') && totalBars > 10) {
-            visibleRange = {
-              from: Math.floor(totalBars / 2),
-              to: totalBars + 5,
-            };
-          } else {
-            // For 1h timeframe, show all data
-            visibleRange = {
-              from: 0,
-              to: totalBars,
-            };
-          }
+        const totalBars = data.length;
+        let visibleRange: { from: number; to: number };
 
-          mainChartRef.current.timeScale().setVisibleLogicalRange(visibleRange);
-          setNavFrom(visibleRange.from);
-          setNavTo(visibleRange.to);
-          if (macdChartRef.current) {
-            macdChartRef.current.timeScale().setVisibleLogicalRange(visibleRange);
-          }
-          if (rsiChartRef.current) {
-            rsiChartRef.current.timeScale().setVisibleLogicalRange(visibleRange);
-          }
-          isInitialLoadRef.current = false;
+        if ((timeframe === '1day' || timeframe === '15min') && totalBars > 10) {
+          visibleRange = {
+            from: Math.floor(totalBars / 2),
+            to: totalBars + 5,
+          };
+        } else {
+          // For 1h timeframe, show all data
+          visibleRange = {
+            from: 0,
+            to: totalBars,
+          };
         }
+
+        mainChartRef.current.timeScale().setVisibleLogicalRange(visibleRange);
+        setNavFrom(visibleRange.from);
+        setNavTo(visibleRange.to);
+        if (macdChartRef.current) {
+          macdChartRef.current.timeScale().setVisibleLogicalRange(visibleRange);
+        }
+        if (rsiChartRef.current) {
+          rsiChartRef.current.timeScale().setVisibleLogicalRange(visibleRange);
+        }
+        isInitialLoadRef.current = false;
       });
     }
 
-  }, [chartDataArrays, showBollinger, showMACD, showIchimoku, showMovingAverages, showRSI, bollingerData, ichimokuData, movingAveragesData, macdData, stochRsiData, data.length, timeframe, isDark]);
+  }, [chartDataArrays, showBollinger, showMACD, showIchimoku, showMovingAverages, showRSI, bollingerData, ichimokuData, movingAveragesData, macdData, stochRsiData, data.length, timeframe]);
 
   // Update markers when signals change
   useEffect(() => {

@@ -4,11 +4,12 @@ import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { ChevronDown, ChevronRight, Compass, Play } from 'lucide-react';
+import { ChevronDown, ChevronRight, Compass, Play, Sun, Moon } from 'lucide-react';
 import { GroupButton } from '@/components/ui/group-button';
 
 const STORAGE_KEY = 'tradybull-sidebar-sections';
 const MODE_STORAGE_KEY = 'tradybull-sidebar-mode';
+const THEME_STORAGE_KEY = 'tradybull-theme';
 
 type Mode = 'exploration' | 'strategy';
 
@@ -50,11 +51,15 @@ const explorationNavigation: NavSection[] = [
 const strategyNavigation: NavSection[] = [
   {
     title: 'Real Time',
-    items: [],
+    items: [
+      { name: 'Bollinger NoSL', href: '/strategy/real-time/bollinger-nosl' },
+    ],
   },
   {
     title: 'Backtesting',
-    items: [],
+    items: [
+      { name: 'Bollinger NoSL', href: '/strategy/backtesting/bollinger-nosl' },
+    ],
   },
 ];
 
@@ -69,10 +74,13 @@ const defaultSections: Record<string, boolean> = {
   'Backtesting': true,
 };
 
+type Theme = 'dark' | 'light';
+
 export function Sidebar() {
   const pathname = usePathname();
   const [mode, setMode] = useState<Mode>('exploration');
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>(defaultSections);
+  const [theme, setTheme] = useState<Theme>('dark');
   const [isHydrated, setIsHydrated] = useState(false);
 
   // Load from localStorage after hydration
@@ -88,6 +96,11 @@ export function Sidebar() {
     const savedMode = localStorage.getItem(MODE_STORAGE_KEY) as Mode | null;
     if (savedMode === 'exploration' || savedMode === 'strategy') {
       setMode(savedMode);
+    }
+    const savedTheme = localStorage.getItem(THEME_STORAGE_KEY) as Theme | null;
+    if (savedTheme === 'dark' || savedTheme === 'light') {
+      setTheme(savedTheme);
+      document.documentElement.classList.toggle('dark', savedTheme === 'dark');
     }
     setIsHydrated(true);
   }, []);
@@ -106,6 +119,14 @@ export function Sidebar() {
     }
   }, [mode, isHydrated]);
 
+  // Toggle theme
+  const toggleTheme = () => {
+    const newTheme = theme === 'dark' ? 'light' : 'dark';
+    setTheme(newTheme);
+    localStorage.setItem(THEME_STORAGE_KEY, newTheme);
+    document.documentElement.classList.toggle('dark', newTheme === 'dark');
+  };
+
   const toggleSection = (title: string) => {
     setExpandedSections((prev) => ({
       ...prev,
@@ -118,19 +139,20 @@ export function Sidebar() {
   // Check if a path is active (exact match or starts with for nested routes)
   const isPathActive = (href: string) => {
     if (href === pathname) return true;
-    // For real-time and historical base paths, only match exact
-    if (href === '/exploration/real-time' || href === '/exploration/historical') {
+    // For base paths, only match exact
+    if (href === '/exploration/real-time' || href === '/exploration/historical' ||
+        href === '/strategy/real-time' || href === '/strategy/backtesting') {
       return pathname === href;
     }
     return false;
   };
 
   return (
-    <div className="w-52 h-screen bg-[#0d0d0d] border-r border-[#1a1a1a] flex flex-col">
+    <div className="w-52 h-screen bg-card border-r border-border flex flex-col">
       {/* Logo */}
       <div className="flex items-center gap-2 px-4 py-3">
         <Image src="/logo-icon.svg" alt="TradyBull" width={24} height={24} />
-        <span className="text-sm font-bold text-white tracking-tight">TRADYBULL</span>
+        <span className="text-sm font-bold text-foreground tracking-tight">TRADYBULL</span>
       </div>
 
       {/* Mode Switch */}
@@ -150,12 +172,12 @@ export function Sidebar() {
             {/* Section Header */}
             <button
               onClick={() => toggleSection(section.title)}
-              className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-semibold text-gray-400 hover:text-gray-300 hover:bg-[#141414] transition-colors"
+              className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-semibold text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
             >
               {expandedSections[section.title] ? (
-                <ChevronDown size={14} className="text-gray-500" />
+                <ChevronDown size={14} className="text-muted-foreground" />
               ) : (
-                <ChevronRight size={14} className="text-gray-500" />
+                <ChevronRight size={14} className="text-muted-foreground" />
               )}
               <span className="uppercase tracking-wider">{section.title}</span>
             </button>
@@ -173,7 +195,7 @@ export function Sidebar() {
                         className={`block px-4 py-1.5 text-xs transition-colors ${
                           isActive
                             ? 'text-[#C59471] bg-[#C59471]/10 border-l-2 border-[#C59471]'
-                            : 'text-gray-300 hover:text-white hover:bg-[#141414] border-l-2 border-transparent'
+                            : 'text-muted-foreground hover:text-foreground hover:bg-muted border-l-2 border-transparent'
                         }`}
                       >
                         {item.name}
@@ -181,7 +203,7 @@ export function Sidebar() {
                     );
                   })
                 ) : (
-                  <div className="px-4 py-1.5 text-xs text-gray-600 italic">
+                  <div className="px-4 py-1.5 text-xs text-muted-foreground italic">
                     Coming soon
                   </div>
                 )}
@@ -192,8 +214,15 @@ export function Sidebar() {
       </nav>
 
       {/* Footer */}
-      <div className="px-3 py-2 border-t border-[#1a1a1a]">
-        <div className="text-[10px] text-gray-600">v0.1.0</div>
+      <div className="px-3 py-2 border-t border-border flex items-center justify-between">
+        <div className="text-[10px] text-muted-foreground">v0.1.0</div>
+        <button
+          onClick={toggleTheme}
+          className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+        >
+          {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+        </button>
       </div>
     </div>
   );

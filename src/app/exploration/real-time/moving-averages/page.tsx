@@ -1,8 +1,8 @@
-import { TradingDashboard } from '@/components/dashboard/trading-dashboard';
+import { RealtimeExplorationDashboard } from '@/components/dashboard/realtime-exploration-dashboard';
 
 export default function MovingAveragesRealTimePage() {
   return (
-    <TradingDashboard
+    <RealtimeExplorationDashboard
       pageName="Moving Averages"
       showMovingAverages={true}
     />

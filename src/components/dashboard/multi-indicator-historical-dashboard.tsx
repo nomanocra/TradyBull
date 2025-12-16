@@ -5,7 +5,7 @@ import { MemoizedCandlestickChart } from '@/components/chart/candlestick-chart';
 import { DatePicker } from '@/components/ui/date-picker';
 import { useHistoricalData } from '@/app/exploration/historical/historical-context';
 
-const STORAGE_KEY = 'tradybull-sandbox-indicators';
+const STORAGE_KEY = 'tradybull-historical-indicators';
 
 interface IndicatorToggle {
   id: string;
@@ -23,7 +23,7 @@ const indicators: IndicatorToggle[] = [
   { id: 'rsi', label: 'Stochastic RSI', shortLabel: 'Stoch', color: '#10b981', prop: 'showRSI' },
 ];
 
-export function SandboxDashboard() {
+export function MultiIndicatorHistoricalDashboard() {
   const {
     data,
     isLoading,
@@ -88,9 +88,9 @@ export function SandboxDashboard() {
   }, [data]);
 
   return (
-    <div className="h-full w-full bg-[#0a0a0a] flex flex-col overflow-hidden">
+    <div className="h-full w-full bg-background flex flex-col overflow-hidden">
       {/* Header */}
-      <header className="flex items-center justify-between px-3 py-1.5 border-b border-[#1a1a1a] bg-[#0d0d0d]">
+      <header className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-card">
         {/* Page name - Left */}
         <div className="flex-1 flex items-center gap-3">
           <span className="text-xs font-semibold text-[#C59471]">Multi Indicator</span>
@@ -98,10 +98,10 @@ export function SandboxDashboard() {
 
         {/* Symbol and price - Center */}
         <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-gray-400">{dataInfo?.symbol || 'NQ=F'}</span>
+          <span className="text-xs font-medium text-muted-foreground">{dataInfo?.symbol || 'NQ=F'}</span>
           {lastPrice && (
             <>
-              <span className="text-sm font-mono font-semibold text-white">
+              <span className="text-sm font-mono font-semibold text-foreground">
                 {lastPrice.toFixed(2)}
               </span>
               {priceChange !== null && (
@@ -122,7 +122,7 @@ export function SandboxDashboard() {
           {dateBounds && (
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-1">
-                <span className="text-[9px] text-gray-500">Start</span>
+                <span className="text-[9px] text-muted-foreground">Start</span>
                 <DatePicker
                   date={startDate}
                   onDateChange={setStartDate}
@@ -131,7 +131,7 @@ export function SandboxDashboard() {
                 />
               </div>
               <div className="flex items-center gap-1">
-                <span className="text-[9px] text-gray-500">End</span>
+                <span className="text-[9px] text-muted-foreground">End</span>
                 <DatePicker
                   date={endDate}
                   onDateChange={setEndDate}
@@ -142,7 +142,7 @@ export function SandboxDashboard() {
             </div>
           )}
           {dataInfo && (
-            <span className="text-[10px] text-gray-500">
+            <span className="text-[10px] text-muted-foreground">
               {dataInfo.count.toLocaleString()} candles
             </span>
           )}
@@ -158,8 +158,8 @@ export function SandboxDashboard() {
       </header>
 
       {/* Indicator Bar */}
-      <div className="flex items-center gap-1.5 px-2 py-1 bg-[#0d0d0d] border-b border-[#1a1a1a]">
-        <span className="text-[9px] text-gray-500 uppercase tracking-wider mr-1">Indicateurs</span>
+      <div className="flex items-center gap-1.5 px-2 py-1 bg-card border-b border-border">
+        <span className="text-[9px] text-muted-foreground uppercase tracking-wider mr-1">Indicateurs</span>
         {indicators.map((indicator) => {
           const isActive = activeIndicators.has(indicator.id);
           return (
@@ -172,7 +172,7 @@ export function SandboxDashboard() {
                 border
                 ${isActive
                   ? 'text-white border-transparent'
-                  : 'text-gray-500 border-[#2a2a2a] hover:border-[#3a3a3a] hover:text-gray-400'
+                  : 'text-muted-foreground border-border hover:border-muted-foreground/50 hover:text-foreground'
                 }
               `}
               style={{
@@ -186,14 +186,14 @@ export function SandboxDashboard() {
           );
         })}
         {activeIndicators.size === 0 && (
-          <span className="text-[9px] text-gray-600 italic ml-1">
+          <span className="text-[9px] text-muted-foreground/70 italic ml-1">
             Sélectionnez un indicateur
           </span>
         )}
       </div>
 
       {/* Single 1H Chart */}
-      <div className="flex-1 p-2 bg-[#0a0a0a] min-h-0">
+      <div className="flex-1 p-2 bg-background min-h-0">
         <MemoizedCandlestickChart
           title="1H - Historical"
           timeframe="1h"
