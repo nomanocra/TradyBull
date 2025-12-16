@@ -3,6 +3,40 @@
 import { useRef, useEffect, useCallback, useState, memo } from 'react';
 import { CandleData } from '@/types/market';
 
+// Theme-aware navigator colors
+const navigatorColors = {
+  dark: {
+    background: '#141414',
+    line: '#4b5563',
+  },
+  light: {
+    background: '#f9fafb',
+    line: '#9ca3af',
+  },
+};
+
+// Hook to detect theme changes
+function useTheme() {
+  const [isDark, setIsDark] = useState(true);
+
+  useEffect(() => {
+    setIsDark(document.documentElement.classList.contains('dark'));
+
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.attributeName === 'class') {
+          setIsDark(document.documentElement.classList.contains('dark'));
+        }
+      });
+    });
+
+    observer.observe(document.documentElement, { attributes: true });
+    return () => observer.disconnect();
+  }, []);
+
+  return isDark;
+}
+
 interface ChartNavigatorProps {
   data: CandleData[];
   totalBars: number;
@@ -24,6 +58,9 @@ function ChartNavigatorComponent({
   minVisibleBars = 50,
   maxVisibleBars = 10000,
 }: ChartNavigatorProps) {
+  const isDark = useTheme();
+  const colors = navigatorColors[isDark ? 'dark' : 'light'];
+
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -54,11 +91,20 @@ function ChartNavigatorComponent({
     return (pixel / width) * totalBars;
   }, [getContainerWidth, totalBars]);
 
-  // Draw miniature chart
+  // Stable reference to data for the drawing effect
+  const dataRef = useRef(data);
+  dataRef.current = data;
+
+  // Draw miniature chart - use stable dependencies to avoid size change warnings
+  const dataLength = data.length;
+  const firstTime = data[0]?.time;
+  const lastTime = data[dataLength - 1]?.time;
+
   useEffect(() => {
     const canvas = canvasRef.current;
     const container = containerRef.current;
-    if (!canvas || !container || data.length === 0) return;
+    const currentData = dataRef.current;
+    if (!canvas || !container || currentData.length === 0) return;
 
     const width = container.clientWidth;
     const height = HEIGHT;
@@ -70,13 +116,13 @@ function ChartNavigatorComponent({
     if (!ctx) return;
 
     // Background
-    ctx.fillStyle = '#141414';
+    ctx.fillStyle = colors.background;
     ctx.fillRect(0, 0, width, height);
 
     // Find price range
     let minPrice = Infinity;
     let maxPrice = -Infinity;
-    for (const candle of data) {
+    for (const candle of currentData) {
       minPrice = Math.min(minPrice, candle.low);
       maxPrice = Math.max(maxPrice, candle.high);
     }
@@ -84,20 +130,20 @@ function ChartNavigatorComponent({
 
     // Draw line
     ctx.beginPath();
-    ctx.strokeStyle = '#4b5563';
+    ctx.strokeStyle = colors.line;
     ctx.lineWidth = 1;
 
     const padding = 4;
     const chartHeight = height - padding * 2;
 
-    for (let i = 0; i < data.length; i++) {
-      const x = (i / Math.max(data.length - 1, 1)) * width;
-      const y = padding + chartHeight - ((data[i].close - minPrice) / priceRange) * chartHeight;
+    for (let i = 0; i < currentData.length; i++) {
+      const x = (i / Math.max(currentData.length - 1, 1)) * width;
+      const y = padding + chartHeight - ((currentData[i].close - minPrice) / priceRange) * chartHeight;
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
     ctx.stroke();
-  }, [data]);
+  }, [dataLength, firstTime, lastTime, colors]);
 
   // Handle mouse down
   const handleMouseDown = useCallback((e: React.MouseEvent, type: DragType) => {
@@ -187,7 +233,7 @@ function ChartNavigatorComponent({
   return (
     <div
       ref={containerRef}
-      className="relative w-full bg-[#141414] border-t border-[#2a2a2a] group"
+      className="relative w-full bg-card border-t border-border group"
       style={{ height: HEIGHT }}
     >
       {/* Canvas */}
@@ -218,7 +264,7 @@ function ChartNavigatorComponent({
 
         {/* Left handle (visible on hover or dragging) */}
         <div
-          className={`absolute top-1/2 -translate-y-1/2 left-0 w-[8px] h-[20px] bg-[#2a2a2a] hover:bg-[#3a3a3a] rounded-sm cursor-ew-resize flex items-center justify-center gap-[1px] border border-[#C59471] transition-opacity duration-300 ease-in-out ${isDragging ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+          className={`absolute top-1/2 -translate-y-1/2 left-0 w-[8px] h-[20px] bg-muted hover:bg-muted-foreground/30 rounded-sm cursor-ew-resize flex items-center justify-center gap-[1px] border border-[#C59471] transition-opacity duration-300 ease-in-out ${isDragging ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
           style={{ marginLeft: -3 }}
           onMouseDown={(e) => handleMouseDown(e, 'left')}
         >
@@ -237,7 +283,7 @@ function ChartNavigatorComponent({
 
         {/* Right handle (visible on hover or dragging) */}
         <div
-          className={`absolute top-1/2 -translate-y-1/2 right-0 w-[8px] h-[20px] bg-[#2a2a2a] hover:bg-[#3a3a3a] rounded-sm cursor-ew-resize flex items-center justify-center gap-[1px] border border-[#C59471] transition-opacity duration-300 ease-in-out ${isDragging ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+          className={`absolute top-1/2 -translate-y-1/2 right-0 w-[8px] h-[20px] bg-muted hover:bg-muted-foreground/30 rounded-sm cursor-ew-resize flex items-center justify-center gap-[1px] border border-[#C59471] transition-opacity duration-300 ease-in-out ${isDragging ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
           style={{ marginRight: -3 }}
           onMouseDown={(e) => handleMouseDown(e, 'right')}
         >

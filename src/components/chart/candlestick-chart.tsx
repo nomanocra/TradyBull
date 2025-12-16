@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useMemo, useState, useCallback, memo } from 'react';
-import { createChart, IChartApi, ISeriesApi, CandlestickSeries, LineSeries, HistogramSeries, CandlestickData, LineData, HistogramData, Time, BusinessDay } from 'lightweight-charts';
-import { CandleData, TimeFrame } from '@/types/market';
+import { createChart, IChartApi, ISeriesApi, CandlestickSeries, LineSeries, HistogramSeries, CandlestickData, LineData, HistogramData, Time, BusinessDay, SeriesMarker, createSeriesMarkers } from 'lightweight-charts';
+import { CandleData, TimeFrame, Signal } from '@/types/market';
 import { ChartNavigator } from './chart-navigator';
 
 interface CandlestickChartProps {
@@ -16,10 +16,58 @@ interface CandlestickChartProps {
   showMovingAverages?: boolean;
   showRSI?: boolean;
   showNavigator?: boolean;
+  signals?: Signal[];
 }
 
 // Cache for timezone offsets to avoid repeated calculations
 const timezoneOffsetCache = new Map<number, number>();
+
+// Theme-aware chart colors
+const chartColors = {
+  dark: {
+    background: '#0d0d0d',
+    backgroundAlt: '#141414',
+    text: '#6b7280',
+    grid: '#1a1a1a',
+    border: '#1a1a1a',
+    crosshair: '#4b5563',
+    crosshairLabel: '#1f2937',
+  },
+  light: {
+    background: '#ffffff',
+    backgroundAlt: '#f9fafb',
+    text: '#374151',
+    grid: '#e5e7eb',
+    border: '#e5e7eb',
+    crosshair: '#9ca3af',
+    crosshairLabel: '#f3f4f6',
+  },
+};
+
+// Hook to detect theme changes
+function useTheme() {
+  const [isDark, setIsDark] = useState(true);
+
+  useEffect(() => {
+    // Initial check
+    setIsDark(document.documentElement.classList.contains('dark'));
+
+    // Observe class changes on document element
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.attributeName === 'class') {
+          setIsDark(document.documentElement.classList.contains('dark'));
+        }
+      });
+    });
+
+    observer.observe(document.documentElement, { attributes: true });
+
+    return () => observer.disconnect();
+  }, []);
+
+  return isDark;
+}
 
 // Bollinger Bands settings
 const BB_PERIOD = 20;
@@ -357,7 +405,11 @@ export function CandlestickChart({
   showMovingAverages = false,
   showRSI = false,
   showNavigator = false,
+  signals = [],
 }: CandlestickChartProps) {
+  const isDark = useTheme();
+  const colors = chartColors[isDark ? 'dark' : 'light'];
+
   const containerRef = useRef<HTMLDivElement>(null);
   const mainChartContainerRef = useRef<HTMLDivElement>(null);
   const macdChartContainerRef = useRef<HTMLDivElement>(null);
@@ -389,6 +441,7 @@ export function CandlestickChart({
   const stochRsiDRef = useRef<ISeriesApi<'Line'> | null>(null);
   const stochRsiOverboughtRef = useRef<ISeriesApi<'Line'> | null>(null);
   const stochRsiOversoldRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const markersRef = useRef<ReturnType<typeof createSeriesMarkers<Time>> | null>(null);
   const isInitialLoadRef = useRef(true);
 
 
@@ -554,6 +607,28 @@ export function CandlestickChart({
     };
   }, [data, showMovingAverages]);
 
+  // Prepare markers from signals
+  const markersData = useMemo((): SeriesMarker<Time>[] => {
+    if (signals.length === 0 || data.length === 0 || chartTimes.length === 0) return [];
+
+    // Create a map of timestamp to chartTime for quick lookup
+    const timeMap = new Map<number, Time>();
+    data.forEach((candle, i) => {
+      timeMap.set(candle.time, chartTimes[i]);
+    });
+
+    return signals
+      .filter(signal => timeMap.has(signal.time))
+      .map(signal => ({
+        time: timeMap.get(signal.time)!,
+        position: signal.type === 'buy' ? 'belowBar' as const : 'aboveBar' as const,
+        color: signal.type === 'buy' ? '#facc15' : '#ef4444', // Yellow for buy, red for sell
+        shape: signal.type === 'buy' ? 'arrowUp' as const : 'arrowDown' as const,
+        text: signal.label || '',
+        size: 1,
+      }));
+  }, [signals, data, chartTimes]);
+
   // Initialize charts
   useEffect(() => {
     if (!mainChartContainerRef.current) return;
@@ -569,27 +644,27 @@ export function CandlestickChart({
     // Main chart with candlesticks and overlays
     const mainChart = createChart(mainChartContainerRef.current, {
       layout: {
-        background: { color: '#0d0d0d' },
-        textColor: '#6b7280',
+        background: { color: colors.background },
+        textColor: colors.text,
         fontSize: 10,
       },
       grid: {
-        vertLines: { color: '#1a1a1a' },
-        horzLines: { color: '#1a1a1a' },
+        vertLines: { color: colors.grid },
+        horzLines: { color: colors.grid },
       },
       crosshair: {
         mode: 1,
-        vertLine: { color: '#4b5563', width: 1, style: 2, labelVisible: showTimeAxisOnMain, labelBackgroundColor: '#1f2937' },
-        horzLine: { color: '#4b5563', width: 1, style: 2, labelBackgroundColor: '#1f2937' },
+        vertLine: { color: colors.crosshair, width: 1, style: 2, labelVisible: showTimeAxisOnMain, labelBackgroundColor: colors.crosshairLabel },
+        horzLine: { color: colors.crosshair, width: 1, style: 2, labelBackgroundColor: colors.crosshairLabel },
       },
       rightPriceScale: {
-        borderColor: '#1a1a1a',
+        borderColor: colors.border,
         scaleMargins: { top: 0.1, bottom: 0.1 },
         minimumWidth: PRICE_SCALE_WIDTH,
       },
       localization: { locale: 'fr-FR' },
       timeScale: {
-        borderColor: '#1a1a1a',
+        borderColor: colors.border,
         visible: showTimeAxisOnMain,
         timeVisible: timeframe !== '1day',
         secondsVisible: false,
@@ -605,27 +680,27 @@ export function CandlestickChart({
       const showTimeAxisOnMacd = !showRSI;
       macdChart = createChart(macdChartContainerRef.current, {
         layout: {
-          background: { color: '#141414' },
-          textColor: '#6b7280',
+          background: { color: colors.backgroundAlt },
+          textColor: colors.text,
           fontSize: 10,
         },
         grid: {
-          vertLines: { color: '#1a1a1a' },
-          horzLines: { color: '#1a1a1a' },
+          vertLines: { color: colors.grid },
+          horzLines: { color: colors.grid },
         },
         crosshair: {
           mode: 1,
-          vertLine: { color: '#4b5563', width: 1, style: 2, labelVisible: showTimeAxisOnMacd, labelBackgroundColor: '#1f2937' },
-          horzLine: { color: '#4b5563', width: 1, style: 2, labelBackgroundColor: '#1f2937' },
+          vertLine: { color: colors.crosshair, width: 1, style: 2, labelVisible: showTimeAxisOnMacd, labelBackgroundColor: colors.crosshairLabel },
+          horzLine: { color: colors.crosshair, width: 1, style: 2, labelBackgroundColor: colors.crosshairLabel },
         },
         rightPriceScale: {
-          borderColor: '#1a1a1a',
+          borderColor: colors.border,
           scaleMargins: { top: 0.05, bottom: 0.05 },
           minimumWidth: PRICE_SCALE_WIDTH,
         },
         localization: { locale: 'fr-FR' },
         timeScale: {
-          borderColor: '#1a1a1a',
+          borderColor: colors.border,
           visible: showTimeAxisOnMacd,
           timeVisible: timeframe !== '1day',
           secondsVisible: false,
@@ -640,27 +715,27 @@ export function CandlestickChart({
     if (showRSI && rsiChartContainerRef.current) {
       rsiChart = createChart(rsiChartContainerRef.current, {
         layout: {
-          background: { color: '#141414' },
-          textColor: '#6b7280',
+          background: { color: colors.backgroundAlt },
+          textColor: colors.text,
           fontSize: 10,
         },
         grid: {
-          vertLines: { color: '#1a1a1a' },
-          horzLines: { color: '#1a1a1a' },
+          vertLines: { color: colors.grid },
+          horzLines: { color: colors.grid },
         },
         crosshair: {
           mode: 1,
-          vertLine: { color: '#4b5563', width: 1, style: 2, labelBackgroundColor: '#1f2937' },
-          horzLine: { color: '#4b5563', width: 1, style: 2, labelBackgroundColor: '#1f2937' },
+          vertLine: { color: colors.crosshair, width: 1, style: 2, labelBackgroundColor: colors.crosshairLabel },
+          horzLine: { color: colors.crosshair, width: 1, style: 2, labelBackgroundColor: colors.crosshairLabel },
         },
         rightPriceScale: {
-          borderColor: '#1a1a1a',
+          borderColor: colors.border,
           scaleMargins: { top: 0.05, bottom: 0.05 },
           minimumWidth: PRICE_SCALE_WIDTH,
         },
         localization: { locale: 'fr-FR' },
         timeScale: {
-          borderColor: '#1a1a1a',
+          borderColor: colors.border,
           visible: true, // RSI is always at bottom, so time axis is always visible
           timeVisible: timeframe !== '1day',
           secondsVisible: false,
@@ -937,7 +1012,7 @@ export function CandlestickChart({
       if (macdChart) macdChart.remove();
       if (rsiChart) rsiChart.remove();
     };
-  }, [timeframe, showBollinger, showMACD, showIchimoku, showMovingAverages, showRSI, data.length]);
+  }, [timeframe, showBollinger, showMACD, showIchimoku, showMovingAverages, showRSI, data.length, isDark, colors]);
 
   // Resize charts when divider is moved
   useEffect(() => {
@@ -1188,16 +1263,32 @@ export function CandlestickChart({
       });
     }
 
-  }, [chartDataArrays, showBollinger, showMACD, showIchimoku, showMovingAverages, showRSI, bollingerData, ichimokuData, movingAveragesData, macdData, stochRsiData, data.length, timeframe]);
+  }, [chartDataArrays, showBollinger, showMACD, showIchimoku, showMovingAverages, showRSI, bollingerData, ichimokuData, movingAveragesData, macdData, stochRsiData, data.length, timeframe, isDark]);
+
+  // Update markers when signals change
+  useEffect(() => {
+    if (!candlestickSeriesRef.current || !mainChartRef.current) return;
+
+    // Remove existing markers
+    if (markersRef.current) {
+      markersRef.current.detach();
+      markersRef.current = null;
+    }
+
+    // Create new markers if we have signals
+    if (markersData.length > 0) {
+      markersRef.current = createSeriesMarkers(candlestickSeriesRef.current, markersData);
+    }
+  }, [markersData]);
 
   return (
-    <div className="h-full w-full bg-[#0d0d0d] flex flex-col">
+    <div className="h-full w-full bg-card flex flex-col">
       {/* Compact Header */}
-      <div className="flex items-center justify-between px-2 py-1 border-b border-[#1a1a1a]">
+      <div className="flex items-center justify-between px-2 py-1 border-b border-border">
         <div className="flex items-center gap-2">
-          <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">{title}</span>
+          <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{title}</span>
           {lastPrice !== null && (
-            <span className="text-xs font-mono font-medium text-white">
+            <span className="text-xs font-mono font-medium text-foreground">
               {lastPrice.toFixed(2)}
             </span>
           )}
@@ -1206,11 +1297,11 @@ export function CandlestickChart({
               {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)}%
             </span>
           )}
-          {showBollinger && <span className="text-[9px] text-gray-600 ml-2">BB(20,2)</span>}
-          {showIchimoku && <span className="text-[9px] text-gray-600 ml-2">Ichimoku</span>}
-          {showMovingAverages && <span className="text-[9px] text-gray-600 ml-2">SMA(20,50,200)</span>}
-          {showMACD && <span className="text-[9px] text-gray-600">MACD(12,26,9)</span>}
-          {showRSI && <span className="text-[9px] text-gray-600">Stoch RSI(14,14,3,3)</span>}
+          {showBollinger && <span className="text-[9px] text-muted-foreground/70 ml-2">BB(20,2)</span>}
+          {showIchimoku && <span className="text-[9px] text-muted-foreground/70 ml-2">Ichimoku</span>}
+          {showMovingAverages && <span className="text-[9px] text-muted-foreground/70 ml-2">SMA(20,50,200)</span>}
+          {showMACD && <span className="text-[9px] text-muted-foreground/70">MACD(12,26,9)</span>}
+          {showRSI && <span className="text-[9px] text-muted-foreground/70">Stoch RSI(14,14,3,3)</span>}
         </div>
       </div>
 
@@ -1225,8 +1316,8 @@ export function CandlestickChart({
           }}
         >
           {isLoading && data.length === 0 && (
-            <div className="absolute inset-0 flex items-center justify-center bg-[#0d0d0d] z-10">
-              <div className="text-[10px] text-gray-600 uppercase tracking-wider">Loading...</div>
+            <div className="absolute inset-0 flex items-center justify-center bg-card z-10">
+              <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Loading...</div>
             </div>
           )}
           <div ref={mainChartContainerRef} className="w-full h-full" />
@@ -1237,10 +1328,10 @@ export function CandlestickChart({
           <>
             {/* MACD Divider */}
             <div
-              className={`h-1 bg-[#1a1a1a] cursor-row-resize hover:bg-[#f97316] transition-colors flex items-center justify-center group ${draggingDivider === 'macd' ? 'bg-[#f97316]' : ''}`}
+              className={`h-1 bg-border cursor-row-resize hover:bg-orange-500 transition-colors flex items-center justify-center group ${draggingDivider === 'macd' ? 'bg-orange-500' : ''}`}
               onMouseDown={handleMouseDown('macd')}
             >
-              <div className={`w-8 h-0.5 rounded bg-[#3a3a3a] group-hover:bg-white ${draggingDivider === 'macd' ? 'bg-white' : ''}`} />
+              <div className={`w-8 h-0.5 rounded bg-muted-foreground/30 group-hover:bg-foreground ${draggingDivider === 'macd' ? 'bg-foreground' : ''}`} />
             </div>
             {/* MACD Chart */}
             <div
@@ -1257,10 +1348,10 @@ export function CandlestickChart({
           <>
             {/* RSI Divider */}
             <div
-              className={`h-1 bg-[#1a1a1a] cursor-row-resize hover:bg-[#8b5cf6] transition-colors flex items-center justify-center group ${draggingDivider === 'rsi' ? 'bg-[#8b5cf6]' : ''}`}
+              className={`h-1 bg-border cursor-row-resize hover:bg-violet-500 transition-colors flex items-center justify-center group ${draggingDivider === 'rsi' ? 'bg-violet-500' : ''}`}
               onMouseDown={handleMouseDown('rsi')}
             >
-              <div className={`w-8 h-0.5 rounded bg-[#3a3a3a] group-hover:bg-white ${draggingDivider === 'rsi' ? 'bg-white' : ''}`} />
+              <div className={`w-8 h-0.5 rounded bg-muted-foreground/30 group-hover:bg-foreground ${draggingDivider === 'rsi' ? 'bg-foreground' : ''}`} />
             </div>
             {/* RSI Chart */}
             <div
