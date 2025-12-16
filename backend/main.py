@@ -8,8 +8,14 @@ import sqlite3
 import os
 import asyncio
 import threading
-from typing import Literal, Optional
+from typing import Literal, Optional, List
 from contextlib import contextmanager
+
+# Import signal calculator (lazy import to avoid circular deps)
+def get_signal_calculator():
+    from signal_calculator import calculate_signals_incremental, get_signals_from_db, calculate_all_strategies
+    from strategies import STRATEGIES
+    return calculate_signals_incremental, get_signals_from_db, calculate_all_strategies, STRATEGIES
 
 app = FastAPI(title="TradyBull API")
 
@@ -88,6 +94,42 @@ def init_db():
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_backtest_timestamp ON backtest_candles(timestamp)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_backtest_symbol_timestamp ON backtest_candles(symbol, timestamp)")
+
+        # Signals table (pre-calculated trading signals)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS signals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                strategy_name TEXT NOT NULL,
+                symbol TEXT NOT NULL DEFAULT 'NQ=F',
+                signal_timestamp INTEGER NOT NULL,
+                trigger_timestamp INTEGER NOT NULL,
+                type TEXT NOT NULL CHECK(type IN ('buy', 'sell')),
+                price REAL NOT NULL,
+                label TEXT,
+                metadata TEXT,
+                created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+                UNIQUE(strategy_name, symbol, signal_timestamp, type)
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_signals_strategy ON signals(strategy_name)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_signals_strategy_symbol ON signals(strategy_name, symbol)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_signals_timestamp ON signals(signal_timestamp)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_signals_strategy_timestamp ON signals(strategy_name, signal_timestamp)")
+
+        # Signal processing state (for incremental updates)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS signal_processing_state (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                strategy_name TEXT NOT NULL,
+                symbol TEXT NOT NULL DEFAULT 'NQ=F',
+                data_source TEXT NOT NULL CHECK(data_source IN ('backtest', 'realtime')),
+                last_processed_timestamp INTEGER NOT NULL,
+                last_signal_state TEXT,
+                updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+                UNIQUE(strategy_name, symbol, data_source)
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_signal_state_strategy ON signal_processing_state(strategy_name, symbol, data_source)")
 
         conn.commit()
 
@@ -279,8 +321,8 @@ def fetch_and_store_data(interval: str) -> list:
 
 
 def get_all_data_payload() -> dict:
-    """Get all data for WebSocket broadcast"""
-    return {
+    """Get all data for WebSocket broadcast, including signals"""
+    payload = {
         "type": "data_update",
         "symbol": SYMBOL,
         "market_open": is_market_open(),
@@ -290,8 +332,21 @@ def get_all_data_payload() -> dict:
             "15min": get_candles_from_db("15m"),
             "1h": get_candles_from_db("1h"),
             "1day": get_candles_from_db("1d"),
-        }
+        },
+        "signals": {}
     }
+
+    # Add signals for all strategies
+    try:
+        _, get_signals_from_db, _, STRATEGIES = get_signal_calculator()
+        with get_db() as conn:
+            for strategy_name in STRATEGIES:
+                signals = get_signals_from_db(conn, strategy_name, SYMBOL)
+                payload["signals"][strategy_name] = signals
+    except Exception as e:
+        print(f"Warning: Could not load signals: {e}")
+
+    return payload
 
 
 def broadcast_to_clients(data: dict):
@@ -337,6 +392,17 @@ def fetch_all_intervals():
         cleanup_old_data()
         last_fetch_time = datetime.now(PARIS_TZ)
         print(f"[{last_fetch_time.strftime('%H:%M:%S')}] Data fetched and stored successfully")
+
+        # Calculate signals for all strategies (real-time data)
+        try:
+            _, _, calculate_all_strategies, _ = get_signal_calculator()
+            with get_db() as conn:
+                results = calculate_all_strategies(conn, SYMBOL, 'realtime', 'candles')
+                for strategy_name, count in results.items():
+                    if count > 0:
+                        print(f"  [{strategy_name}] {count} new signal(s)")
+        except Exception as e:
+            print(f"Warning: Could not calculate signals: {e}")
 
         # Broadcast to all WebSocket clients
         if connected_clients:
@@ -582,6 +648,132 @@ def get_backtest_data(
                 "data": candles,
                 "count": len(candles)
             }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Signal Endpoints
+# =============================================================================
+
+@app.get("/api/signals")
+def get_signals(
+    strategy: str = Query(..., description="Strategy name (e.g., 'bollinger-nosl')"),
+    start: Optional[int] = Query(None, description="Start timestamp (Unix)"),
+    end: Optional[int] = Query(None, description="End timestamp (Unix)"),
+    limit: int = Query(10000, description="Max signals to return")
+):
+    """Get signals for a strategy within optional date range"""
+    try:
+        _, get_signals_from_db, _, STRATEGIES = get_signal_calculator()
+
+        if strategy not in STRATEGIES:
+            raise HTTPException(status_code=400, detail=f"Unknown strategy: {strategy}. Available: {list(STRATEGIES.keys())}")
+
+        with get_db() as conn:
+            signals = get_signals_from_db(conn, strategy, SYMBOL, start, end, limit)
+
+            return {
+                "strategy": strategy,
+                "symbol": SYMBOL,
+                "signals": signals,
+                "count": len(signals)
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/signals/info")
+def get_signals_info(
+    strategy: str = Query(..., description="Strategy name")
+):
+    """Get information about signals for a strategy"""
+    try:
+        _, _, _, STRATEGIES = get_signal_calculator()
+
+        if strategy not in STRATEGIES:
+            raise HTTPException(status_code=400, detail=f"Unknown strategy: {strategy}")
+
+        with get_db() as conn:
+            # Get signal counts
+            cursor = conn.execute("""
+                SELECT
+                    COUNT(*) as total,
+                    SUM(CASE WHEN type = 'buy' THEN 1 ELSE 0 END) as buy_count,
+                    SUM(CASE WHEN type = 'sell' THEN 1 ELSE 0 END) as sell_count,
+                    MIN(signal_timestamp) as first_signal,
+                    MAX(signal_timestamp) as last_signal
+                FROM signals
+                WHERE strategy_name = ? AND symbol = ?
+            """, (strategy, SYMBOL))
+            row = cursor.fetchone()
+
+            # Get processing state
+            state_cursor = conn.execute("""
+                SELECT data_source, last_processed_timestamp
+                FROM signal_processing_state
+                WHERE strategy_name = ? AND symbol = ?
+            """, (strategy, SYMBOL))
+            states = {r['data_source']: r['last_processed_timestamp'] for r in state_cursor}
+
+            return {
+                "strategy": strategy,
+                "symbol": SYMBOL,
+                "total_signals": row["total"] or 0,
+                "buy_signals": row["buy_count"] or 0,
+                "sell_signals": row["sell_count"] or 0,
+                "first_signal_timestamp": row["first_signal"],
+                "last_signal_timestamp": row["last_signal"],
+                "processing_state": states
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/signals/calculate")
+def calculate_signals_endpoint(
+    strategy: str = Query(..., description="Strategy name"),
+    source: str = Query("realtime", description="Data source: 'backtest' or 'realtime'")
+):
+    """Trigger incremental signal calculation for new candles"""
+    try:
+        calculate_signals_incremental, _, _, STRATEGIES = get_signal_calculator()
+
+        if strategy not in STRATEGIES:
+            raise HTTPException(status_code=400, detail=f"Unknown strategy: {strategy}")
+
+        if source not in ('backtest', 'realtime'):
+            raise HTTPException(status_code=400, detail="Source must be 'backtest' or 'realtime'")
+
+        table = "backtest_candles" if source == "backtest" else "candles"
+
+        with get_db() as conn:
+            new_count = calculate_signals_incremental(conn, strategy, SYMBOL, source, table)
+
+            return {
+                "strategy": strategy,
+                "source": source,
+                "new_signals": new_count,
+                "message": f"Generated {new_count} new signal(s)"
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/signals/strategies")
+def list_strategies():
+    """List all available strategies"""
+    try:
+        _, _, _, STRATEGIES = get_signal_calculator()
+        return {
+            "strategies": list(STRATEGIES.keys())
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

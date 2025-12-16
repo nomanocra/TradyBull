@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useState, useEffect, useRef, useCallback, ReactNode } from 'react';
-import { CandleData } from '@/types/market';
+import { CandleData, Signal } from '@/types/market';
 
 interface ChartData {
   '1h': CandleData[];
@@ -20,10 +20,15 @@ interface WebSocketMessage {
     '1h': CandleData[];
     '1day': CandleData[];
   };
+  signals?: Record<string, Signal[]>;
 }
+
+// Type for signals organized by strategy
+type SignalsByStrategy = Record<string, Signal[]>;
 
 interface RealtimeContextValue {
   data: ChartData;
+  signals: SignalsByStrategy;
   isLoading: boolean;
   error: string | null;
   lastFetchTime: string | null;
@@ -58,6 +63,7 @@ export function RealtimeProvider({ children }: RealtimeProviderProps) {
     '1day': [],
     '15min': [],
   });
+  const [signals, setSignals] = useState<SignalsByStrategy>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastFetchTime, setLastFetchTime] = useState<string | null>(null);
@@ -83,6 +89,10 @@ export function RealtimeProvider({ children }: RealtimeProviderProps) {
           '1day': message.data['1day'] || [],
           '15min': message.data['15min'] || [],
         });
+        // Update signals from WebSocket
+        if (message.signals) {
+          setSignals(message.signals);
+        }
         setMarketOpen(message.market_open);
         setStandby(message.standby || false);
         setDataSource(message.symbol);
@@ -173,6 +183,7 @@ export function RealtimeProvider({ children }: RealtimeProviderProps) {
 
   const value: RealtimeContextValue = {
     data,
+    signals,
     isLoading,
     error,
     lastFetchTime,
