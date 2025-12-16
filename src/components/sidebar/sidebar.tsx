@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useTransition } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { ChevronDown, ChevronRight, Compass, Play, Sun, Moon } from 'lucide-react';
 import { GroupButton } from '@/components/ui/group-button';
 
@@ -78,10 +78,20 @@ type Theme = 'dark' | 'light';
 
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const [pendingPath, setPendingPath] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>('exploration');
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>(defaultSections);
   const [theme, setTheme] = useState<Theme>('dark');
   const [isHydrated, setIsHydrated] = useState(false);
+
+  // Clear pending path when navigation completes
+  useEffect(() => {
+    if (pendingPath && pathname === pendingPath) {
+      setPendingPath(null);
+    }
+  }, [pathname, pendingPath]);
 
   // Load from localStorage after hydration
   useEffect(() => {
@@ -136,8 +146,13 @@ export function Sidebar() {
 
   const navigation = mode === 'exploration' ? explorationNavigation : strategyNavigation;
 
-  // Check if a path is active (exact match or starts with for nested routes)
+  // Check if a path is active (exact match or pending navigation)
   const isPathActive = (href: string) => {
+    // Optimistic: show as active immediately when clicked
+    if (pendingPath === href) return true;
+    // If navigating to another page, deselect current page
+    if (pendingPath && pendingPath !== href) return false;
+    // Already on this page
     if (href === pathname) return true;
     // For base paths, only match exact
     if (href === '/exploration/real-time' || href === '/exploration/historical' ||
@@ -145,6 +160,16 @@ export function Sidebar() {
       return pathname === href;
     }
     return false;
+  };
+
+  // Handle navigation with optimistic UI
+  const handleNavClick = (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
+    e.preventDefault();
+    if (href === pathname) return; // Already on this page
+    setPendingPath(href);
+    startTransition(() => {
+      router.push(href);
+    });
   };
 
   return (
@@ -188,15 +213,17 @@ export function Sidebar() {
                 {section.items.length > 0 ? (
                   section.items.map((item) => {
                     const isActive = isPathActive(item.href);
+                    const isLoading = pendingPath === item.href && isPending;
                     return (
                       <Link
                         key={item.href}
                         href={item.href}
+                        onClick={(e) => handleNavClick(e, item.href)}
                         className={`block px-4 py-1.5 text-xs transition-colors ${
                           isActive
                             ? 'text-[#C59471] bg-[#C59471]/10 border-l-2 border-[#C59471]'
                             : 'text-muted-foreground hover:text-foreground hover:bg-muted border-l-2 border-transparent'
-                        }`}
+                        } ${isLoading ? 'opacity-70' : ''}`}
                       >
                         {item.name}
                       </Link>
