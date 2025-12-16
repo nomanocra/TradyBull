@@ -18,7 +18,7 @@ interface GroupButtonProps {
 export function GroupButton({ options, value, onChange, className = '' }: GroupButtonProps) {
   return (
     <div
-      className={`grid h-7 bg-[#1a1a1a] rounded-none p-0.5 ${className}`}
+      className={`grid h-7 bg-gray-100 dark:bg-[#252525] rounded-none p-0.5 ${className}`}
       style={{ gridTemplateColumns: `repeat(${options.length}, 1fr)` }}
     >
       {options.map((option) => {
@@ -32,7 +32,7 @@ export function GroupButton({ options, value, onChange, className = '' }: GroupB
               transition-all duration-200 cursor-pointer
               ${isActive
                 ? 'bg-[#C59471] text-[#0d0d0d] shadow-sm'
-                : 'text-gray-500 hover:text-gray-300'
+                : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
               }
             `}
           >

@@ -36,9 +36,10 @@ export function DatePicker({
           variant="outline"
           className={cn(
             'h-6 justify-between text-left font-mono text-[10px] !px-1.5 gap-1 cursor-pointer',
-            'bg-[#1a1a1a] border-[#2a2a2a] hover:bg-[#252525] hover:border-[#3a3a3a]',
+            'bg-gray-100 border-gray-300 hover:bg-gray-200 hover:border-gray-400',
+            'dark:bg-[#252525] dark:border-[#3a3a3a] dark:hover:bg-[#303030] dark:hover:border-[#4a4a4a]',
             !date && 'text-gray-500',
-            date && 'text-gray-300',
+            date && 'text-gray-700 dark:text-gray-300',
             className
           )}
         >
@@ -47,7 +48,7 @@ export function DatePicker({
         </Button>
       </PopoverTrigger>
       <PopoverContent
-        className="w-auto p-3 bg-[#151515] border-[#2a2a2a]"
+        className="w-auto p-3 bg-white dark:bg-[#151515] border-gray-200 dark:border-[#2a2a2a]"
         align="start"
       >
         <Calendar
@@ -72,13 +73,13 @@ export function DatePicker({
             months: 'flex flex-col relative',
             month: 'space-y-2',
             month_caption: 'flex justify-center items-center h-7 relative',
-            caption_label: 'text-sm font-medium text-gray-300 [&>svg]:hidden transition-colors',
+            caption_label: 'text-sm font-medium text-gray-700 dark:text-gray-300 [&>svg]:hidden transition-colors',
             dropdowns: 'flex gap-2 items-center',
             dropdown_root: 'group/dropdown relative border-none shadow-none cursor-pointer [&:hover>span]:text-[#C59471]',
             dropdown: 'absolute inset-0 opacity-0 cursor-pointer',
             nav: 'absolute top-0 left-0 right-0 h-7 flex items-center justify-between z-10 pointer-events-none',
-            button_previous: 'h-6 w-6 bg-transparent hover:bg-[#252525] rounded p-0 flex items-center justify-center pointer-events-auto cursor-pointer',
-            button_next: 'h-6 w-6 bg-transparent hover:bg-[#252525] rounded p-0 flex items-center justify-center pointer-events-auto cursor-pointer',
+            button_previous: 'h-6 w-6 bg-transparent hover:bg-gray-100 dark:hover:bg-[#252525] rounded p-0 flex items-center justify-center pointer-events-auto cursor-pointer',
+            button_next: 'h-6 w-6 bg-transparent hover:bg-gray-100 dark:hover:bg-[#252525] rounded p-0 flex items-center justify-center pointer-events-auto cursor-pointer',
             table: 'w-full border-collapse',
             weekdays: 'flex',
             weekday: 'text-gray-500 rounded-md w-8 font-normal text-[0.8rem]',
@@ -86,13 +87,13 @@ export function DatePicker({
             day: 'relative p-0 text-center text-sm focus-within:relative focus-within:z-20 h-8 w-8',
             day_button: cn(
               'h-8 w-8 p-0 font-normal rounded cursor-pointer',
-              'hover:bg-[#252525] hover:text-white',
-              'focus:bg-[#252525] focus:text-white'
+              'hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-[#252525] dark:hover:text-white',
+              'focus:bg-gray-100 focus:text-gray-900 dark:focus:bg-[#252525] dark:focus:text-white'
             ),
             selected: 'bg-[#C59471] text-[#0d0d0d] hover:bg-[#C59471] hover:text-[#0d0d0d]',
-            today: 'bg-[#252525] text-white',
-            outside: 'text-gray-600 opacity-50',
-            disabled: 'text-gray-700 opacity-30 cursor-not-allowed hover:bg-transparent',
+            today: 'bg-gray-100 text-gray-900 dark:bg-[#252525] dark:text-white',
+            outside: 'text-gray-400 dark:text-gray-600 opacity-50',
+            disabled: 'text-gray-300 dark:text-gray-700 opacity-30 cursor-not-allowed hover:bg-transparent',
             hidden: 'invisible',
           }}
         />
