@@ -445,6 +445,7 @@ export function CandlestickChart({
   const stochRsiOversoldRef = useRef<ISeriesApi<'Line'> | null>(null);
   const markersRef = useRef<ReturnType<typeof createSeriesMarkers<Time>> | null>(null);
   const isInitialLoadRef = useRef(true);
+  const hasDataRef = useRef(false);
 
 
   // Resizable divider states (separate for MACD and RSI)
@@ -631,7 +632,15 @@ export function CandlestickChart({
       }));
   }, [signals, data, chartTimes, colors.signalBuy]);
 
-  // Initialize charts
+  // Track when we have data for the first time
+  useEffect(() => {
+    if (data.length > 0 && !hasDataRef.current) {
+      hasDataRef.current = true;
+    }
+  }, [data.length]);
+
+  // Initialize charts - only recreate when structure changes (timeframe, indicator config)
+  // NOT when data changes
   useEffect(() => {
     if (!mainChartContainerRef.current) return;
     if (showMACD && !macdChartContainerRef.current) return;
@@ -1015,7 +1024,7 @@ export function CandlestickChart({
       if (rsiChart) rsiChart.remove();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timeframe, showBollinger, showMACD, showIchimoku, showMovingAverages, showRSI, data.length]);
+  }, [timeframe, showBollinger, showMACD, showIchimoku, showMovingAverages, showRSI]);
 
   // Update chart theme colors without recreating the chart
   useEffect(() => {
@@ -1328,7 +1337,8 @@ export function CandlestickChart({
       });
     }
 
-  }, [chartDataArrays, showBollinger, showMACD, showIchimoku, showMovingAverages, showRSI, bollingerData, ichimokuData, movingAveragesData, macdData, stochRsiData, data.length, timeframe]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chartDataArrays, showBollinger, showMACD, showIchimoku, showMovingAverages, showRSI, timeframe]);
 
   // Update markers when signals change
   useEffect(() => {
