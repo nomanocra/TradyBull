@@ -63,6 +63,12 @@ function getParisHour(timestamp: number): number {
   return parisTime.getHours();
 }
 
+// Get date string (YYYY-MM-DD) in Paris timezone
+function getParisDateString(timestamp: number): string {
+  const date = new Date(timestamp * 1000);
+  return date.toLocaleDateString('en-CA', { timeZone: 'Europe/Paris' }); // en-CA gives YYYY-MM-DD format
+}
+
 /**
  * Bollinger NoSL Strategy
  *
@@ -70,10 +76,12 @@ function getParisHour(timestamp: number): number {
  * - Buy signal when candle LOW goes below Bollinger lower band
  * - Signal is placed on the NEXT candle (buy at open of next candle)
  * - Only between 7h and 21h (Paris time)
+ * - Only ONE position per day (no new position if one already opened)
+ * - Sell at 22h if a position is open
  * - No stop loss (NoSL)
  *
  * @param data Array of candle data (must be 1H timeframe)
- * @returns Array of buy signals
+ * @returns Array of buy and sell signals
  */
 export function calculateBollingerNoSLSignals(data: CandleData[]): Signal[] {
   if (data.length < BB_PERIOD + 1) return [];
@@ -84,34 +92,61 @@ export function calculateBollingerNoSLSignals(data: CandleData[]): Signal[] {
   const signals: Signal[] = [];
   let lastSignalTriggered = false; // Track if we're waiting for price to go back above band
 
-  for (let i = BB_PERIOD; i < data.length - 1; i++) {
+  // Track open positions per day
+  const positionOpenOnDay: Map<string, { buyPrice: number; buyTime: number }> = new Map();
+
+  for (let i = BB_PERIOD; i < data.length; i++) {
     const candle = data[i];
     const lowerBand = lower[i];
+    const hour = getParisHour(candle.time);
+    const dateString = getParisDateString(candle.time);
+
+    // Check for sell signal at 22h
+    if (hour === 22) {
+      const position = positionOpenOnDay.get(dateString);
+      if (position) {
+        signals.push({
+          time: candle.time,
+          type: 'sell',
+          price: candle.open,
+          label: 'Sell',
+        });
+        positionOpenOnDay.delete(dateString);
+      }
+    }
 
     if (lowerBand === null) continue;
+    if (i >= data.length - 1) continue; // Need next candle for buy signal
 
-    const hour = getParisHour(candle.time);
     const isInTradingHours = hour >= 7 && hour <= 21;
+    const hasPositionToday = positionOpenOnDay.has(dateString);
 
     // Check if LOW went below lower Bollinger band
     const lowBelowBand = candle.low < lowerBand;
 
-    if (lowBelowBand && isInTradingHours && !lastSignalTriggered) {
+    if (lowBelowBand && isInTradingHours && !lastSignalTriggered && !hasPositionToday) {
       // Signal on NEXT candle
       const nextCandle = data[i + 1];
       const nextHour = getParisHour(nextCandle.time);
+      const nextDateString = getParisDateString(nextCandle.time);
 
-      // Determine if this is the first signal of the day (after 7h)
-      const isFirstSignalOfDay = nextHour >= 7 && nextHour <= 8;
+      // Check if next candle is still in same trading day
+      if (nextHour >= 7 && nextHour <= 21) {
+        signals.push({
+          time: nextCandle.time,
+          type: 'buy',
+          price: nextCandle.open,
+          label: 'Buy',
+        });
 
-      signals.push({
-        time: nextCandle.time,
-        type: 'buy',
-        price: nextCandle.open,
-        label: isFirstSignalOfDay ? 'Buy' : undefined,
-      });
+        // Mark position as open for this day
+        positionOpenOnDay.set(nextDateString, {
+          buyPrice: nextCandle.open,
+          buyTime: nextCandle.time,
+        });
 
-      lastSignalTriggered = true;
+        lastSignalTriggered = true;
+      }
     }
 
     // Reset trigger when price goes back above the band

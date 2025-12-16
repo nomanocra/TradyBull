@@ -445,7 +445,6 @@ export function CandlestickChart({
   const stochRsiOversoldRef = useRef<ISeriesApi<'Line'> | null>(null);
   const markersRef = useRef<ReturnType<typeof createSeriesMarkers<Time>> | null>(null);
   const isInitialLoadRef = useRef(true);
-  const hasDataRef = useRef(false);
 
 
   // Resizable divider states (separate for MACD and RSI)
@@ -632,15 +631,7 @@ export function CandlestickChart({
       }));
   }, [signals, data, chartTimes, colors.signalBuy]);
 
-  // Track when we have data for the first time
-  useEffect(() => {
-    if (data.length > 0 && !hasDataRef.current) {
-      hasDataRef.current = true;
-    }
-  }, [data.length]);
-
-  // Initialize charts - only recreate when structure changes (timeframe, indicator config)
-  // NOT when data changes
+  // Initialize charts
   useEffect(() => {
     if (!mainChartContainerRef.current) return;
     if (showMACD && !macdChartContainerRef.current) return;
@@ -1024,7 +1015,7 @@ export function CandlestickChart({
       if (rsiChart) rsiChart.remove();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timeframe, showBollinger, showMACD, showIchimoku, showMovingAverages, showRSI]);
+  }, [timeframe, showBollinger, showMACD, showIchimoku, showMovingAverages, showRSI, data.length]);
 
   // Update chart theme colors without recreating the chart
   useEffect(() => {
@@ -1311,18 +1302,12 @@ export function CandlestickChart({
         const totalBars = data.length;
         let visibleRange: { from: number; to: number };
 
-        if ((timeframe === '1day' || timeframe === '15min') && totalBars > 10) {
-          visibleRange = {
-            from: Math.floor(totalBars / 2),
-            to: totalBars + 5,
-          };
-        } else {
-          // For 1h timeframe, show all data
-          visibleRange = {
-            from: 0,
-            to: totalBars,
-          };
-        }
+        // Show last portion of data by default (more zoomed in)
+        const defaultVisibleBars = Math.min(500, totalBars);
+        visibleRange = {
+          from: Math.max(0, totalBars - defaultVisibleBars),
+          to: totalBars + 5,
+        };
 
         mainChartRef.current.timeScale().setVisibleLogicalRange(visibleRange);
         setNavFrom(visibleRange.from);
@@ -1337,8 +1322,7 @@ export function CandlestickChart({
       });
     }
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chartDataArrays, showBollinger, showMACD, showIchimoku, showMovingAverages, showRSI, timeframe]);
+  }, [chartDataArrays, showBollinger, showMACD, showIchimoku, showMovingAverages, showRSI, bollingerData, ichimokuData, movingAveragesData, macdData, stochRsiData, data.length, timeframe]);
 
   // Update markers when signals change
   useEffect(() => {
