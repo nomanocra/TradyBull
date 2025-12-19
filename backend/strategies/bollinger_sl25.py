@@ -115,9 +115,11 @@ class BollingerSL25Strategy(BaseStrategy):
         if initial_state:
             last_signal_triggered = initial_state.get('last_signal_triggered', False)
             position_open_on_day = initial_state.get('position_open_on_day', {})
+            traded_dates = set(initial_state.get('traded_dates', []))
         else:
             last_signal_triggered = False
             position_open_on_day = {}
+            traded_dates: set = set()
 
         closes = [c['close'] for c in candles]
         bands = self._calculate_bollinger_bands(closes)
@@ -175,12 +177,12 @@ class BollingerSL25Strategy(BaseStrategy):
                 continue
 
             is_in_trading_hours = 7 <= hour <= 21
-            has_position_today = date_string in position_open_on_day
+            already_traded_today = date_string in traded_dates
 
             # Check if LOW went below lower Bollinger band
             low_below_band = candle['low'] < lower_band
 
-            if low_below_band and is_in_trading_hours and not last_signal_triggered and not has_position_today:
+            if low_below_band and is_in_trading_hours and not last_signal_triggered and not already_traded_today:
                 next_candle = candles[i + 1]
                 next_hour = self._get_paris_hour(next_candle['time'])
                 next_date_string = self._get_paris_date_string(next_candle['time'])
@@ -202,6 +204,7 @@ class BollingerSL25Strategy(BaseStrategy):
                         'buy_price': next_candle['open'],
                         'buy_time': next_candle['time'],
                     }
+                    traded_dates.add(next_date_string)
 
                     last_signal_triggered = True
 
@@ -209,9 +212,4 @@ class BollingerSL25Strategy(BaseStrategy):
             if lower_band is not None and candle['low'] > lower_band:
                 last_signal_triggered = False
 
-        final_state = {
-            'last_signal_triggered': last_signal_triggered,
-            'position_open_on_day': position_open_on_day,
-        }
-
-        return signals, final_state
+        return signals, {'last_signal_triggered': last_signal_triggered, 'position_open_on_day': position_open_on_day, 'traded_dates': list(traded_dates)}
