@@ -773,12 +773,47 @@ def calculate_signals_endpoint(
 
 @app.get("/api/signals/strategies")
 def list_strategies():
-    """List all available strategies"""
+    """List all available strategies with their display metadata"""
     try:
         _, _, _, STRATEGIES = get_signal_calculator()
+        strategies_list = []
+        for name, strategy_class in STRATEGIES.items():
+            strategy_instance = strategy_class()
+            strategies_list.append(strategy_instance.to_dict())
         return {
-            "strategies": list(STRATEGIES.keys())
+            "strategies": strategies_list
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/kpis")
+def get_kpis(
+    strategy: str = Query(..., description="Strategy name (e.g., 'bollinger-nosl')"),
+    start: Optional[int] = Query(None, description="Start timestamp (Unix)"),
+    end: Optional[int] = Query(None, description="End timestamp (Unix)"),
+):
+    """Get KPIs for a strategy within optional date range"""
+    try:
+        from kpi_calculator import calculate_kpis
+
+        _, get_signals_from_db, _, STRATEGIES = get_signal_calculator()
+
+        if strategy not in STRATEGIES:
+            raise HTTPException(status_code=400, detail=f"Unknown strategy: {strategy}")
+
+        with get_db() as conn:
+            signals = get_signals_from_db(conn, strategy, SYMBOL, start, end)
+            kpis = calculate_kpis(signals)
+
+            return {
+                "strategy": strategy,
+                "symbol": SYMBOL,
+                "kpis": kpis.to_dict(),
+                "signal_count": len(signals)
+            }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -44,7 +44,7 @@ export function DatePicker({
           )}
         >
           {date ? format(date, 'dd/MM/yyyy', { locale: fr }) : placeholder}
-          <CalendarIcon className="!h-3 !w-3 text-[#C59471] cursor-pointer" />
+          <CalendarIcon className="!h-3 !w-3 text-brand cursor-pointer" />
         </Button>
       </PopoverTrigger>
       <PopoverContent
@@ -75,7 +75,7 @@ export function DatePicker({
             month_caption: 'flex justify-center items-center h-7 relative',
             caption_label: 'text-sm font-medium text-gray-700 dark:text-gray-300 [&>svg]:hidden transition-colors',
             dropdowns: 'flex gap-2 items-center',
-            dropdown_root: 'group/dropdown relative border-none shadow-none cursor-pointer [&:hover>span]:text-[#C59471]',
+            dropdown_root: 'group/dropdown relative border-none shadow-none cursor-pointer [&:hover>span]:text-brand',
             dropdown: 'absolute inset-0 opacity-0 cursor-pointer',
             nav: 'absolute top-0 left-0 right-0 h-7 flex items-center justify-between z-10 pointer-events-none',
             button_previous: 'h-6 w-6 bg-transparent hover:bg-gray-100 dark:hover:bg-[#252525] rounded p-0 flex items-center justify-center pointer-events-auto cursor-pointer',
@@ -90,7 +90,7 @@ export function DatePicker({
               'hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-[#252525] dark:hover:text-white',
               'focus:bg-gray-100 focus:text-gray-900 dark:focus:bg-[#252525] dark:focus:text-white'
             ),
-            selected: 'bg-[#C59471] text-[#0d0d0d] hover:bg-[#C59471] hover:text-[#0d0d0d]',
+            selected: 'bg-brand text-[#0d0d0d] hover:bg-brand hover:text-[#0d0d0d]',
             today: 'bg-gray-100 text-gray-900 dark:bg-[#252525] dark:text-white',
             outside: 'text-gray-400 dark:text-gray-600 opacity-50',
             disabled: 'text-gray-300 dark:text-gray-700 opacity-30 cursor-not-allowed hover:bg-transparent',

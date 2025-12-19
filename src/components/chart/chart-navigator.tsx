@@ -277,19 +277,19 @@ function ChartNavigatorComponent({
         style={{ left: leftPx, width: widthPx }}
       >
         {/* Border lines - top, bottom (visible on hover or dragging) */}
-        <div className={`absolute top-0 left-0 right-0 h-[2px] bg-[#C59471] transition-opacity duration-300 ease-in-out ${isDragging ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`} />
-        <div className={`absolute bottom-0 left-0 right-0 h-[2px] bg-[#C59471] transition-opacity duration-300 ease-in-out ${isDragging ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`} />
+        <div className={`absolute top-0 left-0 right-0 h-[2px] bg-brand transition-opacity duration-300 ease-in-out ${isDragging ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`} />
+        <div className={`absolute bottom-0 left-0 right-0 h-[2px] bg-brand transition-opacity duration-300 ease-in-out ${isDragging ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`} />
         {/* Vertical lines - always visible */}
-        <div className="absolute top-0 bottom-0 left-0 w-[1px] bg-[#C59471]/30" />
+        <div className="absolute top-0 bottom-0 left-0 w-[1px] bg-brand/30" />
 
         {/* Left handle (visible on hover or dragging) */}
         <div
-          className={`absolute top-1/2 -translate-y-1/2 left-0 w-[8px] h-[20px] bg-muted hover:bg-muted-foreground/30 rounded-sm cursor-ew-resize flex items-center justify-center gap-[1px] border border-[#C59471] transition-opacity duration-300 ease-in-out ${isDragging ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+          className={`absolute top-1/2 -translate-y-1/2 left-0 w-[8px] h-[20px] bg-muted hover:bg-muted-foreground/30 rounded-sm cursor-ew-resize flex items-center justify-center gap-[1px] border border-brand transition-opacity duration-300 ease-in-out ${isDragging ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
           style={{ marginLeft: -3 }}
           onMouseDown={(e) => handleMouseDown(e, 'left')}
         >
-          <div className="w-[1px] h-2.5 bg-[#C59471]/60 rounded-full" />
-          <div className="w-[1px] h-2.5 bg-[#C59471]/60 rounded-full" />
+          <div className="w-[1px] h-2.5 bg-brand/60 rounded-full" />
+          <div className="w-[1px] h-2.5 bg-brand/60 rounded-full" />
         </div>
 
         {/* Center area */}
@@ -299,16 +299,16 @@ function ChartNavigatorComponent({
         />
 
         {/* Right border line - always visible */}
-        <div className="absolute top-0 bottom-0 right-0 w-[1px] bg-[#C59471]/30" />
+        <div className="absolute top-0 bottom-0 right-0 w-[1px] bg-brand/30" />
 
         {/* Right handle (visible on hover or dragging) */}
         <div
-          className={`absolute top-1/2 -translate-y-1/2 right-0 w-[8px] h-[20px] bg-muted hover:bg-muted-foreground/30 rounded-sm cursor-ew-resize flex items-center justify-center gap-[1px] border border-[#C59471] transition-opacity duration-300 ease-in-out ${isDragging ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+          className={`absolute top-1/2 -translate-y-1/2 right-0 w-[8px] h-[20px] bg-muted hover:bg-muted-foreground/30 rounded-sm cursor-ew-resize flex items-center justify-center gap-[1px] border border-brand transition-opacity duration-300 ease-in-out ${isDragging ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
           style={{ marginRight: -3 }}
           onMouseDown={(e) => handleMouseDown(e, 'right')}
         >
-          <div className="w-[1px] h-2.5 bg-[#C59471]/60 rounded-full" />
-          <div className="w-[1px] h-2.5 bg-[#C59471]/60 rounded-full" />
+          <div className="w-[1px] h-2.5 bg-brand/60 rounded-full" />
+          <div className="w-[1px] h-2.5 bg-brand/60 rounded-full" />
         </div>
       </div>
 

@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional
 
 
@@ -21,6 +21,18 @@ class ProcessingState:
     state_data: Dict[str, Any]  # Strategy-specific state
 
 
+@dataclass
+class StrategyDisplayConfig:
+    """Configuration for how the strategy is displayed in the frontend"""
+    display_name: str           # Human-readable name (e.g., "Bollinger NoSL")
+    description: str = ""       # Strategy description for tooltip
+    show_bollinger: bool = False
+    show_macd: bool = False
+    show_ichimoku: bool = False
+    show_moving_averages: bool = False
+    show_rsi: bool = False
+
+
 class BaseStrategy(ABC):
     """Abstract base class for trading strategies"""
 
@@ -28,6 +40,12 @@ class BaseStrategy(ABC):
     @abstractmethod
     def name(self) -> str:
         """Unique strategy identifier (e.g., 'bollinger-nosl')"""
+        pass
+
+    @property
+    @abstractmethod
+    def display_config(self) -> StrategyDisplayConfig:
+        """Display configuration for the frontend"""
         pass
 
     @property
@@ -53,3 +71,17 @@ class BaseStrategy(ABC):
             tuple: (list of new signals, final state dict)
         """
         pass
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize strategy metadata for API responses"""
+        config = self.display_config
+        return {
+            'name': self.name,
+            'display_name': config.display_name,
+            'description': config.description,
+            'show_bollinger': config.show_bollinger,
+            'show_macd': config.show_macd,
+            'show_ichimoku': config.show_ichimoku,
+            'show_moving_averages': config.show_moving_averages,
+            'show_rsi': config.show_rsi,
+        }

@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect, useTransition } from 'react';
+import { useState, useEffect, useTransition, useMemo } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { ChevronDown, ChevronRight, Compass, Play, Sun, Moon } from 'lucide-react';
 import { GroupButton } from '@/components/ui/group-button';
+import { useStrategies, StrategyConfig } from '@/hooks/useStrategies';
 
 const STORAGE_KEY = 'tradybull-sidebar-sections';
 const MODE_STORAGE_KEY = 'tradybull-sidebar-mode';
@@ -48,20 +49,25 @@ const explorationNavigation: NavSection[] = [
   },
 ];
 
-const strategyNavigation: NavSection[] = [
-  {
-    title: 'Real Time',
-    items: [
-      { name: 'Bollinger NoSL', href: '/strategy/real-time/bollinger-nosl' },
-    ],
-  },
-  {
-    title: 'Backtesting',
-    items: [
-      { name: 'Bollinger NoSL', href: '/strategy/backtesting/bollinger-nosl' },
-    ],
-  },
-];
+// Strategy navigation is now generated dynamically from the API
+function generateStrategyNavigation(strategies: StrategyConfig[]): NavSection[] {
+  return [
+    {
+      title: 'Real Time',
+      items: strategies.map((s) => ({
+        name: s.display_name,
+        href: `/strategy/real-time/${s.name}`,
+      })),
+    },
+    {
+      title: 'Backtesting',
+      items: strategies.map((s) => ({
+        name: s.display_name,
+        href: `/strategy/backtesting/${s.name}`,
+      })),
+    },
+  ];
+}
 
 const modeOptions = [
   { value: 'exploration', label: 'Exploration', icon: <Compass size={12} /> },
@@ -85,6 +91,15 @@ export function Sidebar() {
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>(defaultSections);
   const [theme, setTheme] = useState<Theme>('dark');
   const [isHydrated, setIsHydrated] = useState(false);
+
+  // Fetch strategies from API
+  const { strategies } = useStrategies();
+
+  // Generate strategy navigation dynamically
+  const strategyNavigation = useMemo(
+    () => generateStrategyNavigation(strategies),
+    [strategies]
+  );
 
   // Clear pending path when navigation completes
   useEffect(() => {
@@ -221,7 +236,7 @@ export function Sidebar() {
                         onClick={(e) => handleNavClick(e, item.href)}
                         className={`block px-4 py-1.5 text-xs transition-colors ${
                           isActive
-                            ? 'text-[#C59471] bg-[#C59471]/10 border-l-2 border-[#C59471]'
+                            ? 'text-brand bg-brand/10 border-l-2 border-brand'
                             : 'text-muted-foreground hover:text-foreground hover:bg-muted border-l-2 border-transparent'
                         } ${isLoading ? 'opacity-70' : ''}`}
                       >

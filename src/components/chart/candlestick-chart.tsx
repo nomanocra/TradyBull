@@ -445,6 +445,7 @@ export function CandlestickChart({
   const stochRsiOversoldRef = useRef<ISeriesApi<'Line'> | null>(null);
   const markersRef = useRef<ReturnType<typeof createSeriesMarkers<Time>> | null>(null);
   const isInitialLoadRef = useRef(true);
+  const isChartDisposedRef = useRef(false);
 
   // Tooltip state for signal hover
   const [signalTooltip, setSignalTooltip] = useState<{
@@ -477,7 +478,7 @@ export function CandlestickChart({
 
   // Handle navigator range change - chart is the source of truth
   const handleNavigatorRangeChange = useCallback((from: number, to: number) => {
-    if (!mainChartRef.current) return;
+    if (!mainChartRef.current || isChartDisposedRef.current) return;
     isNavigatorUpdating.current = true;
 
     // Send request to chart
@@ -504,7 +505,7 @@ export function CandlestickChart({
 
   // Handle navigator reset (double-click) - reset to initial view (last 500 bars)
   const handleNavigatorReset = useCallback(() => {
-    if (!mainChartRef.current) return;
+    if (!mainChartRef.current || isChartDisposedRef.current) return;
     isNavigatorUpdating.current = true;
 
     // Calculate initial visible range (same as initial load)
@@ -911,6 +912,7 @@ export function CandlestickChart({
 
     // Function to update PnL label positions
     const updatePnlLabelPositions = () => {
+      if (isChartDisposedRef.current) return;
       const series = candlestickSeriesRef.current;
       if (!series) return;
       const labels = pnlLabelsDataRef.current;
@@ -936,7 +938,7 @@ export function CandlestickChart({
     // Sync visible range between all charts and navigator
     let isSyncingRange = false;
     const syncRange = (range: { from: number; to: number } | null, source: 'main' | 'macd' | 'rsi') => {
-      if (isSyncingRange || !range) return;
+      if (isSyncingRange || !range || isChartDisposedRef.current) return;
       isSyncingRange = true;
       if (source !== 'main' && mainChart) mainChart.timeScale().setVisibleLogicalRange(range);
       if (source !== 'macd' && macdChart) macdChart.timeScale().setVisibleLogicalRange(range);
@@ -952,8 +954,8 @@ export function CandlestickChart({
     };
 
     mainChart.timeScale().subscribeVisibleLogicalRangeChange(range => syncRange(range, 'main'));
-    if (macdChart) macdChart.timeScale().subscribeVisibleLogicalRangeChange(range => syncRange(range, 'macd'));
-    if (rsiChart) rsiChart.timeScale().subscribeVisibleLogicalRangeChange(range => syncRange(range, 'rsi'));
+    macdChart?.timeScale().subscribeVisibleLogicalRangeChange(range => syncRange(range, 'macd'));
+    rsiChart?.timeScale().subscribeVisibleLogicalRangeChange(range => syncRange(range, 'rsi'));
 
     // Add indicator series FIRST (so they appear BELOW candlesticks)
 
@@ -1120,7 +1122,7 @@ export function CandlestickChart({
     // Sync crosshair between all charts
     let isSyncingCrosshair = false;
     const syncCrosshair = (time: Time | undefined, source: 'main' | 'macd' | 'rsi') => {
-      if (isSyncingCrosshair) return;
+      if (isSyncingCrosshair || isChartDisposedRef.current) return;
       isSyncingCrosshair = true;
       if (time !== undefined) {
         if (source !== 'main') mainChart.setCrosshairPosition(0, time, candlestickSeries);
@@ -1135,6 +1137,7 @@ export function CandlestickChart({
     };
 
     mainChart.subscribeCrosshairMove((param) => {
+      if (isChartDisposedRef.current) return;
       syncCrosshair(param.time, 'main');
 
       // Check for signal tooltip using chartTime to index mapping
@@ -1183,8 +1186,14 @@ export function CandlestickChart({
         setSignalTooltip(null);
       }
     });
-    if (macdChart) macdChart.subscribeCrosshairMove((param) => syncCrosshair(param.time, 'macd'));
-    if (rsiChart) rsiChart.subscribeCrosshairMove((param) => syncCrosshair(param.time, 'rsi'));
+    macdChart?.subscribeCrosshairMove((param) => {
+      if (isChartDisposedRef.current) return;
+      syncCrosshair(param.time, 'macd');
+    });
+    rsiChart?.subscribeCrosshairMove((param) => {
+      if (isChartDisposedRef.current) return;
+      syncCrosshair(param.time, 'rsi');
+    });
 
     // Store refs
     mainChartRef.current = mainChart;
@@ -1212,6 +1221,7 @@ export function CandlestickChart({
 
     // Handle resize
     const handleResize = () => {
+      if (isChartDisposedRef.current) return;
       if (mainChartContainerRef.current && mainChartRef.current) {
         const width = mainChartContainerRef.current.clientWidth;
         mainChartRef.current.applyOptions({
@@ -1242,7 +1252,41 @@ export function CandlestickChart({
     window.addEventListener('resize', handleResize);
     handleResize();
 
+    // Mark chart as not disposed
+    isChartDisposedRef.current = false;
+
     return () => {
+      // Mark as disposed before removing to prevent other effects from accessing
+      isChartDisposedRef.current = true;
+
+      // Clear all refs before removing charts to prevent callbacks from accessing disposed objects
+      mainChartRef.current = null;
+      macdChartRef.current = null;
+      rsiChartRef.current = null;
+      candlestickSeriesRef.current = null;
+      bbUpperRef.current = null;
+      bbMiddleRef.current = null;
+      bbLowerRef.current = null;
+      ichimokuTenkanRef.current = null;
+      ichimokuKijunRef.current = null;
+      ichimokuSenkouARef.current = null;
+      ichimokuSenkouBRef.current = null;
+      ichimokuChikouRef.current = null;
+      maShortRef.current = null;
+      maMediumRef.current = null;
+      maLongRef.current = null;
+      macdLineRef.current = null;
+      macdSignalRef.current = null;
+      macdHistogramRef.current = null;
+      stochRsiKRef.current = null;
+      stochRsiDRef.current = null;
+      stochRsiOverboughtRef.current = null;
+      stochRsiOversoldRef.current = null;
+      if (markersRef.current) {
+        markersRef.current.detach();
+        markersRef.current = null;
+      }
+
       window.removeEventListener('resize', handleResize);
       mainChart.remove();
       if (macdChart) macdChart.remove();
@@ -1253,7 +1297,7 @@ export function CandlestickChart({
 
   // Update chart theme colors without recreating the chart
   useEffect(() => {
-    if (!mainChartRef.current) return;
+    if (!mainChartRef.current || isChartDisposedRef.current) return;
 
     const showTimeAxisOnMacd = !showRSI;
 
@@ -1316,6 +1360,7 @@ export function CandlestickChart({
   // Resize charts when divider is moved
   useEffect(() => {
     requestAnimationFrame(() => {
+      if (isChartDisposedRef.current) return;
       if (mainChartContainerRef.current && mainChartRef.current) {
         mainChartRef.current.applyOptions({
           width: mainChartContainerRef.current.clientWidth,
@@ -1485,7 +1530,7 @@ export function CandlestickChart({
 
   // Update data when it changes - now uses memoized arrays
   useEffect(() => {
-    if (!candlestickSeriesRef.current || !chartDataArrays) return;
+    if (!candlestickSeriesRef.current || !chartDataArrays || isChartDisposedRef.current) return;
 
     // Set candlestick data
     candlestickSeriesRef.current.setData(chartDataArrays.candlestickData);
@@ -1531,7 +1576,7 @@ export function CandlestickChart({
     // Set visible range on initial load only
     if (isInitialLoadRef.current) {
       requestAnimationFrame(() => {
-        if (!mainChartRef.current) return;
+        if (!mainChartRef.current || isChartDisposedRef.current) return;
 
         const totalBars = data.length;
         let visibleRange: { from: number; to: number };
@@ -1560,7 +1605,7 @@ export function CandlestickChart({
 
   // Update markers when signals change
   useEffect(() => {
-    if (!candlestickSeriesRef.current || !mainChartRef.current) return;
+    if (!candlestickSeriesRef.current || !mainChartRef.current || isChartDisposedRef.current) return;
 
     // Remove existing markers
     if (markersRef.current) {
@@ -1576,13 +1621,15 @@ export function CandlestickChart({
 
   // Update PnL label positions when signals, data, or visible range changes
   useEffect(() => {
-    if (!mainChartRef.current || !candlestickSeriesRef.current) return;
+    if (!mainChartRef.current || !candlestickSeriesRef.current || isChartDisposedRef.current) return;
     if (pnlLabelsData.length === 0) {
-      setPnlLabelPositions([]);
+      // Only update if not already empty to avoid infinite loop
+      setPnlLabelPositions(prev => prev.length === 0 ? prev : []);
       return;
     }
 
     const updatePositions = () => {
+      if (isChartDisposedRef.current) return;
       const series = candlestickSeriesRef.current;
       const chart = mainChartRef.current;
       if (!series || !chart) return;

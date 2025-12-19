@@ -93,7 +93,7 @@ export function MultiIndicatorHistoricalDashboard() {
       <header className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-card">
         {/* Page name - Left */}
         <div className="flex-1 flex items-center gap-3">
-          <span className="text-xs font-semibold text-[#C59471]">Multi Indicator</span>
+          <span className="text-xs font-semibold text-brand">Multi Indicator</span>
         </div>
 
         {/* Symbol and price - Center */}

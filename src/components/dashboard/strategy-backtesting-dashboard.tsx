@@ -1,29 +1,39 @@
 'use client';
 
 import { useMemo } from 'react';
+import { Info } from 'lucide-react';
 import { MemoizedCandlestickChart } from '@/components/chart/candlestick-chart';
 import { DatePicker } from '@/components/ui/date-picker';
+import { KPITiles } from '@/components/kpi/kpi-tiles';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useHistoricalData } from '@/app/exploration/historical/historical-context';
 import { Signal } from '@/types/market';
+import { KPIs } from '@/hooks/useKPIs';
 
 interface StrategyBacktestingDashboardProps {
   strategyName: string;
+  strategyDescription?: string;
   showBollinger?: boolean;
   showMACD?: boolean;
   showIchimoku?: boolean;
   showMovingAverages?: boolean;
   showRSI?: boolean;
-  signals: Signal[]; // Signals for 1H chart only
+  signals: Signal[];
+  kpis?: KPIs | null;
+  kpisLoading?: boolean;
 }
 
 export function StrategyBacktestingDashboard({
   strategyName,
+  strategyDescription,
   showBollinger = false,
   showMACD = false,
   showIchimoku = false,
   showMovingAverages = false,
   showRSI = false,
   signals,
+  kpis,
+  kpisLoading = false,
 }: StrategyBacktestingDashboardProps) {
   const {
     data,
@@ -45,20 +55,24 @@ export function StrategyBacktestingDashboard({
     return { lastPrice: last, priceChange: change };
   }, [data]);
 
-  // Count signals
-  const signalCount = signals.length;
-
   return (
     <div className="h-full w-full bg-background flex flex-col overflow-hidden">
       {/* Header */}
       <header className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-card">
         {/* Strategy name - Left */}
-        <div className="flex-1 flex items-center gap-3">
-          <span className="text-xs font-semibold text-[#C59471]">{strategyName}</span>
-          {signalCount > 0 && (
-            <span className="text-[10px] text-yellow-500 dark:text-yellow-400 font-medium">
-              {signalCount} signal{signalCount > 1 ? 's' : ''}
-            </span>
+        <div className="flex-1 flex items-center gap-2">
+          <span className="text-xs font-semibold text-brand">{strategyName}</span>
+          {strategyDescription && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button type="button" className="inline-flex">
+                  <Info className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground cursor-help transition-colors" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs text-xs">
+                {strategyDescription}
+              </TooltipContent>
+            </Tooltip>
           )}
         </div>
 
@@ -122,6 +136,11 @@ export function StrategyBacktestingDashboard({
           />
         </div>
       </header>
+
+      {/* KPI Tiles */}
+      <div className="px-2 pt-2">
+        <KPITiles kpis={kpis ?? null} isLoading={kpisLoading} />
+      </div>
 
       {/* Single 1H Chart with signals and navigator */}
       <div className="flex-1 p-2 bg-background min-h-0">

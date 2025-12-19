@@ -5,42 +5,47 @@ from .base import BaseStrategy, Signal, StrategyDisplayConfig
 
 PARIS_TZ = pytz.timezone('Europe/Paris')
 
-# Constants matching TypeScript implementation in src/lib/strategies/bollinger-nosl.ts
 BB_PERIOD = 20
 BB_STD_DEV = 2
+SL_PERCENT = 1.0  # -1%
+MA_SHORT = 50
+MA_LONG = 200
 
 
-class BollingerNoSLStrategy(BaseStrategy):
+class BollingerSL1CrossingStrategy(BaseStrategy):
     """
-    Bollinger NoSL Strategy
+    Bollinger SL-1% + Golden Cross Filter Strategy
 
     Rules:
     - Buy signal when candle LOW goes below Bollinger lower band
     - Signal is placed on the NEXT candle (buy at open of next candle)
     - Only between 7h and 21h (Paris time)
-    - Only ONE position per day (no new position if one already opened)
-    - Sell at 22h if a position is open
-    - No stop loss (NoSL)
+    - Only ONE position per day
+    - Stop Loss at -1%: if LOW goes below buy_price * 0.99, close position
+    - If SL not triggered, close at 22h
+
+    Golden Cross Filter:
+    - Only buy if MA50 > MA200
     """
 
     @property
     def name(self) -> str:
-        return "bollinger-nosl"
+        return "bollinger-sl1-crossing"
 
     @property
     def display_config(self) -> StrategyDisplayConfig:
         return StrategyDisplayConfig(
-            display_name="Bollinger NoSL",
-            description="Buy when price touches lower Bollinger Band. No stop loss. Position closes at 22h Paris time. One trade per day max.",
+            display_name="Bollinger SL-1% Crossing",
+            description="Buy when price touches lower Bollinger Band AND Golden Cross is active (MA50 > MA200). Stop loss at -1%. Position closes at 22h Paris time. One trade per day max.",
             show_bollinger=True,
+            show_moving_averages=True,
         )
 
     @property
     def required_lookback(self) -> int:
-        return BB_PERIOD + 1  # Need BB_PERIOD candles + 1 for next candle
+        return max(BB_PERIOD, MA_LONG) + 1
 
     def _calculate_sma(self, data: List[float], period: int) -> List[Optional[float]]:
-        """Calculate Simple Moving Average"""
         result: List[Optional[float]] = []
         for i in range(len(data)):
             if i < period - 1:
@@ -51,7 +56,6 @@ class BollingerNoSLStrategy(BaseStrategy):
         return result
 
     def _calculate_std_dev(self, data: List[float], period: int, sma: List[Optional[float]]) -> List[Optional[float]]:
-        """Calculate Standard Deviation (population formula, not sample)"""
         result: List[Optional[float]] = []
         for i in range(len(data)):
             if i < period - 1 or sma[i] is None:
@@ -65,7 +69,6 @@ class BollingerNoSLStrategy(BaseStrategy):
         return result
 
     def _calculate_bollinger_bands(self, closes: List[float]) -> Dict[str, List[Optional[float]]]:
-        """Calculate Bollinger Bands (middle, upper, lower)"""
         sma = self._calculate_sma(closes, BB_PERIOD)
         std_dev = self._calculate_std_dev(closes, BB_PERIOD, sma)
 
@@ -83,45 +86,40 @@ class BollingerNoSLStrategy(BaseStrategy):
         return {'middle': sma, 'upper': upper, 'lower': lower}
 
     def _get_paris_hour(self, timestamp: int) -> int:
-        """Get hour in Paris timezone from Unix timestamp"""
         dt = datetime.fromtimestamp(timestamp, tz=PARIS_TZ)
         return dt.hour
 
     def _get_paris_date_string(self, timestamp: int) -> str:
-        """Get date string (YYYY-MM-DD) in Paris timezone"""
         dt = datetime.fromtimestamp(timestamp, tz=PARIS_TZ)
         return dt.strftime('%Y-%m-%d')
 
     def _is_closing_hour(self, timestamp: int) -> bool:
-        """Check if this candle is at the closing hour (22h Paris time)"""
         return self._get_paris_hour(timestamp) == 22
 
     def _is_last_candle_of_day(self, candles: List[Dict], index: int) -> bool:
-        """Check if this candle is the last one of its day (in Paris time)"""
         if index >= len(candles) - 1:
-            return True  # Last candle in dataset
-
+            return True
         current_date = self._get_paris_date_string(candles[index]['time'])
         next_date = self._get_paris_date_string(candles[index + 1]['time'])
-
         return current_date != next_date
+
+    def _check_stop_loss(self, candle: Dict, buy_price: float) -> bool:
+        sl_price = buy_price * (1 - SL_PERCENT / 100)
+        return candle['low'] < sl_price
+
+    def _check_golden_cross(self, ma50: List[Optional[float]], ma200: List[Optional[float]], index: int) -> bool:
+        if ma50[index] is None or ma200[index] is None:
+            return False
+        return ma50[index] > ma200[index]
 
     def calculate_signals(
         self,
         candles: List[Dict],
         initial_state: Optional[Dict[str, Any]] = None
     ) -> tuple[List[Signal], Dict[str, Any]]:
-        """
-        Calculate Bollinger NoSL signals.
-
-        State includes:
-        - last_signal_triggered: bool - Are we waiting for price to go back above band?
-        - position_open_on_day: Dict[str, Dict] - Positions open per day
-        """
         if len(candles) < self.required_lookback:
             return [], initial_state or {}
 
-        # Initialize or restore state
         if initial_state:
             last_signal_triggered = initial_state.get('last_signal_triggered', False)
             position_open_on_day = initial_state.get('position_open_on_day', {})
@@ -132,50 +130,58 @@ class BollingerNoSLStrategy(BaseStrategy):
         closes = [c['close'] for c in candles]
         bands = self._calculate_bollinger_bands(closes)
         lower = bands['lower']
+        ma50 = self._calculate_sma(closes, MA_SHORT)
+        ma200 = self._calculate_sma(closes, MA_LONG)
 
         signals: List[Signal] = []
+        start_index = MA_LONG
 
-        for i in range(BB_PERIOD, len(candles)):
+        for i in range(start_index, len(candles)):
             candle = candles[i]
             lower_band = lower[i]
             hour = self._get_paris_hour(candle['time'])
             date_string = self._get_paris_date_string(candle['time'])
 
-            # Check for sell signal at 22h or last candle of the day
-            if self._is_closing_hour(candle['time']) or self._is_last_candle_of_day(candles, i):
-                if date_string in position_open_on_day:
-                    position = position_open_on_day[date_string]
+            if date_string in position_open_on_day:
+                position = position_open_on_day[date_string]
+                buy_price = position['buy_price']
+
+                if self._check_stop_loss(candle, buy_price):
+                    sl_price = buy_price * (1 - SL_PERCENT / 100)
                     signals.append(Signal(
                         signal_timestamp=candle['time'],
                         trigger_timestamp=candle['time'],
                         type='sell',
-                        price=candle['close'],  # Use close price for end of day
-                        label='Sell',
-                        metadata={
-                            'buy_price': position['buy_price'],
-                            'buy_time': position['buy_time'],
-                        }
+                        price=sl_price,
+                        label='SL',
+                        metadata={'buy_price': buy_price, 'buy_time': position['buy_time'], 'exit_reason': 'stop_loss'}
                     ))
                     del position_open_on_day[date_string]
 
-            if lower_band is None:
+                elif self._is_closing_hour(candle['time']) or self._is_last_candle_of_day(candles, i):
+                    signals.append(Signal(
+                        signal_timestamp=candle['time'],
+                        trigger_timestamp=candle['time'],
+                        type='sell',
+                        price=candle['close'],
+                        label='Close',
+                        metadata={'buy_price': buy_price, 'buy_time': position['buy_time'], 'exit_reason': 'end_of_day'}
+                    ))
+                    del position_open_on_day[date_string]
+
+            if lower_band is None or i >= len(candles) - 1:
                 continue
-            if i >= len(candles) - 1:
-                continue  # Need next candle for buy signal
 
             is_in_trading_hours = 7 <= hour <= 21
             has_position_today = date_string in position_open_on_day
-
-            # Check if LOW went below lower Bollinger band
+            golden_cross_active = self._check_golden_cross(ma50, ma200, i)
             low_below_band = candle['low'] < lower_band
 
-            if low_below_band and is_in_trading_hours and not last_signal_triggered and not has_position_today:
-                # Signal on NEXT candle
+            if low_below_band and is_in_trading_hours and not last_signal_triggered and not has_position_today and golden_cross_active:
                 next_candle = candles[i + 1]
                 next_hour = self._get_paris_hour(next_candle['time'])
                 next_date_string = self._get_paris_date_string(next_candle['time'])
 
-                # Check if next candle is still in trading hours
                 if 7 <= next_hour <= 21:
                     signals.append(Signal(
                         signal_timestamp=next_candle['time'],
@@ -183,28 +189,12 @@ class BollingerNoSLStrategy(BaseStrategy):
                         type='buy',
                         price=next_candle['open'],
                         label='Buy',
-                        metadata={
-                            'lower_band': lower_band,
-                            'trigger_low': candle['low'],
-                        }
+                        metadata={'lower_band': lower_band, 'trigger_low': candle['low'], 'ma50': ma50[i], 'ma200': ma200[i], 'filter': 'golden_cross'}
                     ))
-
-                    # Mark position as open for this day
-                    position_open_on_day[next_date_string] = {
-                        'buy_price': next_candle['open'],
-                        'buy_time': next_candle['time'],
-                    }
-
+                    position_open_on_day[next_date_string] = {'buy_price': next_candle['open'], 'buy_time': next_candle['time']}
                     last_signal_triggered = True
 
-            # Reset trigger when price goes back above the band
-            if candle['low'] > lower_band:
+            if lower_band is not None and candle['low'] > lower_band:
                 last_signal_triggered = False
 
-        # Return signals and final state
-        final_state = {
-            'last_signal_triggered': last_signal_triggered,
-            'position_open_on_day': position_open_on_day,
-        }
-
-        return signals, final_state
+        return signals, {'last_signal_triggered': last_signal_triggered, 'position_open_on_day': position_open_on_day}
