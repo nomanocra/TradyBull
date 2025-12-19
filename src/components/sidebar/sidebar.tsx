@@ -62,10 +62,13 @@ function generateStrategyNavigation(strategies: StrategyConfig[]): NavSection[] 
     },
     {
       title: 'Backtesting',
-      items: strategies.map((s) => ({
-        name: s.display_name,
-        href: `/strategy/backtesting/${s.name}`,
-      })),
+      items: [
+        { name: 'Overview', href: '/strategy/backtesting/overview' },
+        ...strategies.map((s) => ({
+          name: s.display_name,
+          href: `/strategy/backtesting/${s.name}`,
+        })),
+      ],
     },
   ];
 }

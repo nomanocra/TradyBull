@@ -77,3 +77,77 @@ export function useKPIs({
     refetch: fetchKPIs,
   };
 }
+
+// Types for all strategies KPIs
+export interface StrategyKPIData {
+  strategy: string;
+  display_name: string;
+  kpis: KPIs;
+  signal_count: number;
+}
+
+interface UseAllKPIsOptions {
+  startTs?: number;
+  endTs?: number;
+  enabled?: boolean;
+}
+
+interface UseAllKPIsResult {
+  data: StrategyKPIData[];
+  isLoading: boolean;
+  error: string | null;
+  refetch: () => Promise<void>;
+}
+
+/**
+ * Hook to fetch KPIs for all strategies from the backend API.
+ */
+export function useAllKPIs({
+  startTs,
+  endTs,
+  enabled = true,
+}: UseAllKPIsOptions = {}): UseAllKPIsResult {
+  const [data, setData] = useState<StrategyKPIData[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchAllKPIs = useCallback(async () => {
+    if (!enabled) return;
+
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      let url = `${API_URL}/kpis/all`;
+      const params: string[] = [];
+      if (startTs) params.push(`start=${startTs}`);
+      if (endTs) params.push(`end=${endTs}`);
+      if (params.length > 0) url += `?${params.join('&')}`;
+
+      const response = await fetch(url);
+      if (!response.ok) {
+        const respData = await response.json().catch(() => ({}));
+        throw new Error(respData.detail || `Failed to fetch KPIs: ${response.status}`);
+      }
+
+      const respData = await response.json();
+      setData(respData.strategies || []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load KPIs');
+      setData([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [startTs, endTs, enabled]);
+
+  useEffect(() => {
+    fetchAllKPIs();
+  }, [fetchAllKPIs]);
+
+  return {
+    data,
+    isLoading,
+    error,
+    refetch: fetchAllKPIs,
+  };
+}

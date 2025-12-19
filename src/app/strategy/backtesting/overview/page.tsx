@@ -1,0 +1,94 @@
+'use client';
+
+import { DatePicker } from '@/components/ui/date-picker';
+import { KPIOverviewTable } from '@/components/kpi/kpi-overview-table';
+import { useHistoricalData } from '@/app/exploration/historical/historical-context';
+import { useAllKPIs } from '@/hooks/useKPIs';
+
+export default function BacktestingOverviewPage() {
+  const {
+    isLoading: dataLoading,
+    error,
+    dataInfo,
+    dateBounds,
+    startDate,
+    endDate,
+    setStartDate,
+    setEndDate,
+  } = useHistoricalData();
+
+  // Convert dates to timestamps for API call
+  const startTs = startDate ? Math.floor(startDate.getTime() / 1000) : undefined;
+  const endTs = endDate ? Math.floor(new Date(endDate).setHours(23, 59, 59, 999) / 1000) : undefined;
+
+  // Fetch KPIs for all strategies
+  const { data: kpisData, isLoading: kpisLoading } = useAllKPIs({
+    startTs,
+    endTs,
+    enabled: !dataLoading,
+  });
+
+  return (
+    <div className="h-full w-full bg-background flex flex-col overflow-hidden">
+      {/* Header */}
+      <header className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-card">
+        {/* Title - Left */}
+        <div className="flex-1 flex items-center gap-2">
+          <span className="text-xs font-semibold text-brand">Strategies Overview</span>
+        </div>
+
+        {/* Symbol - Center */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium text-muted-foreground">{dataInfo?.symbol || 'NQ=F'}</span>
+        </div>
+
+        {/* Date pickers - Right */}
+        <div className="flex-1 flex items-center justify-end gap-3">
+          {error && (
+            <span className="text-xs text-red-500">{error}</span>
+          )}
+          {dateBounds && (
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1">
+                <span className="text-[9px] text-muted-foreground">Start</span>
+                <DatePicker
+                  date={startDate}
+                  onDateChange={setStartDate}
+                  minDate={dateBounds.minDate}
+                  maxDate={endDate || dateBounds.maxDate}
+                />
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="text-[9px] text-muted-foreground">End</span>
+                <DatePicker
+                  date={endDate}
+                  onDateChange={setEndDate}
+                  minDate={startDate || dateBounds.minDate}
+                  maxDate={dateBounds.maxDate}
+                />
+              </div>
+            </div>
+          )}
+          {dataInfo && (
+            <span className="text-[10px] text-muted-foreground">
+              {dataInfo.count.toLocaleString()} candles
+            </span>
+          )}
+          <div
+            className={`w-1.5 h-1.5 rounded-full ${
+              error ? 'bg-red-500' :
+              dataLoading || kpisLoading ? 'bg-yellow-500 animate-pulse' :
+              'bg-emerald-500'
+            }`}
+            title={error ? 'Error' : (dataLoading || kpisLoading) ? 'Loading...' : 'Data loaded'}
+          />
+        </div>
+      </header>
+
+      {/* Content */}
+      <div className="flex-1 p-4 overflow-auto">
+        <KPIOverviewTable data={kpisData} isLoading={kpisLoading} />
+      </div>
+    </div>
+  );
+}

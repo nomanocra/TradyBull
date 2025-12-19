@@ -818,6 +818,39 @@ def get_kpis(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/kpis/all")
+def get_all_kpis(
+    start: Optional[int] = Query(None, description="Start timestamp (Unix)"),
+    end: Optional[int] = Query(None, description="End timestamp (Unix)"),
+):
+    """Get KPIs for all strategies within optional date range"""
+    try:
+        from kpi_calculator import calculate_kpis
+
+        _, get_signals_from_db, _, STRATEGIES = get_signal_calculator()
+
+        results = []
+        with get_db() as conn:
+            for strategy_name, strategy_class in STRATEGIES.items():
+                strategy_instance = strategy_class()
+                signals = get_signals_from_db(conn, strategy_name, SYMBOL, start, end)
+                kpis = calculate_kpis(signals)
+
+                results.append({
+                    "strategy": strategy_name,
+                    "display_name": strategy_instance.display_config.display_name,
+                    "kpis": kpis.to_dict(),
+                    "signal_count": len(signals)
+                })
+
+        return {
+            "symbol": SYMBOL,
+            "strategies": results
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint for real-time data updates"""
