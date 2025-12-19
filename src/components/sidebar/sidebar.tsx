@@ -108,6 +108,15 @@ export function Sidebar() {
     }
   }, [pathname, pendingPath]);
 
+  // Sync mode with current URL path
+  useEffect(() => {
+    if (pathname.startsWith('/strategy')) {
+      setMode('strategy');
+    } else if (pathname.startsWith('/exploration')) {
+      setMode('exploration');
+    }
+  }, [pathname]);
+
   // Load from localStorage after hydration
   useEffect(() => {
     const savedSections = localStorage.getItem(STORAGE_KEY);
@@ -118,9 +127,11 @@ export function Sidebar() {
         // Invalid JSON, use defaults
       }
     }
-    const savedMode = localStorage.getItem(MODE_STORAGE_KEY) as Mode | null;
-    if (savedMode === 'exploration' || savedMode === 'strategy') {
-      setMode(savedMode);
+    // Sync mode with current URL path (takes priority over localStorage)
+    if (pathname.startsWith('/strategy')) {
+      setMode('strategy');
+    } else if (pathname.startsWith('/exploration')) {
+      setMode('exploration');
     }
     const savedTheme = localStorage.getItem(THEME_STORAGE_KEY) as Theme | null;
     if (savedTheme === 'dark' || savedTheme === 'light') {
@@ -128,7 +139,7 @@ export function Sidebar() {
       document.documentElement.classList.toggle('dark', savedTheme === 'dark');
     }
     setIsHydrated(true);
-  }, []);
+  }, [pathname]);
 
   // Save to localStorage when sections change
   useEffect(() => {
