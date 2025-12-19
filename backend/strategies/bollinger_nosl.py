@@ -84,6 +84,16 @@ class BollingerNoSLStrategy(BaseStrategy):
         dt = datetime.fromtimestamp(timestamp, tz=PARIS_TZ)
         return dt.strftime('%Y-%m-%d')
 
+    def _is_last_candle_of_day(self, candles: List[Dict], index: int) -> bool:
+        """Check if this candle is the last one of its day (in Paris time)"""
+        if index >= len(candles) - 1:
+            return True  # Last candle in dataset
+
+        current_date = self._get_paris_date_string(candles[index]['time'])
+        next_date = self._get_paris_date_string(candles[index + 1]['time'])
+
+        return current_date != next_date
+
     def calculate_signals(
         self,
         candles: List[Dict],
@@ -119,15 +129,15 @@ class BollingerNoSLStrategy(BaseStrategy):
             hour = self._get_paris_hour(candle['time'])
             date_string = self._get_paris_date_string(candle['time'])
 
-            # Check for sell signal at 22h
-            if hour == 22:
+            # Check for sell signal at end of day (last candle of the day)
+            if self._is_last_candle_of_day(candles, i):
                 if date_string in position_open_on_day:
                     position = position_open_on_day[date_string]
                     signals.append(Signal(
                         signal_timestamp=candle['time'],
                         trigger_timestamp=candle['time'],
                         type='sell',
-                        price=candle['open'],
+                        price=candle['close'],  # Use close price for end of day
                         label='Sell',
                         metadata={
                             'buy_price': position['buy_price'],

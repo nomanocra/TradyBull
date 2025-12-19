@@ -167,9 +167,14 @@ def store_backtest_candles(candles: list):
         cursor = conn.cursor()
         for candle in candles:
             cursor.execute("""
-                INSERT OR IGNORE INTO backtest_candles
+                INSERT INTO backtest_candles
                 (symbol, timestamp, open, high, low, close, volume, source)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(symbol, timestamp) DO UPDATE SET
+                    high = MAX(backtest_candles.high, excluded.high),
+                    low = MIN(backtest_candles.low, excluded.low),
+                    close = excluded.close,
+                    volume = excluded.volume
             """, (
                 SYMBOL,
                 candle["time"],

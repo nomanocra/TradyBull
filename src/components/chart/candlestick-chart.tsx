@@ -446,6 +446,18 @@ export function CandlestickChart({
   const markersRef = useRef<ReturnType<typeof createSeriesMarkers<Time>> | null>(null);
   const isInitialLoadRef = useRef(true);
 
+  // Tooltip state for signal hover
+  const [signalTooltip, setSignalTooltip] = useState<{
+    visible: boolean;
+    x: number;
+    y: number;
+    type: 'buy' | 'sell';
+    price: number;
+    pnlPercent?: number;
+  } | null>(null);
+
+  // PnL labels positions (for HTML overlay)
+  const [pnlLabelPositions, setPnlLabelPositions] = useState<{ x: number; y: number; pnlPercent: number; isPositive: boolean }[]>([]);
 
   // Resizable divider states (separate for MACD and RSI)
   const [macdHeightPercent, setMacdHeightPercent] = useState(20);
@@ -489,6 +501,37 @@ export function CandlestickChart({
       isNavigatorUpdating.current = false;
     });
   }, []);
+
+  // Handle navigator reset (double-click) - reset to initial view (last 500 bars)
+  const handleNavigatorReset = useCallback(() => {
+    if (!mainChartRef.current) return;
+    isNavigatorUpdating.current = true;
+
+    // Calculate initial visible range (same as initial load)
+    const totalBars = data.length;
+    const defaultVisibleBars = Math.min(500, totalBars);
+    const visibleRange = {
+      from: Math.max(0, totalBars - defaultVisibleBars),
+      to: totalBars + 5,
+    };
+
+    // Apply to all charts
+    mainChartRef.current.timeScale().setVisibleLogicalRange(visibleRange);
+    if (macdChartRef.current) {
+      macdChartRef.current.timeScale().setVisibleLogicalRange(visibleRange);
+    }
+    if (rsiChartRef.current) {
+      rsiChartRef.current.timeScale().setVisibleLogicalRange(visibleRange);
+    }
+
+    // Update navigator state
+    setNavFrom(visibleRange.from);
+    setNavTo(visibleRange.to);
+
+    requestAnimationFrame(() => {
+      isNavigatorUpdating.current = false;
+    });
+  }, [data.length]);
 
   // Handle divider drag
   const handleMouseDown = useCallback((divider: 'macd' | 'rsi') => (e: React.MouseEvent) => {
@@ -609,7 +652,7 @@ export function CandlestickChart({
     };
   }, [data, showMovingAverages]);
 
-  // Prepare markers from signals
+  // Prepare markers from signals (triangles only, PnL shown as HTML overlay)
   const markersData = useMemo((): SeriesMarker<Time>[] => {
     if (signals.length === 0 || data.length === 0 || chartTimes.length === 0) return [];
 
@@ -619,17 +662,136 @@ export function CandlestickChart({
       timeMap.set(candle.time, chartTimes[i]);
     });
 
-    return signals
+    // Track last buy price for color determination
+    let lastBuyPrice: number | null = null;
+    const sortedSignals = [...signals].sort((a, b) => a.time - b.time);
+
+    return sortedSignals
       .filter(signal => timeMap.has(signal.time))
-      .map(signal => ({
-        time: timeMap.get(signal.time)!,
-        position: signal.type === 'buy' ? 'belowBar' as const : 'aboveBar' as const,
-        color: signal.type === 'buy' ? colors.signalBuy : '#ef4444', // Yellow for buy, red for sell
-        shape: signal.type === 'buy' ? 'arrowUp' as const : 'arrowDown' as const,
-        text: signal.label || '',
-        size: 1,
-      }));
+      .map(signal => {
+        if (signal.type === 'buy') {
+          lastBuyPrice = signal.price;
+          return {
+            time: timeMap.get(signal.time)!,
+            position: 'belowBar' as const,
+            color: colors.signalBuy,
+            shape: 'circle' as const,
+            text: '▲',
+            size: 0,
+          };
+        } else {
+          // Sell signal - violet color for visibility
+          return {
+            time: timeMap.get(signal.time)!,
+            position: 'aboveBar' as const,
+            color: '#a855f7', // Violet
+            shape: 'circle' as const,
+            text: '▼',
+            size: 0,
+          };
+        }
+      });
   }, [signals, data, chartTimes, colors.signalBuy]);
+
+  // Prepare PnL labels data for HTML overlay
+  const pnlLabelsData = useMemo(() => {
+    if (signals.length === 0 || data.length === 0 || chartTimes.length === 0) return [];
+
+    // Create a map of timestamp to index for quick lookup
+    const timeToIndex = new Map<number, number>();
+    data.forEach((candle, i) => {
+      timeToIndex.set(candle.time, i);
+    });
+
+    let lastBuyPrice: number | null = null;
+    const sortedSignals = [...signals].sort((a, b) => a.time - b.time);
+    const labels: { time: Time; candleHigh: number; pnlPercent: number; isPositive: boolean }[] = [];
+
+    for (const signal of sortedSignals) {
+      const index = timeToIndex.get(signal.time);
+      if (index === undefined) continue;
+
+      if (signal.type === 'buy') {
+        lastBuyPrice = signal.price;
+      } else if (lastBuyPrice !== null) {
+        const pnlPercent = ((signal.price - lastBuyPrice) / lastBuyPrice) * 100;
+        labels.push({
+          time: chartTimes[index],
+          candleHigh: data[index].high,
+          pnlPercent,
+          isPositive: pnlPercent >= 0,
+        });
+      }
+    }
+    return labels;
+  }, [signals, data, chartTimes]);
+
+  // Create a map of chartTime to candle index for crosshair lookup
+  const chartTimeToIndex = useMemo(() => {
+    const map = new Map<number | string, number>();
+    chartTimes.forEach((chartTime, i) => {
+      // Handle both number (timestamp) and BusinessDay object
+      if (typeof chartTime === 'number') {
+        map.set(chartTime, i);
+      } else if (typeof chartTime === 'object' && chartTime !== null) {
+        // BusinessDay object - create a string key
+        const bd = chartTime as BusinessDay;
+        const key = `${bd.year}-${bd.month}-${bd.day}`;
+        map.set(key, i);
+      }
+    });
+    return map;
+  }, [chartTimes]);
+
+  // Create a map of candle index to signal info with PnL for sells
+  const signalsMap = useMemo(() => {
+    const map = new Map<number, { type: 'buy' | 'sell'; price: number; pnlPercent?: number; candleLow: number; candleHigh: number }>();
+    let lastBuyPrice: number | null = null;
+
+    // Create a map of timestamp to index for quick lookup
+    const timeToIndex = new Map<number, number>();
+    data.forEach((candle, i) => {
+      timeToIndex.set(candle.time, i);
+    });
+
+    // Sort signals by time to ensure correct buy/sell pairing
+    const sortedSignals = [...signals].sort((a, b) => a.time - b.time);
+
+    for (const signal of sortedSignals) {
+      const index = timeToIndex.get(signal.time);
+      if (index === undefined) continue;
+
+      const candle = data[index];
+      if (signal.type === 'buy') {
+        lastBuyPrice = signal.price;
+        map.set(index, { type: 'buy', price: signal.price, candleLow: candle.low, candleHigh: candle.high });
+      } else {
+        const pnlPercent = lastBuyPrice ? ((signal.price - lastBuyPrice) / lastBuyPrice) * 100 : undefined;
+        map.set(index, { type: 'sell', price: signal.price, pnlPercent, candleLow: candle.low, candleHigh: candle.high });
+      }
+    }
+    return map;
+  }, [signals, data]);
+
+  // Ref for signalsMap to use in crosshair callback
+  const signalsMapRef = useRef(signalsMap);
+  signalsMapRef.current = signalsMap;
+
+  // Ref for chartTimeToIndex to use in crosshair callback
+  const chartTimeToIndexRef = useRef(chartTimeToIndex);
+  chartTimeToIndexRef.current = chartTimeToIndex;
+
+  // Ref for chartTimes to use in crosshair callback
+  const chartTimesRef = useRef(chartTimes);
+  chartTimesRef.current = chartTimes;
+
+  // Ref for pnlLabelsData to use in update callback
+  const pnlLabelsDataRef = useRef(pnlLabelsData);
+  pnlLabelsDataRef.current = pnlLabelsData;
+
+  // Ref for data to use in crosshair callback
+  const dataRef = useRef(data);
+  dataRef.current = data;
 
   // Initialize charts
   useEffect(() => {
@@ -747,6 +909,30 @@ export function CandlestickChart({
       });
     }
 
+    // Function to update PnL label positions
+    const updatePnlLabelPositions = () => {
+      const series = candlestickSeriesRef.current;
+      if (!series) return;
+      const labels = pnlLabelsDataRef.current;
+      if (labels.length === 0) {
+        setPnlLabelPositions([]);
+        return;
+      }
+
+      const positions = labels.map(label => {
+        const xCoord = mainChart.timeScale().timeToCoordinate(label.time);
+        const yCoord = series.priceToCoordinate(label.candleHigh);
+        return {
+          x: xCoord ?? -1000,
+          y: yCoord ?? -1000,
+          pnlPercent: label.pnlPercent,
+          isPositive: label.isPositive,
+        };
+      }).filter(p => p.x > -100 && p.y > -100); // Only visible labels
+
+      setPnlLabelPositions(positions);
+    };
+
     // Sync visible range between all charts and navigator
     let isSyncingRange = false;
     const syncRange = (range: { from: number; to: number } | null, source: 'main' | 'macd' | 'rsi') => {
@@ -760,6 +946,8 @@ export function CandlestickChart({
         setNavTo(range.to);
       }
       if (source !== 'rsi' && rsiChart) rsiChart.timeScale().setVisibleLogicalRange(range);
+      // Update PnL label positions
+      requestAnimationFrame(updatePnlLabelPositions);
       isSyncingRange = false;
     };
 
@@ -948,6 +1136,52 @@ export function CandlestickChart({
 
     mainChart.subscribeCrosshairMove((param) => {
       syncCrosshair(param.time, 'main');
+
+      // Check for signal tooltip using chartTime to index mapping
+      if (param.time && param.seriesData && candlestickSeries) {
+        // Convert param.time to the correct key format for our map
+        let timeKey: number | string;
+        if (typeof param.time === 'number') {
+          timeKey = param.time;
+        } else {
+          // BusinessDay object
+          const bd = param.time as { year: number; month: number; day: number };
+          timeKey = `${bd.year}-${bd.month}-${bd.day}`;
+        }
+
+        // Look up the candle index using our chartTime to index map
+        const candleIndex = chartTimeToIndexRef.current.get(timeKey);
+
+        if (candleIndex !== undefined) {
+          // Look up the signal at this candle index
+          const signalInfo = signalsMapRef.current.get(candleIndex);
+
+          if (signalInfo) {
+            // Get X coordinate from the chart time (param.time)
+            const xCoord = mainChart.timeScale().timeToCoordinate(param.time);
+            // Get Y coordinate from candle low (for buy) or high (for sell) - where the triangle is
+            const trianglePrice = signalInfo.type === 'buy' ? signalInfo.candleLow : signalInfo.candleHigh;
+            const yCoord = candlestickSeries.priceToCoordinate(trianglePrice);
+
+            if (xCoord !== null && yCoord !== null) {
+              setSignalTooltip({
+                visible: true,
+                x: xCoord,
+                y: yCoord,
+                type: signalInfo.type,
+                price: signalInfo.price,
+                pnlPercent: signalInfo.pnlPercent,
+              });
+            }
+          } else {
+            setSignalTooltip(null);
+          }
+        } else {
+          setSignalTooltip(null);
+        }
+      } else {
+        setSignalTooltip(null);
+      }
     });
     if (macdChart) macdChart.subscribeCrosshairMove((param) => syncCrosshair(param.time, 'macd'));
     if (rsiChart) rsiChart.subscribeCrosshairMove((param) => syncCrosshair(param.time, 'rsi'));
@@ -1340,6 +1574,38 @@ export function CandlestickChart({
     }
   }, [markersData]);
 
+  // Update PnL label positions when signals, data, or visible range changes
+  useEffect(() => {
+    if (!mainChartRef.current || !candlestickSeriesRef.current) return;
+    if (pnlLabelsData.length === 0) {
+      setPnlLabelPositions([]);
+      return;
+    }
+
+    const updatePositions = () => {
+      const series = candlestickSeriesRef.current;
+      const chart = mainChartRef.current;
+      if (!series || !chart) return;
+
+      const positions = pnlLabelsData.map(label => {
+        const xCoord = chart.timeScale().timeToCoordinate(label.time);
+        const yCoord = series.priceToCoordinate(label.candleHigh);
+        return {
+          x: xCoord ?? -1000,
+          y: yCoord ?? -1000,
+          pnlPercent: label.pnlPercent,
+          isPositive: label.isPositive,
+        };
+      }).filter(p => p.x > -100 && p.y > -100);
+
+      setPnlLabelPositions(positions);
+    };
+
+    // Update immediately and on next frame (for initial load timing)
+    updatePositions();
+    requestAnimationFrame(updatePositions);
+  }, [pnlLabelsData, navFrom, navTo]);
+
   return (
     <div className="h-full w-full bg-card flex flex-col">
       {/* Compact Header */}
@@ -1380,6 +1646,42 @@ export function CandlestickChart({
             </div>
           )}
           <div ref={mainChartContainerRef} className="w-full h-full" />
+          {/* Signal Tooltip - inside chart container for correct positioning */}
+          {signalTooltip && (
+            <div
+              className="absolute pointer-events-none z-50 px-2 py-1 rounded text-xs font-medium border border-border whitespace-nowrap bg-background/95"
+              style={{
+                left: signalTooltip.x,
+                // Buy: tooltip below triangle (y is at candle low, add offset for triangle + tooltip)
+                // Sell: tooltip above the PnL text (y is at candle high, need more offset for PnL + triangle)
+                top: signalTooltip.type === 'buy' ? signalTooltip.y + 25 : signalTooltip.y - 65,
+                transform: 'translateX(-50%)',
+                color: signalTooltip.type === 'buy'
+                  ? (isDark ? '#facc15' : '#a16207') // yellow-400 / yellow-700
+                  : (isDark ? '#a855f7' : '#7c3aed'), // violet-500 / violet-600
+              }}
+            >
+              {signalTooltip.price.toFixed(2)}
+            </div>
+          )}
+          {/* PnL Labels - HTML overlay for sell signals with outline adapted to theme */}
+          {pnlLabelPositions.map((label, i) => {
+            const outlineColor = isDark ? '#0a0a0a' : '#ffffff';
+            return (
+              <div
+                key={i}
+                className={`absolute pointer-events-none z-40 text-[10px] font-bold whitespace-nowrap ${label.isPositive ? 'text-emerald-500' : 'text-red-500'}`}
+                style={{
+                  left: label.x,
+                  top: label.y - 35, // Above the triangle marker
+                  transform: 'translateX(-50%)',
+                  textShadow: `-1px -1px 0 ${outlineColor}, 1px -1px 0 ${outlineColor}, -1px 1px 0 ${outlineColor}, 1px 1px 0 ${outlineColor}, 0 -1px 0 ${outlineColor}, 0 1px 0 ${outlineColor}, -1px 0 0 ${outlineColor}, 1px 0 0 ${outlineColor}`,
+                }}
+              >
+                {label.isPositive ? '+' : ''}{label.pnlPercent.toFixed(2)}%
+              </div>
+            );
+          })}
         </div>
 
         {/* MACD Section */}
@@ -1431,10 +1733,12 @@ export function CandlestickChart({
           visibleFrom={navFrom}
           visibleTo={navTo}
           onRangeChange={handleNavigatorRangeChange}
+          onReset={handleNavigatorReset}
           minVisibleBars={minVisibleBars}
           maxVisibleBars={maxVisibleBars}
         />
       )}
+
     </div>
   );
 }

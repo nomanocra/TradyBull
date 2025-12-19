@@ -8,10 +8,12 @@ const navigatorColors = {
   dark: {
     background: '#141414',
     line: '#4b5563',
+    dimmed: 'rgba(0, 0, 0, 0.4)',
   },
   light: {
     background: '#f9fafb',
     line: '#9ca3af',
+    dimmed: 'rgba(0, 0, 0, 0.15)',
   },
 };
 
@@ -43,6 +45,7 @@ interface ChartNavigatorProps {
   visibleFrom: number;
   visibleTo: number;
   onRangeChange: (from: number, to: number) => void;
+  onReset?: () => void;
   minVisibleBars?: number;
   maxVisibleBars?: number;
 }
@@ -55,6 +58,7 @@ function ChartNavigatorComponent({
   visibleFrom,
   visibleTo,
   onRangeChange,
+  onReset,
   minVisibleBars = 50,
   maxVisibleBars = 10000,
 }: ChartNavigatorProps) {
@@ -68,6 +72,7 @@ function ChartNavigatorComponent({
   const [dragStartX, setDragStartX] = useState(0);
   const [dragStartFrom, setDragStartFrom] = useState(0);
   const [dragStartTo, setDragStartTo] = useState(0);
+  const [isAnimating, setIsAnimating] = useState(false);
 
   const HEIGHT = 40;
   const HANDLE_WIDTH = 8;
@@ -218,6 +223,20 @@ function ChartNavigatorComponent({
     return () => { document.body.style.cursor = ''; };
   }, [dragType]);
 
+  // Handle double click to reset (must be before early return)
+  const handleDoubleClick = useCallback(() => {
+    if (onReset) {
+      setIsAnimating(true);
+      // Wait for transition class to be applied before changing values
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          onReset();
+          setTimeout(() => setIsAnimating(false), 300);
+        });
+      });
+    }
+  }, [onReset]);
+
   if (data.length === 0 || totalBars === 0) return null;
 
   // Calculate positions (clamped to valid range)
@@ -235,25 +254,26 @@ function ChartNavigatorComponent({
       ref={containerRef}
       className="relative w-full bg-card border-t border-border group"
       style={{ height: HEIGHT }}
+      onDoubleClick={handleDoubleClick}
     >
       {/* Canvas */}
       <canvas ref={canvasRef} className="absolute top-0 left-0" />
 
       {/* Left dimmed area */}
       <div
-        className="absolute top-0 bottom-0 left-0 bg-black/40 pointer-events-none"
-        style={{ width: leftPx }}
+        className={`absolute top-0 bottom-0 left-0 pointer-events-none ${isAnimating ? 'transition-all duration-300 ease-out' : ''}`}
+        style={{ width: leftPx, backgroundColor: colors.dimmed }}
       />
 
       {/* Right dimmed area */}
       <div
-        className="absolute top-0 bottom-0 bg-black/40 pointer-events-none"
-        style={{ left: rightPx, right: 0 }}
+        className={`absolute top-0 bottom-0 pointer-events-none ${isAnimating ? 'transition-all duration-300 ease-out' : ''}`}
+        style={{ left: rightPx, right: 0, backgroundColor: colors.dimmed }}
       />
 
       {/* Window */}
       <div
-        className="absolute top-0 bottom-0"
+        className={`absolute top-0 bottom-0 ${isAnimating ? 'transition-all duration-300 ease-out' : ''}`}
         style={{ left: leftPx, width: widthPx }}
       >
         {/* Border lines - top, bottom (visible on hover or dragging) */}
