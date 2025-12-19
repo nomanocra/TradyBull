@@ -7,6 +7,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { ChevronDown, ChevronRight, Compass, Play, Sun, Moon } from 'lucide-react';
 import { GroupButton } from '@/components/ui/group-button';
 import { useStrategies, StrategyConfig } from '@/hooks/useStrategies';
+import packageJson from '../../../package.json';
 
 const STORAGE_KEY = 'tradybull-sidebar-sections';
 const MODE_STORAGE_KEY = 'tradybull-sidebar-mode';
@@ -268,7 +269,7 @@ export function Sidebar() {
 
       {/* Footer */}
       <div className="px-3 py-2 border-t border-border flex items-center justify-between">
-        <div className="text-[10px] text-muted-foreground">v0.1.0</div>
+        <div className="text-[10px] text-muted-foreground">v{packageJson.version}</div>
         <button
           onClick={toggleTheme}
           className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
