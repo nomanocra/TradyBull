@@ -17,11 +17,6 @@ type SortKey =
 
 type SortDirection = 'asc' | 'desc';
 
-// Archived strategies are hidden by default
-const ARCHIVED_STRATEGIES = [
-  'daily-sl1-trend-v2',
-];
-
 interface KPIOverviewTableProps {
   data: StrategyKPIData[];
   isLoading?: boolean;
@@ -98,7 +93,7 @@ export function KPIOverviewTable({ data, isLoading, showArchived = false }: KPIO
     // Filter out archived strategies unless showArchived is true
     const filteredData = showArchived
       ? data
-      : data.filter((item) => !ARCHIVED_STRATEGIES.includes(item.strategy));
+      : data.filter((item) => !item.is_archived);
 
     return [...filteredData].sort((a, b) => {
       let aVal: number | string;

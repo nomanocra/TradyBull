@@ -302,7 +302,8 @@ export function Sidebar() {
                         <Link
                           href={item.href}
                           onClick={(e) => handleNavClick(e, item.href)}
-                          className={`block px-4 py-1.5 text-xs transition-colors pr-8 ${
+                          title={item.name}
+                          className={`block px-4 py-1.5 text-xs transition-colors pr-8 truncate ${
                             isActive
                               ? 'text-brand bg-brand/10 border-l-2 border-brand'
                               : 'text-muted-foreground hover:text-foreground hover:bg-muted border-l-2 border-transparent'

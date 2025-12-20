@@ -893,6 +893,10 @@ def get_all_kpis(
 
         results = []
         with get_db() as conn:
+            # Get archived strategies
+            archived_rows = conn.execute("SELECT strategy_name FROM archived_strategies").fetchall()
+            archived_set = {row['strategy_name'] for row in archived_rows}
+
             for strategy_name, strategy_class in STRATEGIES.items():
                 strategy_instance = strategy_class()
                 signals = get_signals_from_db(conn, strategy_name, SYMBOL, start, end)
@@ -902,7 +906,8 @@ def get_all_kpis(
                     "strategy": strategy_name,
                     "display_name": strategy_instance.display_config.display_name,
                     "kpis": kpis.to_dict(),
-                    "signal_count": len(signals)
+                    "signal_count": len(signals),
+                    "is_archived": strategy_name in archived_set
                 })
 
         return {

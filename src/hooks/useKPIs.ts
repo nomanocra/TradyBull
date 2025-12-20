@@ -84,6 +84,7 @@ export interface StrategyKPIData {
   display_name: string;
   kpis: KPIs;
   signal_count: number;
+  is_archived: boolean;
 }
 
 interface UseAllKPIsOptions {
