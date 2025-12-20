@@ -18,6 +18,7 @@ from .trend import TrendStrategy
 from .trend_22h import Trend22hStrategy
 from .ichimoku_kumo import IchimokuKumoStrategy
 from .ichimoku_kumo_sl1 import IchimokuKumoSL1Strategy
+from .ichimoku_tk_cross import IchimokuTKCrossStrategy
 
 # Registry of available strategies
 STRATEGIES = {
@@ -40,6 +41,7 @@ STRATEGIES = {
     'trend-22h': Trend22hStrategy,
     'ichimoku-kumo': IchimokuKumoStrategy,
     'ichimoku-kumo-sl1': IchimokuKumoSL1Strategy,
+    'ichimoku-tk-cross': IchimokuTKCrossStrategy,
 }
 
 __all__ = [
@@ -66,5 +68,6 @@ __all__ = [
     'Trend22hStrategy',
     'IchimokuKumoStrategy',
     'IchimokuKumoSL1Strategy',
+    'IchimokuTKCrossStrategy',
     'STRATEGIES',
 ]

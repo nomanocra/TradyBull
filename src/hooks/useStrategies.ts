@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { strategyEvents } from '@/lib/strategy-events';
 
 const API_URL = 'http://localhost:8000/api';
 
@@ -70,6 +71,8 @@ export function useStrategies(): UseStrategiesResult {
       setAllStrategies(prev =>
         prev.map(s => s.name === name ? { ...s, is_archived: true } : s)
       );
+      // Notify other components
+      strategyEvents.emit();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to archive strategy');
       // Refetch to get correct state
@@ -89,6 +92,8 @@ export function useStrategies(): UseStrategiesResult {
       setAllStrategies(prev =>
         prev.map(s => s.name === name ? { ...s, is_archived: false } : s)
       );
+      // Notify other components
+      strategyEvents.emit();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to unarchive strategy');
       // Refetch to get correct state

@@ -1,11 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Switch } from '@/components/ui/switch';
 import { KPIOverviewTable } from '@/components/kpi/kpi-overview-table';
 import { useHistoricalData } from '@/app/exploration/historical/historical-context';
 import { useAllKPIs } from '@/hooks/useKPIs';
+import { strategyEvents } from '@/lib/strategy-events';
 
 export default function BacktestingOverviewPage() {
   const [showArchived, setShowArchived] = useState(false);
@@ -26,11 +27,18 @@ export default function BacktestingOverviewPage() {
   const endTs = endDate ? Math.floor(new Date(endDate).setHours(23, 59, 59, 999) / 1000) : undefined;
 
   // Fetch KPIs for all strategies
-  const { data: kpisData, isLoading: kpisLoading } = useAllKPIs({
+  const { data: kpisData, isLoading: kpisLoading, refetch } = useAllKPIs({
     startTs,
     endTs,
     enabled: !dataLoading,
   });
+
+  // Listen for strategy archive/unarchive events
+  useEffect(() => {
+    return strategyEvents.subscribe(() => {
+      refetch();
+    });
+  }, [refetch]);
 
   return (
     <div className="h-full w-full bg-background flex flex-col overflow-hidden">
