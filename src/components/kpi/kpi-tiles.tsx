@@ -7,7 +7,7 @@ interface KPITilesProps {
   isLoading?: boolean;
 }
 
-type ColorState = 'positive' | 'warning' | 'negative' | 'neutral';
+type ColorState = 'positive' | 'caution' | 'warning' | 'negative' | 'neutral';
 
 interface KPITileProps {
   label: string;
@@ -19,6 +19,7 @@ interface KPITileProps {
 function KPITile({ label, value, colorState = 'neutral', isLoading }: KPITileProps) {
   const colorClass = {
     positive: 'text-emerald-500',
+    caution: 'text-yellow-500',
     warning: 'text-orange-500',
     negative: 'text-red-500',
     neutral: 'text-foreground',
@@ -48,7 +49,8 @@ function formatDuration(hours: number): string {
 }
 
 function getDrawdownColor(drawdown: number): ColorState {
-  if (drawdown <= 5) return 'positive';
+  if (drawdown <= 3) return 'positive';
+  if (drawdown <= 5) return 'caution';
   if (drawdown <= 10) return 'warning';
   return 'negative';
 }
