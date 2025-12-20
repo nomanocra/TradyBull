@@ -105,13 +105,33 @@ function ChartNavigatorComponent({
   const firstTime = data[0]?.time;
   const lastTime = data[dataLength - 1]?.time;
 
+  // Track container width for resize
+  const [containerWidth, setContainerWidth] = useState(0);
+
+  // ResizeObserver to track container width changes
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setContainerWidth(entry.contentRect.width);
+      }
+    });
+
+    resizeObserver.observe(container);
+    setContainerWidth(container.clientWidth);
+
+    return () => resizeObserver.disconnect();
+  }, []);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     const container = containerRef.current;
     const currentData = dataRef.current;
-    if (!canvas || !container || currentData.length === 0) return;
+    if (!canvas || !container || currentData.length === 0 || containerWidth === 0) return;
 
-    const width = container.clientWidth;
+    const width = containerWidth;
     const height = HEIGHT;
 
     canvas.width = width;
@@ -148,7 +168,7 @@ function ChartNavigatorComponent({
       else ctx.lineTo(x, y);
     }
     ctx.stroke();
-  }, [dataLength, firstTime, lastTime, colors]);
+  }, [dataLength, firstTime, lastTime, colors, containerWidth]);
 
   // Handle mouse down
   const handleMouseDown = useCallback((e: React.MouseEvent, type: DragType) => {

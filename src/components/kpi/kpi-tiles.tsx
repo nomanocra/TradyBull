@@ -7,23 +7,25 @@ interface KPITilesProps {
   isLoading?: boolean;
 }
 
+type ColorState = 'positive' | 'warning' | 'negative' | 'neutral';
+
 interface KPITileProps {
   label: string;
   value: string;
-  isPositive?: boolean | null; // null = neutral
+  colorState?: ColorState;
   isLoading?: boolean;
 }
 
-function KPITile({ label, value, isPositive, isLoading }: KPITileProps) {
-  const colorClass =
-    isPositive === null
-      ? 'text-foreground'
-      : isPositive
-        ? 'text-emerald-500'
-        : 'text-red-500';
+function KPITile({ label, value, colorState = 'neutral', isLoading }: KPITileProps) {
+  const colorClass = {
+    positive: 'text-emerald-500',
+    warning: 'text-yellow-500',
+    negative: 'text-red-500',
+    neutral: 'text-foreground',
+  }[colorState];
 
   return (
-    <div className="bg-card border border-border rounded px-2.5 py-1.5 min-w-0">
+    <div className="bg-card rounded px-2.5 py-1.5 min-w-0">
       <div className="text-[9px] text-muted-foreground uppercase tracking-wide truncate">
         {label}
       </div>
@@ -45,42 +47,48 @@ function formatDuration(hours: number): string {
   return `${days.toFixed(1)}d`;
 }
 
+function getDrawdownColor(drawdown: number): ColorState {
+  if (drawdown === 0) return 'positive';
+  if (drawdown <= 5) return 'warning';
+  return 'negative';
+}
+
 export function KPITiles({ kpis, isLoading }: KPITilesProps) {
-  const tiles = [
+  const tiles: { label: string; value: string; colorState: ColorState }[] = [
     {
       label: 'Total Return',
       value: kpis ? `${kpis.total_return_pct >= 0 ? '+' : ''}${kpis.total_return_pct.toFixed(2)}%` : '-',
-      isPositive: kpis ? (kpis.total_return_pct >= 0 ? true : false) : null,
+      colorState: kpis ? (kpis.total_return_pct >= 0 ? 'positive' : 'negative') : 'neutral',
     },
     {
       label: 'Win Rate',
       value: kpis ? `${kpis.win_rate_pct.toFixed(1)}%` : '-',
-      isPositive: kpis ? (kpis.win_rate_pct >= 50 ? true : false) : null,
+      colorState: kpis ? (kpis.win_rate_pct >= 50 ? 'positive' : 'negative') : 'neutral',
     },
     {
       label: 'Profit Factor',
       value: kpis ? (kpis.profit_factor >= 999 ? '∞' : kpis.profit_factor.toFixed(2)) : '-',
-      isPositive: kpis ? (kpis.profit_factor >= 1 ? true : false) : null,
+      colorState: kpis ? (kpis.profit_factor >= 1 ? 'positive' : 'negative') : 'neutral',
     },
     {
       label: 'Max Drawdown',
       value: kpis ? `-${kpis.max_drawdown_pct.toFixed(2)}%` : '-',
-      isPositive: kpis ? (kpis.max_drawdown_pct <= 5 ? true : false) : null,
+      colorState: kpis ? getDrawdownColor(kpis.max_drawdown_pct) : 'neutral',
     },
     {
       label: 'Trades',
       value: kpis ? `${kpis.num_trades}` : '-',
-      isPositive: null, // Neutral
+      colorState: 'neutral',
     },
     {
       label: 'Avg Return',
       value: kpis ? `${kpis.avg_return_per_trade_pct >= 0 ? '+' : ''}${kpis.avg_return_per_trade_pct.toFixed(2)}%` : '-',
-      isPositive: kpis ? (kpis.avg_return_per_trade_pct >= 0 ? true : false) : null,
+      colorState: kpis ? (kpis.avg_return_per_trade_pct >= 0 ? 'positive' : 'negative') : 'neutral',
     },
     {
       label: 'Avg Duration',
       value: kpis ? formatDuration(kpis.avg_trade_duration_hours) : '-',
-      isPositive: null, // Neutral
+      colorState: 'neutral',
     },
   ];
 
@@ -91,7 +99,7 @@ export function KPITiles({ kpis, isLoading }: KPITilesProps) {
           key={tile.label}
           label={tile.label}
           value={tile.value}
-          isPositive={tile.isPositive}
+          colorState={tile.colorState}
           isLoading={isLoading}
         />
       ))}
