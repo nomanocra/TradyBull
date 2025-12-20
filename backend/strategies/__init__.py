@@ -25,6 +25,7 @@ from .macd_zero import MACDZeroStrategy
 from .macd_cross_trend import MACDCrossTrendStrategy
 from .macd_histogram import MACDHistogramStrategy
 from .macd_histogram_sl1 import MACDHistogramSL1Strategy
+from .macd_histogram_sl1_trend import MACDHistogramSL1TrendStrategy
 
 # Registry of available strategies
 STRATEGIES = {
@@ -54,6 +55,7 @@ STRATEGIES = {
     'macd-cross-trend': MACDCrossTrendStrategy,
     'macd-histogram': MACDHistogramStrategy,
     'macd-histogram-sl1': MACDHistogramSL1Strategy,
+    'macd-histogram-sl1-trend': MACDHistogramSL1TrendStrategy,
 }
 
 __all__ = [
@@ -87,5 +89,6 @@ __all__ = [
     'MACDCrossTrendStrategy',
     'MACDHistogramStrategy',
     'MACDHistogramSL1Strategy',
+    'MACDHistogramSL1TrendStrategy',
     'STRATEGIES',
 ]
