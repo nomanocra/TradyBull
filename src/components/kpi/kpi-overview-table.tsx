@@ -66,7 +66,8 @@ function getColorClass(value: number, type: SortKey): string {
     case 'max_drawdown_pct':
       if (value === 0) return 'text-emerald-500';
       if (value <= 5) return 'text-yellow-500';
-      return 'text-red-500';
+      if (value <= 10) return 'text-red-500';
+      return 'text-red-700';
     default:
       return 'text-foreground';
   }

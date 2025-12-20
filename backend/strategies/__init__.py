@@ -19,6 +19,9 @@ from .trend_22h import Trend22hStrategy
 from .ichimoku_kumo import IchimokuKumoStrategy
 from .ichimoku_kumo_sl1 import IchimokuKumoSL1Strategy
 from .ichimoku_tk_cross import IchimokuTKCrossStrategy
+from .macd_cross import MACDCrossStrategy
+from .macd_zero import MACDZeroStrategy
+from .macd_cross_trend import MACDCrossTrendStrategy
 
 # Registry of available strategies
 STRATEGIES = {
@@ -42,6 +45,9 @@ STRATEGIES = {
     'ichimoku-kumo': IchimokuKumoStrategy,
     'ichimoku-kumo-sl1': IchimokuKumoSL1Strategy,
     'ichimoku-tk-cross': IchimokuTKCrossStrategy,
+    'macd-cross': MACDCrossStrategy,
+    'macd-zero': MACDZeroStrategy,
+    'macd-cross-trend': MACDCrossTrendStrategy,
 }
 
 __all__ = [
@@ -69,5 +75,8 @@ __all__ = [
     'IchimokuKumoStrategy',
     'IchimokuKumoSL1Strategy',
     'IchimokuTKCrossStrategy',
+    'MACDCrossStrategy',
+    'MACDZeroStrategy',
+    'MACDCrossTrendStrategy',
     'STRATEGIES',
 ]
