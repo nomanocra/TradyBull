@@ -199,7 +199,9 @@ export function KPIOverviewTable({ data, isLoading, showArchived = false }: KPIO
                 <td className="px-3 py-2.5">
                   <Link
                     href={`/strategy/backtesting/${item.strategy}`}
-                    className="text-foreground hover:text-brand transition-colors font-medium"
+                    className={`hover:text-brand transition-colors font-medium ${
+                      item.is_archived ? 'text-muted-foreground/50' : 'text-foreground'
+                    }`}
                   >
                     {item.display_name}
                   </Link>
