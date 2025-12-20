@@ -33,7 +33,7 @@ class MACDHistogramSL1TrendStrategy(BaseStrategy):
     @property
     def display_config(self) -> StrategyDisplayConfig:
         return StrategyDisplayConfig(
-            display_name="MACD Histogram SL-1% Trend",
+            display_name="MACD Histogram SL-1% Trend MA200",
             description="BUY: histogram rising + price > MA200. SELL: SL -1%, histogram falling, or price < MA200.",
             show_macd=True,
             show_moving_averages=True,
