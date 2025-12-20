@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useTransition, useMemo } from 'react';
+import { useState, useEffect, useTransition, useMemo, useRef, useCallback } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
@@ -14,6 +14,10 @@ import packageJson from '../../../package.json';
 const STORAGE_KEY = 'tradybull-sidebar-sections';
 const MODE_STORAGE_KEY = 'tradybull-sidebar-mode';
 const THEME_STORAGE_KEY = 'tradybull-theme';
+const WIDTH_STORAGE_KEY = 'tradybull-sidebar-width';
+
+const MIN_WIDTH = 208; // w-52
+const MAX_WIDTH = 460;
 
 type Mode = 'exploration' | 'strategy';
 
@@ -122,6 +126,9 @@ export function Sidebar() {
   const [isHydrated, setIsHydrated] = useState(false);
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [width, setWidth] = useState(MIN_WIDTH);
+  const [isResizing, setIsResizing] = useState(false);
+  const sidebarRef = useRef<HTMLDivElement>(null);
 
   // Fetch strategies from API
   const { strategies, archivedStrategies, archiveStrategy, unarchiveStrategy } = useStrategies();
@@ -256,8 +263,66 @@ export function Sidebar() {
     await unarchiveStrategy(strategySlug);
   };
 
+  // Handle resize
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+  }, []);
+
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!isResizing) return;
+    const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, e.clientX));
+    setWidth(newWidth);
+  }, [isResizing]);
+
+  const handleMouseUp = useCallback(() => {
+    if (isResizing) {
+      setIsResizing(false);
+      localStorage.setItem(WIDTH_STORAGE_KEY, width.toString());
+    }
+  }, [isResizing, width]);
+
+  // Load width from localStorage
+  useEffect(() => {
+    const savedWidth = localStorage.getItem(WIDTH_STORAGE_KEY);
+    if (savedWidth) {
+      const parsed = parseInt(savedWidth, 10);
+      if (parsed >= MIN_WIDTH && parsed <= MAX_WIDTH) {
+        setWidth(parsed);
+      }
+    }
+  }, []);
+
+  // Resize event listeners
+  useEffect(() => {
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'ew-resize';
+      document.body.style.userSelect = 'none';
+    }
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isResizing, handleMouseMove, handleMouseUp]);
+
   return (
-    <div className="w-52 h-screen bg-card border-r border-border flex flex-col">
+    <div
+      ref={sidebarRef}
+      className="h-screen bg-card border-r border-border flex flex-col relative"
+      style={{ width: `${width}px` }}
+    >
+      {/* Resize handle */}
+      <div
+        onMouseDown={handleMouseDown}
+        className={`absolute right-0 top-0 bottom-0 w-1 cursor-ew-resize hover:bg-brand/50 transition-colors ${
+          isResizing ? 'bg-brand' : ''
+        }`}
+      />
+
       {/* Logo */}
       <div className="flex items-center gap-2 px-4 py-3">
         <Image src="/logo-icon.svg" alt="TradyBull" width={24} height={24} />
