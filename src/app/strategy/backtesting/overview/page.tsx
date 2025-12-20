@@ -127,7 +127,7 @@ export default function BacktestingOverviewPage() {
               placeholder="Search strategies..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-8 h-8 w-48 text-xs"
+              className="pl-8 h-8 w-48"
             />
           </div>
         </div>
