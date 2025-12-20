@@ -313,7 +313,7 @@ export function Sidebar() {
     <div className="flex h-screen">
       <div
         ref={sidebarRef}
-        className="h-screen bg-card border-r border-border flex flex-col"
+        className="h-screen bg-card flex flex-col"
         style={{ width: `${width}px` }}
       >
 
@@ -464,11 +464,11 @@ export function Sidebar() {
         </div>
       </div>
 
-      {/* Resize handle */}
+      {/* Resize handle (acts as border) */}
       <div
         onMouseDown={handleMouseDown}
-        className={`w-1 h-screen cursor-ew-resize hover:bg-muted-foreground/30 transition-colors ${
-          isResizing ? 'bg-muted-foreground/50' : ''
+        className={`h-screen cursor-ew-resize transition-all ${
+          isResizing ? 'w-1 bg-muted-foreground/50' : 'w-px bg-border hover:w-1 hover:bg-muted-foreground/30'
         }`}
       />
     </div>
