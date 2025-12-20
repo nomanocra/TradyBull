@@ -28,7 +28,7 @@ class TrendStrategy(BaseStrategy):
     def display_config(self) -> StrategyDisplayConfig:
         return StrategyDisplayConfig(
             display_name="Trend",
-            description="BUY: price > MA200 AND MA200[now] > MA200[5 candles ago]. SELL: price < MA200 OR MA200 falling. Hold while bullish. No stop loss.",
+            description="BUY: at 22h Paris AND price > MA200 AND MA200 rising. SELL: price < MA200 OR MA200 falling. Hold while bullish. No stop loss.",
             show_moving_averages=True,
         )
 
@@ -97,8 +97,11 @@ class TrendStrategy(BaseStrategy):
             candle = candles[i]
             current_trend_bullish = self._check_trend_bullish(closes, ma200, i)
 
-            # Trend just turned bullish - BUY
-            if current_trend_bullish and not previous_trend_bullish and position is None:
+            # Trend is bullish AND it's 22h - BUY
+            hour = self._get_paris_hour(candle['time'])
+            is_entry_hour = hour == 22
+
+            if current_trend_bullish and is_entry_hour and position is None:
                 signals.append(Signal(
                     signal_timestamp=candle['time'],
                     trigger_timestamp=candle['time'],
