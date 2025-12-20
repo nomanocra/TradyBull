@@ -1,8 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { Search } from 'lucide-react';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Switch } from '@/components/ui/switch';
+import { Input } from '@/components/ui/input';
 import { KPIOverviewTable } from '@/components/kpi/kpi-overview-table';
 import { useHistoricalData } from '@/app/exploration/historical/historical-context';
 import { useAllKPIs } from '@/hooks/useKPIs';
@@ -10,6 +12,7 @@ import { strategyEvents } from '@/lib/strategy-events';
 
 export default function BacktestingOverviewPage() {
   const [showArchived, setShowArchived] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const {
     isLoading: dataLoading,
@@ -99,22 +102,37 @@ export default function BacktestingOverviewPage() {
 
       {/* Content */}
       <div className="flex-1 p-4 overflow-auto">
-        {/* Show Archived Switch */}
-        <div className="flex items-center gap-2 mb-4">
-          <Switch
-            id="show-archived"
-            checked={showArchived}
-            onCheckedChange={setShowArchived}
-          />
-          <label
-            htmlFor="show-archived"
-            className="text-xs text-muted-foreground cursor-pointer select-none"
-          >
-            Show Archived Strategies
-          </label>
+        {/* Filters */}
+        <div className="flex items-center justify-between mb-4">
+          {/* Show Archived Switch */}
+          <div className="flex items-center gap-2">
+            <Switch
+              id="show-archived"
+              checked={showArchived}
+              onCheckedChange={setShowArchived}
+            />
+            <label
+              htmlFor="show-archived"
+              className="text-xs text-muted-foreground cursor-pointer select-none"
+            >
+              Show Archived
+            </label>
+          </div>
+
+          {/* Search */}
+          <div className="relative">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              type="text"
+              placeholder="Search strategies..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-8 h-8 w-48 text-xs"
+            />
+          </div>
         </div>
 
-        <KPIOverviewTable data={kpisData} isLoading={kpisLoading} showArchived={showArchived} />
+        <KPIOverviewTable data={kpisData} isLoading={kpisLoading} showArchived={showArchived} searchQuery={searchQuery} />
       </div>
     </div>
   );

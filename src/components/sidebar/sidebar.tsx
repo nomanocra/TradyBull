@@ -4,8 +4,9 @@ import { useState, useEffect, useTransition, useMemo } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { ChevronDown, ChevronRight, Compass, Play, Sun, Moon, Archive, ArchiveRestore } from 'lucide-react';
+import { ChevronDown, ChevronRight, Compass, Play, Sun, Moon, Archive, ArchiveRestore, Search, X } from 'lucide-react';
 import { GroupButton } from '@/components/ui/group-button';
+import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useStrategies, StrategyConfig } from '@/hooks/useStrategies';
 import packageJson from '../../../package.json';
@@ -120,6 +121,7 @@ export function Sidebar() {
   const [theme, setTheme] = useState<Theme>('dark');
   const [isHydrated, setIsHydrated] = useState(false);
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Fetch strategies from API
   const { strategies, archivedStrategies, archiveStrategy, unarchiveStrategy } = useStrategies();
@@ -199,7 +201,20 @@ export function Sidebar() {
     }));
   };
 
-  const navigation = mode === 'exploration' ? explorationNavigation : strategyNavigation;
+  const baseNavigation = mode === 'exploration' ? explorationNavigation : strategyNavigation;
+
+  // Filter navigation by search query
+  const navigation = useMemo(() => {
+    if (!searchQuery.trim()) return baseNavigation;
+
+    const query = searchQuery.toLowerCase().trim();
+    return baseNavigation.map((section) => ({
+      ...section,
+      items: section.items.filter((item) =>
+        item.name.toLowerCase().includes(query)
+      ),
+    })).filter((section) => section.items.length > 0);
+  }, [baseNavigation, searchQuery]);
 
   // Check if a path is active (exact match or pending navigation)
   const isPathActive = (href: string) => {
@@ -256,6 +271,28 @@ export function Sidebar() {
           value={mode}
           onChange={(value) => setMode(value as Mode)}
         />
+      </div>
+
+      {/* Search */}
+      <div className="px-3 pb-2">
+        <div className="relative">
+          <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            type="text"
+            placeholder="Search..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-7 pr-7 h-7 text-xs"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X size={12} />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Navigation */}

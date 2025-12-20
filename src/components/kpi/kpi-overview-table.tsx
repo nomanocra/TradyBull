@@ -21,6 +21,7 @@ interface KPIOverviewTableProps {
   data: StrategyKPIData[];
   isLoading?: boolean;
   showArchived?: boolean;
+  searchQuery?: string;
 }
 
 function formatDuration(hours: number): string {
@@ -84,7 +85,7 @@ const columns: { key: SortKey; label: string; numeric: boolean }[] = [
   { key: 'avg_trade_duration_hours', label: 'Avg Duration', numeric: true },
 ];
 
-export function KPIOverviewTable({ data, isLoading, showArchived = false }: KPIOverviewTableProps) {
+export function KPIOverviewTable({ data, isLoading, showArchived = false, searchQuery = '' }: KPIOverviewTableProps) {
   const [sortKey, setSortKey] = useState<SortKey>('total_return_pct');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
@@ -92,9 +93,17 @@ export function KPIOverviewTable({ data, isLoading, showArchived = false }: KPIO
     if (!data.length) return [];
 
     // Filter out archived strategies unless showArchived is true
-    const filteredData = showArchived
+    let filteredData = showArchived
       ? data
       : data.filter((item) => !item.is_archived);
+
+    // Filter by search query
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      filteredData = filteredData.filter((item) =>
+        item.display_name.toLowerCase().includes(query)
+      );
+    }
 
     return [...filteredData].sort((a, b) => {
       let aVal: number | string;
@@ -118,7 +127,7 @@ export function KPIOverviewTable({ data, isLoading, showArchived = false }: KPIO
       const numB = bVal as number;
       return sortDirection === 'asc' ? numA - numB : numB - numA;
     });
-  }, [data, sortKey, sortDirection, showArchived]);
+  }, [data, sortKey, sortDirection, showArchived, searchQuery]);
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
