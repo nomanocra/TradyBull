@@ -11,10 +11,10 @@ export default function StrategyBacktestingPage() {
   const params = useParams();
   const strategySlug = params.strategy as string;
   const { data, startDate, endDate } = useHistoricalData();
-  const { strategies, isLoading: strategiesLoading } = useStrategies();
+  const { allStrategies, isLoading: strategiesLoading } = useStrategies();
 
-  // Find the strategy config
-  const strategyConfig = strategies.find((s) => s.name === strategySlug);
+  // Find the strategy config (including archived strategies)
+  const strategyConfig = allStrategies.find((s) => s.name === strategySlug);
 
   // Convert dates to timestamps for API call
   const startTs = startDate ? Math.floor(startDate.getTime() / 1000) : undefined;

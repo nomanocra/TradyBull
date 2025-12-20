@@ -10,6 +10,11 @@ interface DateBounds {
   maxDate: Date;
 }
 
+interface ZoomState {
+  fromPercent: number; // 0-1, percentage of data range
+  toPercent: number;   // 0-1, percentage of data range
+}
+
 interface HistoricalContextValue {
   data: CandleData[];
   isLoading: boolean;
@@ -20,6 +25,8 @@ interface HistoricalContextValue {
   endDate: Date | undefined;
   setStartDate: (date: Date | undefined) => void;
   setEndDate: (date: Date | undefined) => void;
+  zoomState: ZoomState;
+  setZoomState: (state: ZoomState) => void;
 }
 
 const HistoricalContext = createContext<HistoricalContextValue | null>(null);
@@ -36,6 +43,9 @@ interface HistoricalProviderProps {
   children: ReactNode;
 }
 
+// Default zoom: show last 20% of data (most recent)
+const DEFAULT_ZOOM: ZoomState = { fromPercent: 0.8, toPercent: 1 };
+
 export function HistoricalProvider({ children }: HistoricalProviderProps) {
   const [data, setData] = useState<CandleData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -45,6 +55,7 @@ export function HistoricalProvider({ children }: HistoricalProviderProps) {
   const [dateBounds, setDateBounds] = useState<DateBounds | null>(null);
   const [startDate, setStartDate] = useState<Date | undefined>();
   const [endDate, setEndDate] = useState<Date | undefined>();
+  const [zoomState, setZoomState] = useState<ZoomState>(DEFAULT_ZOOM);
 
   // Fetch available date bounds
   useEffect(() => {
@@ -109,6 +120,8 @@ export function HistoricalProvider({ children }: HistoricalProviderProps) {
     endDate,
     setStartDate,
     setEndDate,
+    zoomState,
+    setZoomState,
   };
 
   return (

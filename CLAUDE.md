@@ -283,6 +283,8 @@ class StrategyKPIs:
 - Couleur primaire (brand): `#C59471` (cuivre/bronze)
 - Light/Dark mode supporté
 - Dark mode: Fond `#0a0a0a`, `#0d0d0d`, bordures `#1a1a1a`
+- **Pas de border-radius** : L'application utilise un design sans coins arrondis (pas de `rounded-*`)
+- **Textes en anglais** : Tous les textes de l'interface (labels, tooltips, boutons) doivent être en anglais
 
 ### Indicateurs Techniques (dans candlestick-chart.tsx)
 - Bollinger Bands: BB_PERIOD=20, BB_STD_DEV=2
@@ -326,6 +328,9 @@ signals (id, strategy_name, symbol, signal_timestamp, trigger_timestamp, type, p
 
 -- État de traitement (pour calcul incrémental)
 signal_processing_state (id, strategy_name, symbol, data_source, last_processed_timestamp, last_signal_state, updated_at)
+
+-- Stratégies archivées (masquées de la sidebar)
+archived_strategies (strategy_name, archived_at)
 ```
 
 ## Hooks Frontend

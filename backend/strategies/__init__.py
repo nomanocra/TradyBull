@@ -9,6 +9,7 @@ from .bollinger_sl25_crossing import BollingerSL25CrossingStrategy
 from .daily import DailyStrategy
 from .daily_sl1 import DailySL1Strategy
 from .daily_sl1_trend import DailySL1TrendStrategy
+from .daily_sl1_trend_v2 import DailySL1TrendV2Strategy
 from .daily_sl1_crossing import DailySL1CrossingStrategy
 from .daily_sl25 import DailySL25Strategy
 from .daily_sl25_trend import DailySL25TrendStrategy
@@ -28,6 +29,7 @@ STRATEGIES = {
     'daily': DailyStrategy,
     'daily-sl1': DailySL1Strategy,
     'daily-sl1-trend': DailySL1TrendStrategy,
+    'daily-sl1-trend-v2': DailySL1TrendV2Strategy,
     'daily-sl1-crossing': DailySL1CrossingStrategy,
     'daily-sl25': DailySL25Strategy,
     'daily-sl25-trend': DailySL25TrendStrategy,
@@ -51,6 +53,7 @@ __all__ = [
     'DailyStrategy',
     'DailySL1Strategy',
     'DailySL1TrendStrategy',
+    'DailySL1TrendV2Strategy',
     'DailySL1CrossingStrategy',
     'DailySL25Strategy',
     'DailySL25TrendStrategy',

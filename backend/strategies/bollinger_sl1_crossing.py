@@ -36,7 +36,7 @@ class BollingerSL1CrossingStrategy(BaseStrategy):
     def display_config(self) -> StrategyDisplayConfig:
         return StrategyDisplayConfig(
             display_name="Bollinger SL-1% Crossing",
-            description="Buy when price touches lower Bollinger Band AND Golden Cross is active (MA50 > MA200). Stop loss at -1%. Position closes at 22h Paris time. One trade per day max.",
+            description="Entry: 7h-21h, price touches lower BB, MA50 > MA200. Exit: SL -1% or 22h.",
             show_bollinger=True,
             show_moving_averages=True,
         )

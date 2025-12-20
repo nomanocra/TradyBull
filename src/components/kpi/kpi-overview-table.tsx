@@ -17,9 +17,15 @@ type SortKey =
 
 type SortDirection = 'asc' | 'desc';
 
+// Archived strategies are hidden by default
+const ARCHIVED_STRATEGIES = [
+  'daily-sl1-trend-v2',
+];
+
 interface KPIOverviewTableProps {
   data: StrategyKPIData[];
   isLoading?: boolean;
+  showArchived?: boolean;
 }
 
 function formatDuration(hours: number): string {
@@ -82,14 +88,19 @@ const columns: { key: SortKey; label: string; numeric: boolean }[] = [
   { key: 'avg_trade_duration_hours', label: 'Avg Duration', numeric: true },
 ];
 
-export function KPIOverviewTable({ data, isLoading }: KPIOverviewTableProps) {
+export function KPIOverviewTable({ data, isLoading, showArchived = false }: KPIOverviewTableProps) {
   const [sortKey, setSortKey] = useState<SortKey>('total_return_pct');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
   const sortedData = useMemo(() => {
     if (!data.length) return [];
 
-    return [...data].sort((a, b) => {
+    // Filter out archived strategies unless showArchived is true
+    const filteredData = showArchived
+      ? data
+      : data.filter((item) => !ARCHIVED_STRATEGIES.includes(item.strategy));
+
+    return [...filteredData].sort((a, b) => {
       let aVal: number | string;
       let bVal: number | string;
 
@@ -111,7 +122,7 @@ export function KPIOverviewTable({ data, isLoading }: KPIOverviewTableProps) {
       const numB = bVal as number;
       return sortDirection === 'asc' ? numA - numB : numB - numA;
     });
-  }, [data, sortKey, sortDirection]);
+  }, [data, sortKey, sortDirection, showArchived]);
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {

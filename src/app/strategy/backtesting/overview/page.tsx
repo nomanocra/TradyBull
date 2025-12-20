@@ -1,11 +1,15 @@
 'use client';
 
+import { useState } from 'react';
 import { DatePicker } from '@/components/ui/date-picker';
+import { Switch } from '@/components/ui/switch';
 import { KPIOverviewTable } from '@/components/kpi/kpi-overview-table';
 import { useHistoricalData } from '@/app/exploration/historical/historical-context';
 import { useAllKPIs } from '@/hooks/useKPIs';
 
 export default function BacktestingOverviewPage() {
+  const [showArchived, setShowArchived] = useState(false);
+
   const {
     isLoading: dataLoading,
     error,
@@ -87,7 +91,22 @@ export default function BacktestingOverviewPage() {
 
       {/* Content */}
       <div className="flex-1 p-4 overflow-auto">
-        <KPIOverviewTable data={kpisData} isLoading={kpisLoading} />
+        {/* Show Archived Switch */}
+        <div className="flex items-center gap-2 mb-4">
+          <Switch
+            id="show-archived"
+            checked={showArchived}
+            onCheckedChange={setShowArchived}
+          />
+          <label
+            htmlFor="show-archived"
+            className="text-xs text-muted-foreground cursor-pointer select-none"
+          >
+            Show Archived Strategies
+          </label>
+        </div>
+
+        <KPIOverviewTable data={kpisData} isLoading={kpisLoading} showArchived={showArchived} />
       </div>
     </div>
   );

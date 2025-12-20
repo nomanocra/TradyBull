@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 const API_URL = 'http://localhost:8000/api';
 
@@ -11,12 +11,18 @@ export interface StrategyConfig {
   show_ichimoku: boolean;
   show_moving_averages: boolean;
   show_rsi: boolean;
+  is_archived: boolean;
 }
 
 interface UseStrategiesResult {
-  strategies: StrategyConfig[];
+  strategies: StrategyConfig[];         // Active (non-archived) strategies
+  archivedStrategies: StrategyConfig[]; // Archived strategies
+  allStrategies: StrategyConfig[];      // All strategies
   isLoading: boolean;
   error: string | null;
+  archiveStrategy: (name: string) => Promise<void>;
+  unarchiveStrategy: (name: string) => Promise<void>;
+  refetch: () => Promise<void>;
 }
 
 /**
@@ -24,50 +30,84 @@ interface UseStrategiesResult {
  * Returns strategy metadata for dynamic page generation.
  */
 export function useStrategies(): UseStrategiesResult {
-  const [strategies, setStrategies] = useState<StrategyConfig[]>([]);
+  const [allStrategies, setAllStrategies] = useState<StrategyConfig[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
+  const fetchStrategies = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
 
-    async function fetchStrategies() {
-      try {
-        setIsLoading(true);
-        setError(null);
-
-        const response = await fetch(`${API_URL}/signals/strategies`);
-        if (!response.ok) {
-          throw new Error(`Failed to fetch strategies: ${response.status}`);
-        }
-
-        const data = await response.json();
-
-        if (!cancelled) {
-          setStrategies(data.strategies || []);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Failed to load strategies');
-          setStrategies([]);
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoading(false);
-        }
+      const response = await fetch(`${API_URL}/signals/strategies`);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch strategies: ${response.status}`);
       }
+
+      const data = await response.json();
+      setAllStrategies(data.strategies || []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load strategies');
+      setAllStrategies([]);
+    } finally {
+      setIsLoading(false);
     }
-
-    fetchStrategies();
-
-    return () => {
-      cancelled = true;
-    };
   }, []);
+
+  useEffect(() => {
+    fetchStrategies();
+  }, [fetchStrategies]);
+
+  const archiveStrategy = useCallback(async (name: string) => {
+    try {
+      const response = await fetch(`${API_URL}/strategies/${name}/archive`, {
+        method: 'POST',
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to archive strategy: ${response.status}`);
+      }
+      // Optimistic update
+      setAllStrategies(prev =>
+        prev.map(s => s.name === name ? { ...s, is_archived: true } : s)
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to archive strategy');
+      // Refetch to get correct state
+      await fetchStrategies();
+    }
+  }, [fetchStrategies]);
+
+  const unarchiveStrategy = useCallback(async (name: string) => {
+    try {
+      const response = await fetch(`${API_URL}/strategies/${name}/unarchive`, {
+        method: 'POST',
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to unarchive strategy: ${response.status}`);
+      }
+      // Optimistic update
+      setAllStrategies(prev =>
+        prev.map(s => s.name === name ? { ...s, is_archived: false } : s)
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to unarchive strategy');
+      // Refetch to get correct state
+      await fetchStrategies();
+    }
+  }, [fetchStrategies]);
+
+  // Separate active and archived strategies
+  const strategies = allStrategies.filter(s => !s.is_archived);
+  const archivedStrategies = allStrategies.filter(s => s.is_archived);
 
   return {
     strategies,
+    archivedStrategies,
+    allStrategies,
     isLoading,
     error,
+    archiveStrategy,
+    unarchiveStrategy,
+    refetch: fetchStrategies,
   };
 }

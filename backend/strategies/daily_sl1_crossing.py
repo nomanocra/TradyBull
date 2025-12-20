@@ -14,12 +14,13 @@ class DailySL1CrossingStrategy(BaseStrategy):
     """
     Daily SL-1% + Golden Cross Filter Strategy
 
-    Rules:
-    - Buy at the first candle of the trading day (7h Paris time)
-    - Only buy if MA50 > MA200 (Golden Cross active)
-    - Stop Loss at -1%: if LOW goes below buy_price * 0.99, close position
-    - If SL not triggered, close at 22h
-    - One trade per day
+    Entry:
+    - First candle of the day, only if MA50 > MA200
+    - One trade per day max
+
+    Exit (first condition met):
+    - Stop Loss -1%
+    - 22h Paris
     """
 
     @property
@@ -30,7 +31,7 @@ class DailySL1CrossingStrategy(BaseStrategy):
     def display_config(self) -> StrategyDisplayConfig:
         return StrategyDisplayConfig(
             display_name="Daily SL-1% Crossing",
-            description="Buy at market open (7h Paris) only if Golden Cross is active (MA50 > MA200). Stop loss at -1%. Closes at 22h. One trade per day max.",
+            description="Entry: first candle if MA50 > MA200. Exit: SL -1% or 22h.",
             show_moving_averages=True,
         )
 

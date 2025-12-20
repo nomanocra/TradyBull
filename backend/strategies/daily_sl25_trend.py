@@ -14,12 +14,15 @@ class DailySL25TrendStrategy(BaseStrategy):
     """
     Daily SL-2.5% + Trend Filter Strategy
 
-    Rules:
-    - Buy at the first candle of the trading day (7h Paris time)
-    - Only buy if price > MA200 AND MA200 is rising
-    - Stop Loss at -2.5%: if LOW goes below buy_price * 0.975, close position
-    - If SL not triggered, close at 22h
-    - One trade per day
+    Entry:
+    - First candle where price > MA200 AND MA200 rising
+    - One trade per day max
+
+    Exit (first condition met):
+    - Stop Loss -2.5%
+    - Price < MA200
+    - MA200 falling
+    - 22h Paris
     """
 
     @property
@@ -30,7 +33,7 @@ class DailySL25TrendStrategy(BaseStrategy):
     def display_config(self) -> StrategyDisplayConfig:
         return StrategyDisplayConfig(
             display_name="Daily SL-2.5% Trend",
-            description="Buy at market open (7h Paris) only if price > MA200 and MA200 is rising. Stop loss at -2.5%. Closes at 22h. One trade per day max.",
+            description="Entry: when price > MA200 and MA200 rising (1x/day). Exit: SL -2.5%, price < MA200, MA200 falling, or 22h.",
             show_moving_averages=True,
         )
 
@@ -56,11 +59,10 @@ class DailySL25TrendStrategy(BaseStrategy):
         dt = datetime.fromtimestamp(timestamp, tz=PARIS_TZ)
         return dt.strftime('%Y-%m-%d')
 
-    def _is_first_candle_of_day(self, candles: List[Dict], index: int, bought_dates: set) -> bool:
+    def _can_open_position_today(self, candles: List[Dict], index: int, position_open_on_day: dict) -> bool:
+        """Check if we can open a position today (no position yet opened today)"""
         date_string = self._get_paris_date_string(candles[index]['time'])
-        if date_string in bought_dates:
-            return False
-        return True
+        return date_string not in position_open_on_day
 
     def _is_closing_hour(self, timestamp: int) -> bool:
         return self._get_paris_hour(timestamp) == 22
@@ -76,7 +78,8 @@ class DailySL25TrendStrategy(BaseStrategy):
         sl_price = buy_price * (1 - SL_PERCENT / 100)
         return candle['low'] < sl_price
 
-    def _check_trend_filter(self, closes: List[float], ma200: List[Optional[float]], index: int) -> bool:
+    def _check_trend_bullish(self, closes: List[float], ma200: List[Optional[float]], index: int) -> bool:
+        """Check if trend is bullish: price > MA200 AND MA200 rising"""
         if index < MA_SLOPE_LOOKBACK:
             return False
 
@@ -91,6 +94,28 @@ class DailySL25TrendStrategy(BaseStrategy):
         ma_rising = current_ma > past_ma
 
         return price_above_ma and ma_rising
+
+    def _check_trend_exit(self, closes: List[float], ma200: List[Optional[float]], index: int) -> tuple[bool, str]:
+        """Check if trend exit conditions are met: price < MA200 OR MA200 falling"""
+        if index < MA_SLOPE_LOOKBACK:
+            return False, ''
+
+        current_ma = ma200[index]
+        past_ma = ma200[index - MA_SLOPE_LOOKBACK]
+        current_price = closes[index]
+
+        if current_ma is None or past_ma is None:
+            return False, ''
+
+        # Exit if price below MA200
+        if current_price < current_ma:
+            return True, 'price_below_ma200'
+
+        # Exit if MA200 is falling
+        if current_ma < past_ma:
+            return True, 'ma200_falling'
+
+        return False, ''
 
     def calculate_signals(
         self,
@@ -109,16 +134,15 @@ class DailySL25TrendStrategy(BaseStrategy):
         ma200 = self._calculate_sma(closes, MA_TREND_PERIOD)
 
         signals: List[Signal] = []
-        bought_dates: set = set(position_open_on_day.keys())
         start_index = MA_TREND_PERIOD + MA_SLOPE_LOOKBACK
 
         for i in range(start_index, len(candles)):
             candle = candles[i]
             date_string = self._get_paris_date_string(candle['time'])
 
-            # Check for buy signal at first candle of the day with trend filter
-            if self._is_first_candle_of_day(candles, i, bought_dates):
-                if self._check_trend_filter(closes, ma200, i):
+            # Check for buy signal: first candle that meets conditions (max 1 per day)
+            if self._can_open_position_today(candles, i, position_open_on_day):
+                if self._check_trend_bullish(closes, ma200, i):
                     signals.append(Signal(
                         signal_timestamp=candle['time'],
                         trigger_timestamp=candle['time'],
@@ -131,7 +155,6 @@ class DailySL25TrendStrategy(BaseStrategy):
                         'buy_price': candle['open'],
                         'buy_time': candle['time'],
                     }
-                    bought_dates.add(date_string)
 
             # Check if we have an open position today
             if date_string in position_open_on_day:
@@ -154,9 +177,29 @@ class DailySL25TrendStrategy(BaseStrategy):
                         }
                     ))
                     del position_open_on_day[date_string]
+                    continue
+
+                # Check for trend exit (price < MA200 OR MA200 falling)
+                trend_exit, exit_reason = self._check_trend_exit(closes, ma200, i)
+                if trend_exit:
+                    signals.append(Signal(
+                        signal_timestamp=candle['time'],
+                        trigger_timestamp=candle['time'],
+                        type='sell',
+                        price=candle['close'],
+                        label='Trend',
+                        metadata={
+                            'buy_price': buy_price,
+                            'buy_time': position['buy_time'],
+                            'exit_reason': exit_reason,
+                            'ma200': ma200[i],
+                        }
+                    ))
+                    del position_open_on_day[date_string]
+                    continue
 
                 # Check for closing hour (22h) or last candle of day
-                elif self._is_closing_hour(candle['time']) or self._is_last_candle_of_day(candles, i):
+                if self._is_closing_hour(candle['time']) or self._is_last_candle_of_day(candles, i):
                     signals.append(Signal(
                         signal_timestamp=candle['time'],
                         trigger_timestamp=candle['time'],

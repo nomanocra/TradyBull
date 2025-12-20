@@ -4,8 +4,9 @@ import { useState, useEffect, useTransition, useMemo } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { ChevronDown, ChevronRight, Compass, Play, Sun, Moon } from 'lucide-react';
+import { ChevronDown, ChevronRight, Compass, Play, Sun, Moon, Archive, ArchiveRestore } from 'lucide-react';
 import { GroupButton } from '@/components/ui/group-button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useStrategies, StrategyConfig } from '@/hooks/useStrategies';
 import packageJson from '../../../package.json';
 
@@ -18,11 +19,13 @@ type Mode = 'exploration' | 'strategy';
 interface NavItem {
   name: string;
   href: string;
+  strategySlug?: string; // For archive functionality
 }
 
 interface NavSection {
   title: string;
   items: NavItem[];
+  isArchive?: boolean;
 }
 
 const explorationNavigation: NavSection[] = [
@@ -51,13 +54,17 @@ const explorationNavigation: NavSection[] = [
 ];
 
 // Strategy navigation is now generated dynamically from the API
-function generateStrategyNavigation(strategies: StrategyConfig[]): NavSection[] {
-  return [
+function generateStrategyNavigation(
+  strategies: StrategyConfig[],
+  archivedStrategies: StrategyConfig[]
+): NavSection[] {
+  const sections: NavSection[] = [
     {
       title: 'Real Time',
       items: strategies.map((s) => ({
         name: s.display_name,
         href: `/strategy/real-time/${s.name}`,
+        strategySlug: s.name,
       })),
     },
     {
@@ -67,10 +74,26 @@ function generateStrategyNavigation(strategies: StrategyConfig[]): NavSection[] 
         ...strategies.map((s) => ({
           name: s.display_name,
           href: `/strategy/backtesting/${s.name}`,
+          strategySlug: s.name,
         })),
       ],
     },
   ];
+
+  // Add Archive section if there are archived strategies
+  if (archivedStrategies.length > 0) {
+    sections.push({
+      title: 'Archive',
+      isArchive: true,
+      items: archivedStrategies.map((s) => ({
+        name: s.display_name,
+        href: `/strategy/backtesting/${s.name}`,
+        strategySlug: s.name,
+      })),
+    });
+  }
+
+  return sections;
 }
 
 const modeOptions = [
@@ -82,6 +105,7 @@ const defaultSections: Record<string, boolean> = {
   'Real Time': true,
   'Historical Data': true,
   'Backtesting': true,
+  'Archive': false, // Collapsed by default
 };
 
 type Theme = 'dark' | 'light';
@@ -95,14 +119,15 @@ export function Sidebar() {
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>(defaultSections);
   const [theme, setTheme] = useState<Theme>('dark');
   const [isHydrated, setIsHydrated] = useState(false);
+  const [hoveredItem, setHoveredItem] = useState<string | null>(null);
 
   // Fetch strategies from API
-  const { strategies } = useStrategies();
+  const { strategies, archivedStrategies, archiveStrategy, unarchiveStrategy } = useStrategies();
 
   // Generate strategy navigation dynamically
   const strategyNavigation = useMemo(
-    () => generateStrategyNavigation(strategies),
-    [strategies]
+    () => generateStrategyNavigation(strategies, archivedStrategies),
+    [strategies, archivedStrategies]
   );
 
   // Clear pending path when navigation completes
@@ -126,7 +151,7 @@ export function Sidebar() {
     const savedSections = localStorage.getItem(STORAGE_KEY);
     if (savedSections) {
       try {
-        setExpandedSections(JSON.parse(savedSections));
+        setExpandedSections({ ...defaultSections, ...JSON.parse(savedSections) });
       } catch {
         // Invalid JSON, use defaults
       }
@@ -202,6 +227,20 @@ export function Sidebar() {
     });
   };
 
+  // Handle archive click
+  const handleArchiveClick = async (e: React.MouseEvent, strategySlug: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    await archiveStrategy(strategySlug);
+  };
+
+  // Handle unarchive click
+  const handleUnarchiveClick = async (e: React.MouseEvent, strategySlug: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    await unarchiveStrategy(strategySlug);
+  };
+
   return (
     <div className="w-52 h-screen bg-card border-r border-border flex flex-col">
       {/* Logo */}
@@ -235,6 +274,11 @@ export function Sidebar() {
                 <ChevronRight size={14} className="text-muted-foreground" />
               )}
               <span className="uppercase tracking-wider">{section.title}</span>
+              {section.isArchive && (
+                <span className="ml-auto text-[9px] text-muted-foreground/60">
+                  {section.items.length}
+                </span>
+              )}
             </button>
 
             {/* Section Items */}
@@ -244,19 +288,59 @@ export function Sidebar() {
                   section.items.map((item) => {
                     const isActive = isPathActive(item.href);
                     const isLoading = pendingPath === item.href && isPending;
+                    const isHovered = hoveredItem === item.href;
+                    const showArchiveIcon = item.strategySlug && isHovered && !section.isArchive && section.title !== 'Real Time';
+                    const showRestoreIcon = item.strategySlug && isHovered && section.isArchive;
+
                     return (
-                      <Link
+                      <div
                         key={item.href}
-                        href={item.href}
-                        onClick={(e) => handleNavClick(e, item.href)}
-                        className={`block px-4 py-1.5 text-xs transition-colors ${
-                          isActive
-                            ? 'text-brand bg-brand/10 border-l-2 border-brand'
-                            : 'text-muted-foreground hover:text-foreground hover:bg-muted border-l-2 border-transparent'
-                        } ${isLoading ? 'opacity-70' : ''}`}
+                        className="relative group"
+                        onMouseEnter={() => setHoveredItem(item.href)}
+                        onMouseLeave={() => setHoveredItem(null)}
                       >
-                        {item.name}
-                      </Link>
+                        <Link
+                          href={item.href}
+                          onClick={(e) => handleNavClick(e, item.href)}
+                          className={`block px-4 py-1.5 text-xs transition-colors pr-8 ${
+                            isActive
+                              ? 'text-brand bg-brand/10 border-l-2 border-brand'
+                              : 'text-muted-foreground hover:text-foreground hover:bg-muted border-l-2 border-transparent'
+                          } ${isLoading ? 'opacity-70' : ''}`}
+                        >
+                          {item.name}
+                        </Link>
+
+                        {/* Archive button */}
+                        {showArchiveIcon && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                onClick={(e) => handleArchiveClick(e, item.strategySlug!)}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground hover:bg-muted-foreground/20 transition-colors"
+                              >
+                                <Archive size={12} />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="right">Archive</TooltipContent>
+                          </Tooltip>
+                        )}
+
+                        {/* Restore button */}
+                        {showRestoreIcon && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                onClick={(e) => handleUnarchiveClick(e, item.strategySlug!)}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground hover:bg-muted-foreground/20 transition-colors"
+                              >
+                                <ArchiveRestore size={12} />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="right">Restore</TooltipContent>
+                          </Tooltip>
+                        )}
+                      </div>
                     );
                   })
                 ) : (

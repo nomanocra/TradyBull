@@ -5,6 +5,11 @@ import { createChart, IChartApi, ISeriesApi, CandlestickSeries, LineSeries, Hist
 import { CandleData, TimeFrame, Signal } from '@/types/market';
 import { ChartNavigator } from './chart-navigator';
 
+interface ZoomState {
+  fromPercent: number;
+  toPercent: number;
+}
+
 interface CandlestickChartProps {
   title: string;
   timeframe: TimeFrame;
@@ -17,6 +22,8 @@ interface CandlestickChartProps {
   showRSI?: boolean;
   showNavigator?: boolean;
   signals?: Signal[];
+  initialZoom?: ZoomState;
+  onZoomChange?: (zoom: ZoomState) => void;
 }
 
 // Cache for timezone offsets to avoid repeated calculations
@@ -408,6 +415,8 @@ export function CandlestickChart({
   showRSI = false,
   showNavigator = false,
   signals = [],
+  initialZoom,
+  onZoomChange,
 }: CandlestickChartProps) {
   const isDark = useTheme();
   const colors = chartColors[isDark ? 'dark' : 'light'];
@@ -466,11 +475,38 @@ export function CandlestickChart({
   const [draggingDivider, setDraggingDivider] = useState<'macd' | 'rsi' | null>(null);
 
   // Navigator state - simple from/to values
-  const [navFrom, setNavFrom] = useState(0);
-  const [navTo, setNavTo] = useState(data.length);
+  // Initialize from initialZoom if provided, otherwise default to showing all data
+  const getInitialNavRange = useCallback(() => {
+    if (initialZoom && data.length > 0) {
+      return {
+        from: Math.floor(initialZoom.fromPercent * data.length),
+        to: Math.ceil(initialZoom.toPercent * data.length),
+      };
+    }
+    return { from: 0, to: data.length };
+  }, [initialZoom, data.length]);
+
+  const [navFrom, setNavFrom] = useState(() => getInitialNavRange().from);
+  const [navTo, setNavTo] = useState(() => getInitialNavRange().to);
   const [minVisibleBars, setMinVisibleBars] = useState(50);
   const [maxVisibleBars, setMaxVisibleBars] = useState(10000);
   const isNavigatorUpdating = useRef(false);
+
+  // Notify parent of zoom changes (debounced)
+  const onZoomChangeRef = useRef(onZoomChange);
+  onZoomChangeRef.current = onZoomChange;
+
+  useEffect(() => {
+    if (data.length === 0 || !onZoomChangeRef.current) return;
+
+    const timeoutId = setTimeout(() => {
+      const fromPercent = navFrom / data.length;
+      const toPercent = navTo / data.length;
+      onZoomChangeRef.current?.({ fromPercent, toPercent });
+    }, 100); // Debounce to avoid too many updates
+
+    return () => clearTimeout(timeoutId);
+  }, [navFrom, navTo, data.length]);
 
   const lastPrice = data.length > 0 ? data[data.length - 1].close : null;
   const firstPrice = data.length > 0 ? data[0].close : null;

@@ -5,39 +5,41 @@ from .base import BaseStrategy, Signal, StrategyDisplayConfig
 
 PARIS_TZ = pytz.timezone('Europe/Paris')
 
-SL_PERCENT = 2.5  # -2.5%
-MA_SHORT = 50
-MA_LONG = 200
+SL_PERCENT = 1.0  # -1%
+MA_TREND_PERIOD = 200
+MA_SLOPE_LOOKBACK = 5
 
 
-class DailySL25CrossingStrategy(BaseStrategy):
+class DailySL1TrendV2Strategy(BaseStrategy):
     """
-    Daily SL-2.5% + Golden Cross Filter Strategy
+    Daily SL-1% + Trend Filter Strategy V2
 
     Entry:
-    - First candle of the day, only if MA50 > MA200
+    - First candle where LOW > MA200 AND MA200 rising
     - One trade per day max
 
     Exit (first condition met):
-    - Stop Loss -2.5%
+    - Stop Loss -1%
+    - Price < MA200
+    - MA200 falling
     - 22h Paris
     """
 
     @property
     def name(self) -> str:
-        return "daily-sl25-crossing"
+        return "daily-sl1-trend-v2"
 
     @property
     def display_config(self) -> StrategyDisplayConfig:
         return StrategyDisplayConfig(
-            display_name="Daily SL-2.5% Crossing",
-            description="Entry: first candle if MA50 > MA200. Exit: SL -2.5% or 22h.",
+            display_name="Daily SL-1% Trend v2",
+            description="Entry: when LOW > MA200 and MA200 rising (1x/day). Exit: SL -1%, price < MA200, MA200 falling, or 22h.",
             show_moving_averages=True,
         )
 
     @property
     def required_lookback(self) -> int:
-        return MA_LONG + 1
+        return MA_TREND_PERIOD + MA_SLOPE_LOOKBACK + 1
 
     def _calculate_sma(self, data: List[float], period: int) -> List[Optional[float]]:
         result: List[Optional[float]] = []
@@ -57,11 +59,10 @@ class DailySL25CrossingStrategy(BaseStrategy):
         dt = datetime.fromtimestamp(timestamp, tz=PARIS_TZ)
         return dt.strftime('%Y-%m-%d')
 
-    def _is_first_candle_of_day(self, candles: List[Dict], index: int, bought_dates: set) -> bool:
+    def _can_open_position_today(self, candles: List[Dict], index: int, position_open_on_day: dict) -> bool:
+        """Check if we can open a position today (no position yet opened today)"""
         date_string = self._get_paris_date_string(candles[index]['time'])
-        if date_string in bought_dates:
-            return False
-        return True
+        return date_string not in position_open_on_day
 
     def _is_closing_hour(self, timestamp: int) -> bool:
         return self._get_paris_hour(timestamp) == 22
@@ -77,10 +78,44 @@ class DailySL25CrossingStrategy(BaseStrategy):
         sl_price = buy_price * (1 - SL_PERCENT / 100)
         return candle['low'] < sl_price
 
-    def _check_golden_cross(self, ma50: List[Optional[float]], ma200: List[Optional[float]], index: int) -> bool:
-        if ma50[index] is None or ma200[index] is None:
+    def _check_trend_bullish(self, candles: List[Dict], ma200: List[Optional[float]], index: int) -> bool:
+        """Check if trend is bullish: LOW > MA200 AND MA200 rising"""
+        if index < MA_SLOPE_LOOKBACK:
             return False
-        return ma50[index] > ma200[index]
+
+        current_ma = ma200[index]
+        past_ma = ma200[index - MA_SLOPE_LOOKBACK]
+        current_low = candles[index]['low']
+
+        if current_ma is None or past_ma is None:
+            return False
+
+        low_above_ma = current_low > current_ma
+        ma_rising = current_ma > past_ma
+
+        return low_above_ma and ma_rising
+
+    def _check_trend_exit(self, closes: List[float], ma200: List[Optional[float]], index: int) -> tuple[bool, str]:
+        """Check if trend exit conditions are met: price < MA200 OR MA200 falling"""
+        if index < MA_SLOPE_LOOKBACK:
+            return False, ''
+
+        current_ma = ma200[index]
+        past_ma = ma200[index - MA_SLOPE_LOOKBACK]
+        current_price = closes[index]
+
+        if current_ma is None or past_ma is None:
+            return False, ''
+
+        # Exit if price below MA200
+        if current_price < current_ma:
+            return True, 'price_below_ma200'
+
+        # Exit if MA200 is falling
+        if current_ma < past_ma:
+            return True, 'ma200_falling'
+
+        return False, ''
 
     def calculate_signals(
         self,
@@ -96,40 +131,37 @@ class DailySL25CrossingStrategy(BaseStrategy):
             position_open_on_day = {}
 
         closes = [c['close'] for c in candles]
-        ma50 = self._calculate_sma(closes, MA_SHORT)
-        ma200 = self._calculate_sma(closes, MA_LONG)
+        ma200 = self._calculate_sma(closes, MA_TREND_PERIOD)
 
         signals: List[Signal] = []
-        bought_dates: set = set(position_open_on_day.keys())
-        start_index = MA_LONG
+        start_index = MA_TREND_PERIOD + MA_SLOPE_LOOKBACK
 
         for i in range(start_index, len(candles)):
             candle = candles[i]
             date_string = self._get_paris_date_string(candle['time'])
 
-            # Check for buy signal at first candle of the day with golden cross filter
-            if self._is_first_candle_of_day(candles, i, bought_dates):
-                if self._check_golden_cross(ma50, ma200, i):
+            # Check for buy signal: first candle that meets conditions (max 1 per day)
+            if self._can_open_position_today(candles, i, position_open_on_day):
+                if self._check_trend_bullish(candles, ma200, i):
                     signals.append(Signal(
                         signal_timestamp=candle['time'],
                         trigger_timestamp=candle['time'],
                         type='buy',
                         price=candle['open'],
                         label='Buy',
-                        metadata={'ma50': ma50[i], 'ma200': ma200[i], 'filter': 'golden_cross'}
+                        metadata={'ma200': ma200[i], 'trend_filter': 'passed_v2_low'}
                     ))
                     position_open_on_day[date_string] = {
                         'buy_price': candle['open'],
                         'buy_time': candle['time'],
                     }
-                    bought_dates.add(date_string)
 
             # Check if we have an open position today
             if date_string in position_open_on_day:
                 position = position_open_on_day[date_string]
                 buy_price = position['buy_price']
 
-                # Check for Stop Loss trigger
+                # Check for Stop Loss trigger (-1%)
                 if self._check_stop_loss(candle, buy_price):
                     sl_price = buy_price * (1 - SL_PERCENT / 100)
                     signals.append(Signal(
@@ -145,9 +177,29 @@ class DailySL25CrossingStrategy(BaseStrategy):
                         }
                     ))
                     del position_open_on_day[date_string]
+                    continue
+
+                # Check for trend exit (price < MA200 OR MA200 falling)
+                trend_exit, exit_reason = self._check_trend_exit(closes, ma200, i)
+                if trend_exit:
+                    signals.append(Signal(
+                        signal_timestamp=candle['time'],
+                        trigger_timestamp=candle['time'],
+                        type='sell',
+                        price=candle['close'],
+                        label='Trend',
+                        metadata={
+                            'buy_price': buy_price,
+                            'buy_time': position['buy_time'],
+                            'exit_reason': exit_reason,
+                            'ma200': ma200[i],
+                        }
+                    ))
+                    del position_open_on_day[date_string]
+                    continue
 
                 # Check for closing hour (22h) or last candle of day
-                elif self._is_closing_hour(candle['time']) or self._is_last_candle_of_day(candles, i):
+                if self._is_closing_hour(candle['time']) or self._is_last_candle_of_day(candles, i):
                     signals.append(Signal(
                         signal_timestamp=candle['time'],
                         trigger_timestamp=candle['time'],

@@ -27,7 +27,7 @@ class TrendStrategy(BaseStrategy):
     @property
     def display_config(self) -> StrategyDisplayConfig:
         return StrategyDisplayConfig(
-            display_name="Trend",
+            display_name="Trend MA200",
             description="BUY: price > MA200 AND MA200 rising. SELL: price < MA200 OR MA200 falling. Hold while bullish. No stop loss.",
             show_moving_averages=True,
         )

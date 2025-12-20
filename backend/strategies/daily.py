@@ -10,10 +10,12 @@ class DailyStrategy(BaseStrategy):
     """
     Daily Strategy - Simple buy at open, sell at close
 
-    Rules:
-    - Buy at the first candle of the trading day (7h Paris time)
-    - Sell at the last candle of the trading day
-    - One trade per day
+    Entry:
+    - First candle of the day
+    - One trade per day max
+
+    Exit:
+    - 22h Paris
     """
 
     @property
@@ -24,7 +26,7 @@ class DailyStrategy(BaseStrategy):
     def display_config(self) -> StrategyDisplayConfig:
         return StrategyDisplayConfig(
             display_name="Daily",
-            description="Simple benchmark strategy. Buy at market open (7h Paris), sell at market close (22h Paris). No stop loss. One trade per day.",
+            description="Entry: first candle of the day. Exit: 22h. No stop loss.",
         )
 
     @property

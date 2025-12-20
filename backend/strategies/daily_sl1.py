@@ -11,13 +11,15 @@ SL_PERCENT = 1.0  # -1%
 
 class DailySL1Strategy(BaseStrategy):
     """
-    Daily SL-1 Strategy - Buy at open with -1% Stop Loss
+    Daily SL-1% Strategy
 
-    Rules:
-    - Buy at the first candle of the trading day (7h Paris time)
-    - Stop Loss at -1%: if LOW goes below buy_price * 0.99, close position
-    - If SL not triggered, close at 22h
-    - One trade per day
+    Entry:
+    - First candle of the day
+    - One trade per day max
+
+    Exit (first condition met):
+    - Stop Loss -1%
+    - 22h Paris
     """
 
     @property
@@ -28,7 +30,7 @@ class DailySL1Strategy(BaseStrategy):
     def display_config(self) -> StrategyDisplayConfig:
         return StrategyDisplayConfig(
             display_name="Daily SL-1%",
-            description="Benchmark strategy with stop loss. Buy at market open (7h Paris). Stop loss at -1%. Closes at 22h if SL not triggered. One trade per day.",
+            description="Entry: first candle of the day. Exit: SL -1% or 22h.",
         )
 
     @property

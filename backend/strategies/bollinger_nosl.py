@@ -31,7 +31,7 @@ class BollingerNoSLStrategy(BaseStrategy):
     def display_config(self) -> StrategyDisplayConfig:
         return StrategyDisplayConfig(
             display_name="Bollinger NoSL",
-            description="Buy when price touches lower Bollinger Band. No stop loss. Position closes at 22h Paris time. One trade per day max.",
+            description="Entry: 7h-21h, price touches lower BB. Exit: 22h. No stop loss.",
             show_bollinger=True,
         )
 

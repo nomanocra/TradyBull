@@ -31,7 +31,7 @@ class BollingerSL25Strategy(BaseStrategy):
     def display_config(self) -> StrategyDisplayConfig:
         return StrategyDisplayConfig(
             display_name="Bollinger SL-2.5%",
-            description="Buy when price touches lower Bollinger Band. Stop loss at -2.5%. Position closes at 22h Paris time if SL not triggered. One trade per day max.",
+            description="Entry: 7h-21h, price touches lower BB. Exit: SL -2.5% or 22h.",
             show_bollinger=True,
         )
 

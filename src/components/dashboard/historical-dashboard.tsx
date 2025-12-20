@@ -32,6 +32,8 @@ export function HistoricalDashboard({
     endDate,
     setStartDate,
     setEndDate,
+    zoomState,
+    setZoomState,
   } = useHistoricalData();
 
   // Price info (based on filtered data) - performance over entire period
@@ -125,6 +127,8 @@ export function HistoricalDashboard({
           showMovingAverages={showMovingAverages}
           showRSI={showRSI}
           showNavigator={true}
+          initialZoom={zoomState}
+          onZoomChange={setZoomState}
         />
       </div>
     </div>

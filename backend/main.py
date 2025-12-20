@@ -131,6 +131,14 @@ def init_db():
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_signal_state_strategy ON signal_processing_state(strategy_name, symbol, data_source)")
 
+        # Archived strategies table
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS archived_strategies (
+                strategy_name TEXT PRIMARY KEY,
+                archived_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+            )
+        """)
+
         conn.commit()
 
 
@@ -776,13 +784,67 @@ def list_strategies():
     """List all available strategies with their display metadata"""
     try:
         _, _, _, STRATEGIES = get_signal_calculator()
+
+        # Get archived strategies
+        with get_db() as conn:
+            archived_rows = conn.execute("SELECT strategy_name FROM archived_strategies").fetchall()
+            archived_set = {row['strategy_name'] for row in archived_rows}
+
         strategies_list = []
         for name, strategy_class in STRATEGIES.items():
             strategy_instance = strategy_class()
-            strategies_list.append(strategy_instance.to_dict())
+            strategy_dict = strategy_instance.to_dict()
+            strategy_dict['is_archived'] = name in archived_set
+            strategies_list.append(strategy_dict)
         return {
             "strategies": strategies_list
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/strategies/{strategy_name}/archive")
+def archive_strategy(strategy_name: str):
+    """Archive a strategy (hide from Real Time and Backtesting)"""
+    try:
+        _, _, _, STRATEGIES = get_signal_calculator()
+
+        if strategy_name not in STRATEGIES:
+            raise HTTPException(status_code=404, detail=f"Strategy not found: {strategy_name}")
+
+        with get_db() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO archived_strategies (strategy_name) VALUES (?)",
+                (strategy_name,)
+            )
+            conn.commit()
+
+        return {"status": "archived", "strategy": strategy_name}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/strategies/{strategy_name}/unarchive")
+def unarchive_strategy(strategy_name: str):
+    """Unarchive a strategy (restore to Real Time and Backtesting)"""
+    try:
+        _, _, _, STRATEGIES = get_signal_calculator()
+
+        if strategy_name not in STRATEGIES:
+            raise HTTPException(status_code=404, detail=f"Strategy not found: {strategy_name}")
+
+        with get_db() as conn:
+            conn.execute(
+                "DELETE FROM archived_strategies WHERE strategy_name = ?",
+                (strategy_name,)
+            )
+            conn.commit()
+
+        return {"status": "unarchived", "strategy": strategy_name}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
