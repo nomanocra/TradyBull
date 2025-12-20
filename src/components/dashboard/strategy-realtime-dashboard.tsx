@@ -79,7 +79,7 @@ export function StrategyRealtimeDashboard({
             <Tooltip>
               <TooltipTrigger asChild>
                 <button type="button" className="inline-flex">
-                  <Info className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground cursor-help transition-colors" />
+                  <Info className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground cursor-pointer transition-colors" />
                 </button>
               </TooltipTrigger>
               <TooltipContent side="bottom" className="max-w-xs text-xs">
