@@ -30,7 +30,7 @@ class DailySL1CrossingStrategy(BaseStrategy):
     @property
     def display_config(self) -> StrategyDisplayConfig:
         return StrategyDisplayConfig(
-            display_name="Daily SL-1% Crossing",
+            display_name="Multi-Daily SL-1% Crossing",
             description="Entry: first candle if MA50 > MA200. Exit: SL -1% or 22h.",
             show_moving_averages=True,
         )
