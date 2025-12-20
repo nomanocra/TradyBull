@@ -14,8 +14,6 @@ from .daily_sl25 import DailySL25Strategy
 from .daily_sl25_trend import DailySL25TrendStrategy
 from .daily_sl25_crossing import DailySL25CrossingStrategy
 from .trend import TrendStrategy
-from .trend_sl1 import TrendSL1Strategy
-from .trend_sl25 import TrendSL25Strategy
 
 # Registry of available strategies
 STRATEGIES = {
@@ -34,8 +32,6 @@ STRATEGIES = {
     'daily-sl25-trend': DailySL25TrendStrategy,
     'daily-sl25-crossing': DailySL25CrossingStrategy,
     'trend': TrendStrategy,
-    'trend-sl1': TrendSL1Strategy,
-    'trend-sl25': TrendSL25Strategy,
 }
 
 __all__ = [
@@ -58,7 +54,5 @@ __all__ = [
     'DailySL25TrendStrategy',
     'DailySL25CrossingStrategy',
     'TrendStrategy',
-    'TrendSL1Strategy',
-    'TrendSL25Strategy',
     'STRATEGIES',
 ]

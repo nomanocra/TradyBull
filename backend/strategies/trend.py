@@ -28,7 +28,7 @@ class TrendStrategy(BaseStrategy):
     def display_config(self) -> StrategyDisplayConfig:
         return StrategyDisplayConfig(
             display_name="Trend",
-            description="Buy when trend turns bullish (price > MA200 and MA200 rising). Sell when trend turns bearish. Holds position while trend is bullish. No stop loss.",
+            description="BUY: price > MA200 AND MA200[now] > MA200[5 candles ago]. SELL: price < MA200 OR MA200 falling. Hold while bullish. No stop loss.",
             show_moving_averages=True,
         )
 

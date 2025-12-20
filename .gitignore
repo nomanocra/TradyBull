@@ -40,3 +40,4 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 backend/tradybull.db
+TradyBullUI-darwin-x64/
