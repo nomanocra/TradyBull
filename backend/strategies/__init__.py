@@ -6,9 +6,13 @@ from .bollinger_sl1_crossing import BollingerSL1CrossingStrategy
 from .bollinger_sl25 import BollingerSL25Strategy
 from .bollinger_sl25_trend import BollingerSL25TrendStrategy
 from .bollinger_sl25_crossing import BollingerSL25CrossingStrategy
-from .dummy import DummyStrategy
-from .dummy_sl1 import DummySL1Strategy
-from .dummy_sl25 import DummySL25Strategy
+from .daily import DailyStrategy
+from .daily_sl1 import DailySL1Strategy
+from .daily_sl1_trend import DailySL1TrendStrategy
+from .daily_sl1_crossing import DailySL1CrossingStrategy
+from .daily_sl25 import DailySL25Strategy
+from .daily_sl25_trend import DailySL25TrendStrategy
+from .daily_sl25_crossing import DailySL25CrossingStrategy
 
 # Registry of available strategies
 STRATEGIES = {
@@ -19,9 +23,13 @@ STRATEGIES = {
     'bollinger-sl25': BollingerSL25Strategy,
     'bollinger-sl25-trend': BollingerSL25TrendStrategy,
     'bollinger-sl25-crossing': BollingerSL25CrossingStrategy,
-    'dummy': DummyStrategy,
-    'dummy-sl1': DummySL1Strategy,
-    'dummy-sl25': DummySL25Strategy,
+    'daily': DailyStrategy,
+    'daily-sl1': DailySL1Strategy,
+    'daily-sl1-trend': DailySL1TrendStrategy,
+    'daily-sl1-crossing': DailySL1CrossingStrategy,
+    'daily-sl25': DailySL25Strategy,
+    'daily-sl25-trend': DailySL25TrendStrategy,
+    'daily-sl25-crossing': DailySL25CrossingStrategy,
 }
 
 __all__ = [
@@ -36,8 +44,12 @@ __all__ = [
     'BollingerSL25Strategy',
     'BollingerSL25TrendStrategy',
     'BollingerSL25CrossingStrategy',
-    'DummyStrategy',
-    'DummySL1Strategy',
-    'DummySL25Strategy',
+    'DailyStrategy',
+    'DailySL1Strategy',
+    'DailySL1TrendStrategy',
+    'DailySL1CrossingStrategy',
+    'DailySL25Strategy',
+    'DailySL25TrendStrategy',
+    'DailySL25CrossingStrategy',
     'STRATEGIES',
 ]

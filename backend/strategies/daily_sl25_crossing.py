@@ -5,16 +5,18 @@ from .base import BaseStrategy, Signal, StrategyDisplayConfig
 
 PARIS_TZ = pytz.timezone('Europe/Paris')
 
-# Stop Loss percentage
 SL_PERCENT = 2.5  # -2.5%
+MA_SHORT = 50
+MA_LONG = 200
 
 
-class DummySL25Strategy(BaseStrategy):
+class DailySL25CrossingStrategy(BaseStrategy):
     """
-    Dummy SL-2.5 Strategy - Buy at open with -2.5% Stop Loss
+    Daily SL-2.5% + Golden Cross Filter Strategy
 
     Rules:
     - Buy at the first candle of the trading day (7h Paris time)
+    - Only buy if MA50 > MA200 (Golden Cross active)
     - Stop Loss at -2.5%: if LOW goes below buy_price * 0.975, close position
     - If SL not triggered, close at 22h
     - One trade per day
@@ -22,44 +24,48 @@ class DummySL25Strategy(BaseStrategy):
 
     @property
     def name(self) -> str:
-        return "dummy-sl25"
+        return "daily-sl25-crossing"
 
     @property
     def display_config(self) -> StrategyDisplayConfig:
         return StrategyDisplayConfig(
-            display_name="Dummy SL-2.5%",
-            description="Benchmark strategy with stop loss. Buy at market open (7h Paris). Stop loss at -2.5%. Closes at 22h if SL not triggered. One trade per day.",
+            display_name="Daily SL-2.5% Crossing",
+            description="Buy at market open (7h Paris) only if Golden Cross is active (MA50 > MA200). Stop loss at -2.5%. Closes at 22h. One trade per day max.",
+            show_moving_averages=True,
         )
 
     @property
     def required_lookback(self) -> int:
-        return 1
+        return MA_LONG + 1
+
+    def _calculate_sma(self, data: List[float], period: int) -> List[Optional[float]]:
+        result: List[Optional[float]] = []
+        for i in range(len(data)):
+            if i < period - 1:
+                result.append(None)
+            else:
+                window = data[i - period + 1:i + 1]
+                result.append(sum(window) / period)
+        return result
 
     def _get_paris_hour(self, timestamp: int) -> int:
-        """Get hour in Paris timezone from Unix timestamp"""
         dt = datetime.fromtimestamp(timestamp, tz=PARIS_TZ)
         return dt.hour
 
     def _get_paris_date_string(self, timestamp: int) -> str:
-        """Get date string (YYYY-MM-DD) in Paris timezone"""
         dt = datetime.fromtimestamp(timestamp, tz=PARIS_TZ)
         return dt.strftime('%Y-%m-%d')
 
     def _is_first_candle_of_day(self, candles: List[Dict], index: int, bought_dates: set) -> bool:
-        """Check if this is the first candle of the day that we haven't bought yet"""
         date_string = self._get_paris_date_string(candles[index]['time'])
-
         if date_string in bought_dates:
             return False
-
         return True
 
     def _is_closing_hour(self, timestamp: int) -> bool:
-        """Check if this candle is at the closing hour (22h Paris time)"""
         return self._get_paris_hour(timestamp) == 22
 
     def _is_last_candle_of_day(self, candles: List[Dict], index: int) -> bool:
-        """Check if this candle is the last one of its day (fallback for missing 22h candles)"""
         if index >= len(candles) - 1:
             return True
         current_date = self._get_paris_date_string(candles[index]['time'])
@@ -67,9 +73,13 @@ class DummySL25Strategy(BaseStrategy):
         return current_date != next_date
 
     def _check_stop_loss(self, candle: Dict, buy_price: float) -> bool:
-        """Check if stop loss is triggered (LOW below -2.5% of buy price)"""
         sl_price = buy_price * (1 - SL_PERCENT / 100)
         return candle['low'] < sl_price
+
+    def _check_golden_cross(self, ma50: List[Optional[float]], ma200: List[Optional[float]], index: int) -> bool:
+        if ma50[index] is None or ma200[index] is None:
+            return False
+        return ma50[index] > ma200[index]
 
     def calculate_signals(
         self,
@@ -84,28 +94,34 @@ class DummySL25Strategy(BaseStrategy):
         else:
             position_open_on_day = {}
 
+        closes = [c['close'] for c in candles]
+        ma50 = self._calculate_sma(closes, MA_SHORT)
+        ma200 = self._calculate_sma(closes, MA_LONG)
+
         signals: List[Signal] = []
         bought_dates: set = set(position_open_on_day.keys())
+        start_index = MA_LONG
 
-        for i in range(len(candles)):
+        for i in range(start_index, len(candles)):
             candle = candles[i]
             date_string = self._get_paris_date_string(candle['time'])
 
-            # Buy at first candle of the day
+            # Check for buy signal at first candle of the day with golden cross filter
             if self._is_first_candle_of_day(candles, i, bought_dates):
-                signals.append(Signal(
-                    signal_timestamp=candle['time'],
-                    trigger_timestamp=candle['time'],
-                    type='buy',
-                    price=candle['open'],
-                    label='Buy',
-                    metadata={}
-                ))
-                position_open_on_day[date_string] = {
-                    'buy_price': candle['open'],
-                    'buy_time': candle['time'],
-                }
-                bought_dates.add(date_string)
+                if self._check_golden_cross(ma50, ma200, i):
+                    signals.append(Signal(
+                        signal_timestamp=candle['time'],
+                        trigger_timestamp=candle['time'],
+                        type='buy',
+                        price=candle['open'],
+                        label='Buy',
+                        metadata={'ma50': ma50[i], 'ma200': ma200[i], 'filter': 'golden_cross'}
+                    ))
+                    position_open_on_day[date_string] = {
+                        'buy_price': candle['open'],
+                        'buy_time': candle['time'],
+                    }
+                    bought_dates.add(date_string)
 
             # Check if we have an open position today
             if date_string in position_open_on_day:
@@ -129,7 +145,7 @@ class DummySL25Strategy(BaseStrategy):
                     ))
                     del position_open_on_day[date_string]
 
-                # Close at 22h or last candle of day if position still open
+                # Check for closing hour (22h) or last candle of day
                 elif self._is_closing_hour(candle['time']) or self._is_last_candle_of_day(candles, i):
                     signals.append(Signal(
                         signal_timestamp=candle['time'],
