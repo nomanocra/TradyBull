@@ -310,18 +310,12 @@ export function Sidebar() {
   }, [isResizing, handleMouseMove, handleMouseUp]);
 
   return (
-    <div
-      ref={sidebarRef}
-      className="h-screen bg-card border-r border-border flex flex-col relative"
-      style={{ width: `${width}px` }}
-    >
-      {/* Resize handle */}
+    <div className="flex h-screen">
       <div
-        onMouseDown={handleMouseDown}
-        className={`absolute right-0 top-0 bottom-0 w-1 cursor-ew-resize hover:bg-brand/50 transition-colors ${
-          isResizing ? 'bg-brand' : ''
-        }`}
-      />
+        ref={sidebarRef}
+        className="h-screen bg-card border-r border-border flex flex-col"
+        style={{ width: `${width}px` }}
+      >
 
       {/* Logo */}
       <div className="flex items-center gap-2 px-4 py-3">
@@ -458,16 +452,25 @@ export function Sidebar() {
       </nav>
 
       {/* Footer */}
-      <div className="px-3 py-2 border-t border-border flex items-center justify-between">
-        <div className="text-[10px] text-muted-foreground">v{packageJson.version}</div>
-        <button
-          onClick={toggleTheme}
-          className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-          title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-        >
-          {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
-        </button>
+        <div className="px-3 py-2 border-t border-border flex items-center justify-between">
+          <div className="text-[10px] text-muted-foreground">v{packageJson.version}</div>
+          <button
+            onClick={toggleTheme}
+            className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+          </button>
+        </div>
       </div>
+
+      {/* Resize handle */}
+      <div
+        onMouseDown={handleMouseDown}
+        className={`w-1 h-screen cursor-ew-resize hover:bg-muted-foreground/30 transition-colors ${
+          isResizing ? 'bg-muted-foreground/50' : ''
+        }`}
+      />
     </div>
   );
 }
