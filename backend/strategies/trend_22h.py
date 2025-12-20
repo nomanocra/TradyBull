@@ -9,12 +9,12 @@ MA_TREND_PERIOD = 200
 MA_SLOPE_LOOKBACK = 5
 
 
-class TrendStrategy(BaseStrategy):
+class Trend22hStrategy(BaseStrategy):
     """
-    Trend Following Strategy
+    Trend Following Strategy - 22h Entry Only
 
     Rules:
-    - Buy when trend becomes bullish: price > MA200 AND MA200 is rising
+    - Buy at 22h Paris time when trend is bullish: price > MA200 AND MA200 is rising
     - Sell when trend becomes bearish: price < MA200 OR MA200 is falling
     - Hold position while trend remains bullish (no daily close)
     - No stop loss
@@ -22,13 +22,13 @@ class TrendStrategy(BaseStrategy):
 
     @property
     def name(self) -> str:
-        return "trend"
+        return "trend-22h"
 
     @property
     def display_config(self) -> StrategyDisplayConfig:
         return StrategyDisplayConfig(
-            display_name="Trend",
-            description="BUY: price > MA200 AND MA200 rising. SELL: price < MA200 OR MA200 falling. Hold while bullish. No stop loss.",
+            display_name="Trend 22h",
+            description="BUY: at 22h Paris AND price > MA200 AND MA200 rising. SELL: price < MA200 OR MA200 falling. Hold while bullish. No stop loss.",
             show_moving_averages=True,
         )
 
@@ -97,8 +97,11 @@ class TrendStrategy(BaseStrategy):
             candle = candles[i]
             current_trend_bullish = self._check_trend_bullish(closes, ma200, i)
 
-            # Trend just turned bullish - BUY
-            if current_trend_bullish and not previous_trend_bullish and position is None:
+            # Trend is bullish AND it's 22h - BUY
+            hour = self._get_paris_hour(candle['time'])
+            is_entry_hour = hour == 22
+
+            if current_trend_bullish and is_entry_hour and position is None:
                 signals.append(Signal(
                     signal_timestamp=candle['time'],
                     trigger_timestamp=candle['time'],
@@ -107,7 +110,7 @@ class TrendStrategy(BaseStrategy):
                     label='Buy',
                     metadata={
                         'ma200': ma200[i],
-                        'reason': 'trend_turned_bullish',
+                        'reason': 'trend_bullish_at_22h',
                     }
                 ))
                 position = {
