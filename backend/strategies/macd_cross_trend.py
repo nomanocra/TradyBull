@@ -31,7 +31,7 @@ class MACDCrossTrendStrategy(BaseStrategy):
     @property
     def display_config(self) -> StrategyDisplayConfig:
         return StrategyDisplayConfig(
-            display_name="MACD Cross Trend",
+            display_name="MACD Cross Trend MA200",
             description="BUY: MACD bullish cross + price > MA200. SELL: MACD bearish cross or price < MA200.",
             show_macd=True,
             show_moving_averages=True,

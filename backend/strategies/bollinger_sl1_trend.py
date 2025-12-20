@@ -36,7 +36,7 @@ class BollingerSL1TrendStrategy(BaseStrategy):
     @property
     def display_config(self) -> StrategyDisplayConfig:
         return StrategyDisplayConfig(
-            display_name="Bollinger SL-1% Trend",
+            display_name="Bollinger SL-1% Trend MA200",
             description="Entry: 7h-21h, price touches lower BB, price > MA200 and MA200 rising. Exit: SL -1% or 22h.",
             show_bollinger=True,
             show_moving_averages=True,
