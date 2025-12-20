@@ -282,7 +282,7 @@ export function Sidebar() {
             placeholder="Search..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-7 pr-7 h-6 text-[10px]"
+            className="pl-7 pr-7 h-6 text-xs"
           />
           {searchQuery && (
             <button
