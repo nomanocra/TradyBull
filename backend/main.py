@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Query, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 import json
 import yfinance as yf
 from datetime import datetime, timedelta
@@ -10,6 +11,16 @@ import asyncio
 import threading
 from typing import Literal, Optional, List
 from contextlib import contextmanager
+
+# Import notification service
+from notification_service import (
+    get_notification_settings,
+    get_all_notification_settings,
+    save_notification_settings,
+    delete_notification_settings,
+    send_signal_notification,
+    test_telegram_notification
+)
 
 # Import signal calculator (lazy import to avoid circular deps)
 def get_signal_calculator():
@@ -136,6 +147,24 @@ def init_db():
             CREATE TABLE IF NOT EXISTS archived_strategies (
                 strategy_name TEXT PRIMARY KEY,
                 archived_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+            )
+        """)
+
+        # Notification settings table
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS notification_settings (
+                strategy_name TEXT PRIMARY KEY,
+                enabled INTEGER NOT NULL DEFAULT 0,
+                desktop_enabled INTEGER NOT NULL DEFAULT 0,
+                telegram_enabled INTEGER NOT NULL DEFAULT 0,
+                telegram_bot_token TEXT,
+                telegram_chat_id TEXT,
+                notify_buy INTEGER NOT NULL DEFAULT 1,
+                notify_sell INTEGER NOT NULL DEFAULT 1,
+                time_start TEXT DEFAULT '00:00',
+                time_end TEXT DEFAULT '23:59',
+                created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+                updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
             )
         """)
 
@@ -408,12 +437,30 @@ def fetch_all_intervals():
 
         # Calculate signals for all strategies (real-time data)
         try:
-            _, _, calculate_all_strategies, _ = get_signal_calculator()
+            _, _, calculate_all_strategies, STRATEGIES = get_signal_calculator()
             with get_db() as conn:
                 results = calculate_all_strategies(conn, SYMBOL, 'realtime', 'candles')
-                for strategy_name, count in results.items():
+                for strategy_name, (count, signals) in results.items():
                     if count > 0:
                         print(f"  [{strategy_name}] {count} new signal(s)")
+
+                        # Send notifications for new signals
+                        try:
+                            strategy_class = STRATEGIES.get(strategy_name)
+                            if strategy_class:
+                                strategy_instance = strategy_class()
+                                display_name = strategy_instance.display_config.display_name
+
+                                for signal in signals:
+                                    asyncio.run(send_signal_notification(
+                                        strategy_name=strategy_name,
+                                        strategy_display_name=display_name,
+                                        signal_type=signal.type,
+                                        price=signal.price,
+                                        timestamp=signal.signal_timestamp
+                                    ))
+                        except Exception as notif_err:
+                            print(f"  Warning: Could not send notification: {notif_err}")
         except Exception as e:
             print(f"Warning: Could not calculate signals: {e}")
 
@@ -765,7 +812,7 @@ def calculate_signals_endpoint(
         table = "backtest_candles" if source == "backtest" else "candles"
 
         with get_db() as conn:
-            new_count = calculate_signals_incremental(conn, strategy, SYMBOL, source, table)
+            new_count, _ = calculate_signals_incremental(conn, strategy, SYMBOL, source, table)
 
             return {
                 "strategy": strategy,
@@ -917,6 +964,122 @@ def get_all_kpis(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# ============================================================================
+# NOTIFICATION API ENDPOINTS
+# ============================================================================
+
+class NotificationSettingsRequest(BaseModel):
+    enabled: bool = False
+    desktop_enabled: bool = False
+    telegram_enabled: bool = False
+    telegram_bot_token: Optional[str] = None
+    telegram_chat_id: Optional[str] = None
+    notify_buy: bool = True
+    notify_sell: bool = True
+    time_start: str = "00:00"
+    time_end: str = "23:59"
+
+
+class TelegramTestRequest(BaseModel):
+    bot_token: str
+    chat_id: str
+
+
+@app.get("/api/notifications/settings")
+async def get_all_notifications():
+    """Get notification settings for all strategies"""
+    try:
+        settings = get_all_notification_settings()
+        return {"settings": settings}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/notifications/settings/{strategy_name}")
+async def get_strategy_notifications(strategy_name: str):
+    """Get notification settings for a specific strategy"""
+    try:
+        settings = get_notification_settings(strategy_name)
+        if settings is None:
+            return {"settings": None}
+        return {"settings": settings}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/notifications/settings/{strategy_name}")
+async def update_strategy_notifications(strategy_name: str, request: NotificationSettingsRequest):
+    """Create or update notification settings for a strategy"""
+    try:
+        settings = save_notification_settings(
+            strategy_name=strategy_name,
+            enabled=request.enabled,
+            desktop_enabled=request.desktop_enabled,
+            telegram_enabled=request.telegram_enabled,
+            telegram_bot_token=request.telegram_bot_token,
+            telegram_chat_id=request.telegram_chat_id,
+            notify_buy=request.notify_buy,
+            notify_sell=request.notify_sell,
+            time_start=request.time_start,
+            time_end=request.time_end
+        )
+        return {"settings": settings}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/notifications/settings/{strategy_name}")
+async def delete_strategy_notifications(strategy_name: str):
+    """Delete notification settings for a strategy"""
+    try:
+        deleted = delete_notification_settings(strategy_name)
+        return {"deleted": deleted}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/notifications/test/telegram")
+async def test_telegram(request: TelegramTestRequest):
+    """Test Telegram notification configuration"""
+    try:
+        result = await test_telegram_notification(request.bot_token, request.chat_id)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/notifications/test/{strategy_name}")
+async def test_strategy_notification(strategy_name: str):
+    """Send a test notification for a strategy"""
+    try:
+        # Get strategy display name
+        _, _, _, STRATEGIES = get_signal_calculator()
+        strategy_class = STRATEGIES.get(strategy_name)
+        if not strategy_class:
+            raise HTTPException(status_code=404, detail=f"Strategy {strategy_name} not found")
+
+        strategy_instance = strategy_class()
+        display_name = strategy_instance.display_config.display_name
+
+        # Send test notification
+        result = await send_signal_notification(
+            strategy_name=strategy_name,
+            strategy_display_name=display_name,
+            signal_type="buy",
+            price=20000.00,
+            timestamp=int(datetime.now(PARIS_TZ).timestamp())
+        )
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# WEBSOCKET ENDPOINT
+# ============================================================================
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):

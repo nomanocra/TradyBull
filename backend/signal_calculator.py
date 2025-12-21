@@ -120,7 +120,7 @@ def calculate_signals_incremental(
     symbol: str,
     data_source: str,  # 'backtest' or 'realtime'
     candles_table: str  # 'backtest_candles' or 'candles'
-) -> int:
+) -> tuple[int, List[Signal]]:
     """
     Calculate signals incrementally for new candles only.
 
@@ -132,7 +132,7 @@ def calculate_signals_incremental(
         candles_table: Table to read candles from
 
     Returns:
-        Number of new signals generated
+        Tuple of (number of new signals, list of new Signal objects)
     """
     strategy = get_strategy(strategy_name)
 
@@ -187,7 +187,7 @@ def calculate_signals_incremental(
             rows = conn.execute(query).fetchall()
 
     if not rows:
-        return 0
+        return 0, []
 
     candles = [
         {
@@ -210,26 +210,29 @@ def calculate_signals_incremental(
 
     # Save new signals
     new_count = 0
+    new_signals = []
     if signals:
         new_count = save_signals(conn, strategy_name, symbol, signals)
+        if new_count > 0:
+            new_signals = signals  # These are the signals that were just saved
 
     # Update processing state
     if candles:
         last_candle_time = candles[-1]['time']
         save_processing_state(conn, strategy_name, symbol, data_source, last_candle_time, final_state)
 
-    return new_count
+    return new_count, new_signals
 
 
-def calculate_all_strategies(conn: sqlite3.Connection, symbol: str, data_source: str, candles_table: str) -> Dict[str, int]:
+def calculate_all_strategies(conn: sqlite3.Connection, symbol: str, data_source: str, candles_table: str) -> Dict[str, tuple[int, List[Signal]]]:
     """
     Calculate signals for all registered strategies.
 
     Returns:
-        Dict mapping strategy name to number of new signals
+        Dict mapping strategy name to tuple of (count, new signals list)
     """
     results = {}
     for strategy_name in STRATEGIES:
-        count = calculate_signals_incremental(conn, strategy_name, symbol, data_source, candles_table)
-        results[strategy_name] = count
+        count, signals = calculate_signals_incremental(conn, strategy_name, symbol, data_source, candles_table)
+        results[strategy_name] = (count, signals)
     return results

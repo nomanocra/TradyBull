@@ -63,6 +63,11 @@ export function KPITiles({ kpis, isLoading }: KPITilesProps) {
       colorState: kpis ? (kpis.total_return_pct >= 0 ? 'positive' : 'negative') : 'neutral',
     },
     {
+      label: 'Yearly Return',
+      value: kpis?.avg_yearly_return_pct !== undefined ? `${kpis.avg_yearly_return_pct >= 0 ? '+' : ''}${kpis.avg_yearly_return_pct.toFixed(2)}%` : '-',
+      colorState: kpis?.avg_yearly_return_pct !== undefined ? (kpis.avg_yearly_return_pct >= 0 ? 'positive' : 'negative') : 'neutral',
+    },
+    {
       label: 'Win Rate',
       value: kpis ? `${kpis.win_rate_pct.toFixed(1)}%` : '-',
       colorState: kpis ? (kpis.win_rate_pct >= 50 ? 'positive' : 'negative') : 'neutral',

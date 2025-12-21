@@ -4,6 +4,7 @@ const API_URL = 'http://localhost:8000/api';
 
 export interface KPIs {
   total_return_pct: number;
+  avg_yearly_return_pct?: number;
   win_rate_pct: number;
   profit_factor: number;
   max_drawdown_pct: number;

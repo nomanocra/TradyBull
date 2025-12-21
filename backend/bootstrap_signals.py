@@ -129,7 +129,7 @@ def bootstrap_signals(strategy_name: str = None, force: bool = False):
     for strat_name in strategies_to_run:
         print(f"[{strat_name}] Calculating signals...")
 
-        count = calculate_signals_incremental(conn, strat_name, SYMBOL, 'backtest', 'backtest_candles')
+        count, _ = calculate_signals_incremental(conn, strat_name, SYMBOL, 'backtest', 'backtest_candles')
         total_signals += count
 
         print(f"  Generated {count} new signal(s)")

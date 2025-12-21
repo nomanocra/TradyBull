@@ -8,6 +8,7 @@ import { StrategyKPIData } from '@/hooks/useKPIs';
 type SortKey =
   | 'display_name'
   | 'total_return_pct'
+  | 'avg_yearly_return_pct'
   | 'win_rate_pct'
   | 'profit_factor'
   | 'max_drawdown_pct'
@@ -35,9 +36,11 @@ function formatDuration(hours: number): string {
   return `${days.toFixed(1)}d`;
 }
 
-function formatValue(value: number, type: SortKey): string {
+function formatValue(value: number | undefined, type: SortKey): string {
+  if (value === undefined || value === null) return '-';
   switch (type) {
     case 'total_return_pct':
+    case 'avg_yearly_return_pct':
     case 'avg_return_per_trade_pct':
       return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
     case 'win_rate_pct':
@@ -55,9 +58,11 @@ function formatValue(value: number, type: SortKey): string {
   }
 }
 
-function getColorClass(value: number, type: SortKey): string {
+function getColorClass(value: number | undefined, type: SortKey): string {
+  if (value === undefined || value === null) return 'text-muted-foreground';
   switch (type) {
     case 'total_return_pct':
+    case 'avg_yearly_return_pct':
     case 'avg_return_per_trade_pct':
       return value >= 0 ? 'text-emerald-500' : 'text-red-500';
     case 'win_rate_pct':
@@ -77,6 +82,7 @@ function getColorClass(value: number, type: SortKey): string {
 const columns: { key: SortKey; label: string; numeric: boolean }[] = [
   { key: 'display_name', label: 'Strategy', numeric: false },
   { key: 'total_return_pct', label: 'Total Return', numeric: true },
+  { key: 'avg_yearly_return_pct', label: 'Yearly Return', numeric: true },
   { key: 'win_rate_pct', label: 'Win Rate', numeric: true },
   { key: 'profit_factor', label: 'Profit Factor', numeric: true },
   { key: 'max_drawdown_pct', label: 'Max Drawdown', numeric: true },
@@ -106,8 +112,8 @@ export function KPIOverviewTable({ data, isLoading, showArchived = false, search
     }
 
     return [...filteredData].sort((a, b) => {
-      let aVal: number | string;
-      let bVal: number | string;
+      let aVal: number | string | undefined;
+      let bVal: number | string | undefined;
 
       if (sortKey === 'display_name') {
         aVal = a.display_name;
@@ -123,8 +129,8 @@ export function KPIOverviewTable({ data, isLoading, showArchived = false, search
           : bVal.localeCompare(aVal);
       }
 
-      const numA = aVal as number;
-      const numB = bVal as number;
+      const numA = (aVal as number) ?? 0;
+      const numB = (bVal as number) ?? 0;
       return sortDirection === 'asc' ? numA - numB : numB - numA;
     });
   }, [data, sortKey, sortDirection, showArchived, searchQuery]);

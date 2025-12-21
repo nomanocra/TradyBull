@@ -10,6 +10,8 @@ from .daily import DailyStrategy
 from .daily_sl1 import DailySL1Strategy
 from .daily_sl1_trend import DailySL1TrendStrategy
 from .daily_sl1_trend_v2 import DailySL1TrendV2Strategy
+from .daily_sl1_trend_slope01 import DailySL1TrendSlope01Strategy
+from .daily_sl1_trend_slope02 import DailySL1TrendSlope02Strategy
 from .daily_sl1_crossing import DailySL1CrossingStrategy
 from .daily_sl25 import DailySL25Strategy
 from .daily_sl25_trend import DailySL25TrendStrategy
@@ -40,6 +42,8 @@ STRATEGIES = {
     'daily-sl1': DailySL1Strategy,
     'daily-sl1-trend': DailySL1TrendStrategy,
     'daily-sl1-trend-v2': DailySL1TrendV2Strategy,
+    'daily-sl1-trend-slope01': DailySL1TrendSlope01Strategy,
+    'daily-sl1-trend-slope02': DailySL1TrendSlope02Strategy,
     'daily-sl1-crossing': DailySL1CrossingStrategy,
     'daily-sl25': DailySL25Strategy,
     'daily-sl25-trend': DailySL25TrendStrategy,
@@ -74,6 +78,8 @@ __all__ = [
     'DailySL1Strategy',
     'DailySL1TrendStrategy',
     'DailySL1TrendV2Strategy',
+    'DailySL1TrendSlope01Strategy',
+    'DailySL1TrendSlope02Strategy',
     'DailySL1CrossingStrategy',
     'DailySL25Strategy',
     'DailySL25TrendStrategy',

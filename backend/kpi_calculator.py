@@ -10,6 +10,7 @@ from dataclasses import dataclass, asdict
 class StrategyKPIs:
     """Key Performance Indicators for a trading strategy"""
     total_return_pct: float          # Sum of all trade returns (%)
+    avg_yearly_return_pct: float     # Annualized return (%)
     win_rate_pct: float              # Percentage of winning trades
     profit_factor: float             # Gross profit / Gross loss
     max_drawdown_pct: float          # Maximum peak-to-trough decline (%)
@@ -34,6 +35,7 @@ def calculate_kpis(signals: List[Dict[str, Any]]) -> StrategyKPIs:
     if not signals:
         return StrategyKPIs(
             total_return_pct=0.0,
+            avg_yearly_return_pct=0.0,
             win_rate_pct=0.0,
             profit_factor=0.0,
             max_drawdown_pct=0.0,
@@ -83,6 +85,7 @@ def calculate_kpis(signals: List[Dict[str, Any]]) -> StrategyKPIs:
     if not trades:
         return StrategyKPIs(
             total_return_pct=0.0,
+            avg_yearly_return_pct=0.0,
             win_rate_pct=0.0,
             profit_factor=0.0,
             max_drawdown_pct=0.0,
@@ -117,8 +120,22 @@ def calculate_kpis(signals: List[Dict[str, Any]]) -> StrategyKPIs:
     # Max drawdown (calculated on cumulative returns)
     max_drawdown_pct = calculate_max_drawdown(returns)
 
+    # Annualized return
+    # Calculate trading period from first buy to last sell
+    first_trade_time = trades[0]['buy_time']
+    last_trade_time = trades[-1]['sell_time']
+    trading_period_years = (last_trade_time - first_trade_time) / (365.25 * 24 * 3600)
+
+    if trading_period_years > 0 and total_return_pct > -100:
+        # Annualized return = (1 + total_return)^(1/years) - 1
+        total_return_decimal = total_return_pct / 100
+        avg_yearly_return_pct = ((1 + total_return_decimal) ** (1 / trading_period_years) - 1) * 100
+    else:
+        avg_yearly_return_pct = 0.0
+
     return StrategyKPIs(
         total_return_pct=round(total_return_pct, 2),
+        avg_yearly_return_pct=round(avg_yearly_return_pct, 2),
         win_rate_pct=round(win_rate_pct, 1),
         profit_factor=round(profit_factor, 2) if profit_factor != float('inf') else 999.99,
         max_drawdown_pct=round(max_drawdown_pct, 2),
