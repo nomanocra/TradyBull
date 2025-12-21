@@ -33,7 +33,7 @@ class DailySL1TrendV2Strategy(BaseStrategy):
     def display_config(self) -> StrategyDisplayConfig:
         return StrategyDisplayConfig(
             display_name="Multi-Daily SL-1% Trend MA200 v2",
-            description="Entry: when LOW > MA200 and MA200 rising (1x/day). Exit: SL -1%, price < MA200, MA200 falling, or 22h.",
+            description="Entry: when LOW > MA200 and MA200 rising. Exit: SL -1%, price < MA200, MA200 falling, or 22h.",
             show_moving_averages=True,
         )
 

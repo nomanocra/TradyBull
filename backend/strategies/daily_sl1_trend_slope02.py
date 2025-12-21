@@ -33,7 +33,7 @@ class DailySL1TrendSlope02Strategy(BaseStrategy):
     @property
     def display_config(self) -> StrategyDisplayConfig:
         return StrategyDisplayConfig(
-            display_name="Daily SL-1% Trend Slope 0.2%",
+            display_name="Multi-Daily SL-1% Trend MA200 Slope 0.2%",
             description="Entry: price > MA200 and MA200 rising >= 0.2% over 20h. Exit: SL -1%, trend break, or 22h.",
             show_moving_averages=True,
         )
