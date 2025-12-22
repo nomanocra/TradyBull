@@ -108,32 +108,8 @@ function ChartNavigatorComponent({
   // Track container width for resize - triggers redraw
   const [containerWidth, setContainerWidth] = useState(0);
 
-  // Window resize listener - always active
-  useEffect(() => {
-    const handleResize = () => {
-      const container = containerRef.current;
-      if (container) {
-        const width = container.clientWidth;
-        if (width > 0) {
-          setContainerWidth(width);
-        }
-      }
-    };
-
-    // Initial width detection with retries
-    handleResize();
-    requestAnimationFrame(handleResize);
-    const t1 = setTimeout(handleResize, 50);
-    const t2 = setTimeout(handleResize, 200);
-
-    window.addEventListener('resize', handleResize);
-
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      clearTimeout(t1);
-      clearTimeout(t2);
-    };
-  }, []);
+  // Ref to hold current drawCanvas function
+  const drawCanvasRef = useRef<() => void>(() => {});
 
   // Draw canvas function
   const drawCanvas = useCallback(() => {
@@ -183,7 +159,29 @@ function ChartNavigatorComponent({
     ctx.stroke();
   }, [colors]);
 
-  // Trigger draw on data change, resize, or theme change
+  // Keep ref updated
+  drawCanvasRef.current = drawCanvas;
+
+  // Window resize listener - calls drawCanvas directly via ref
+  useEffect(() => {
+    const handleResize = () => {
+      const container = containerRef.current;
+      if (container && container.clientWidth > 0) {
+        setContainerWidth(container.clientWidth);
+        drawCanvasRef.current();
+      }
+    };
+
+    // Initial width
+    handleResize();
+    requestAnimationFrame(handleResize);
+    setTimeout(handleResize, 50);
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Trigger draw on data change or theme change
   useEffect(() => {
     drawCanvas();
     requestAnimationFrame(drawCanvas);
