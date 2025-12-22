@@ -113,10 +113,23 @@ function ChartNavigatorComponent({
     const container = containerRef.current;
     if (!container) return;
 
-    // Set initial width immediately
-    const initialWidth = container.clientWidth;
-    if (initialWidth > 0) {
-      setContainerWidth(initialWidth);
+    // Try to get width, retry if 0
+    const trySetWidth = () => {
+      const width = container.clientWidth;
+      if (width > 0) {
+        setContainerWidth(width);
+        return true;
+      }
+      return false;
+    };
+
+    // Try immediately, then after RAF, then after timeout
+    if (!trySetWidth()) {
+      requestAnimationFrame(() => {
+        if (!trySetWidth()) {
+          setTimeout(trySetWidth, 50);
+        }
+      });
     }
 
     const resizeObserver = new ResizeObserver((entries) => {
