@@ -327,7 +327,7 @@ function ChartNavigatorComponent({
 
         {/* Left handle (visible on hover or dragging) */}
         <div
-          className={`absolute top-1/2 -translate-y-1/2 left-0 w-[8px] h-[20px] bg-muted hover:bg-muted-foreground/30 rounded-sm cursor-ew-resize flex items-center justify-center gap-[1px] border border-brand transition-opacity duration-300 ease-in-out ${isDragging ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+          className={`absolute top-1/2 -translate-y-1/2 left-0 z-10 w-[8px] h-[20px] bg-muted hover:bg-muted-foreground/30 rounded-sm cursor-ew-resize flex items-center justify-center gap-[1px] border border-brand transition-opacity duration-300 ease-in-out ${isDragging ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
           style={{ marginLeft: -3 }}
           onMouseDown={(e) => handleMouseDown(e, 'left')}
         >
@@ -346,7 +346,7 @@ function ChartNavigatorComponent({
 
         {/* Right handle (visible on hover or dragging) */}
         <div
-          className={`absolute top-1/2 -translate-y-1/2 right-0 w-[8px] h-[20px] bg-muted hover:bg-muted-foreground/30 rounded-sm cursor-ew-resize flex items-center justify-center gap-[1px] border border-brand transition-opacity duration-300 ease-in-out ${isDragging ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+          className={`absolute top-1/2 -translate-y-1/2 right-0 z-10 w-[8px] h-[20px] bg-muted hover:bg-muted-foreground/30 rounded-sm cursor-ew-resize flex items-center justify-center gap-[1px] border border-brand transition-opacity duration-300 ease-in-out ${isDragging ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
           style={{ marginRight: -3 }}
           onMouseDown={(e) => handleMouseDown(e, 'right')}
         >
