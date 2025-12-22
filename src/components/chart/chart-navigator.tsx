@@ -108,42 +108,26 @@ function ChartNavigatorComponent({
   // Track container width for resize - triggers redraw
   const [containerWidth, setContainerWidth] = useState(0);
 
-  // ResizeObserver to track container width changes
+  // Track resize via window event (simpler and more reliable)
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    // Try to get width, retry if 0
-    const trySetWidth = () => {
+    const updateWidth = () => {
       const width = container.clientWidth;
       if (width > 0) {
         setContainerWidth(width);
-        return true;
       }
-      return false;
     };
 
-    // Try immediately, then after RAF, then after timeout
-    if (!trySetWidth()) {
-      requestAnimationFrame(() => {
-        if (!trySetWidth()) {
-          setTimeout(trySetWidth, 50);
-        }
-      });
-    }
+    // Initial width
+    updateWidth();
+    requestAnimationFrame(updateWidth);
 
-    const resizeObserver = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const width = entry.contentRect.width;
-        if (width > 0) {
-          setContainerWidth(width);
-        }
-      }
-    });
+    // Window resize listener
+    window.addEventListener('resize', updateWidth);
 
-    resizeObserver.observe(container);
-
-    return () => resizeObserver.disconnect();
+    return () => window.removeEventListener('resize', updateWidth);
   }, []);
 
   // Draw canvas function
