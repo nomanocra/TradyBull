@@ -108,26 +108,31 @@ function ChartNavigatorComponent({
   // Track container width for resize - triggers redraw
   const [containerWidth, setContainerWidth] = useState(0);
 
-  // Track resize via window event (simpler and more reliable)
+  // Window resize listener - always active
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    const updateWidth = () => {
-      const width = container.clientWidth;
-      if (width > 0) {
-        setContainerWidth(width);
+    const handleResize = () => {
+      const container = containerRef.current;
+      if (container) {
+        const width = container.clientWidth;
+        if (width > 0) {
+          setContainerWidth(width);
+        }
       }
     };
 
-    // Initial width
-    updateWidth();
-    requestAnimationFrame(updateWidth);
+    // Initial width detection with retries
+    handleResize();
+    requestAnimationFrame(handleResize);
+    const t1 = setTimeout(handleResize, 50);
+    const t2 = setTimeout(handleResize, 200);
 
-    // Window resize listener
-    window.addEventListener('resize', updateWidth);
+    window.addEventListener('resize', handleResize);
 
-    return () => window.removeEventListener('resize', updateWidth);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
   }, []);
 
   // Draw canvas function
@@ -182,8 +187,12 @@ function ChartNavigatorComponent({
   useEffect(() => {
     drawCanvas();
     requestAnimationFrame(drawCanvas);
-    const timeoutId = setTimeout(drawCanvas, 100);
-    return () => clearTimeout(timeoutId);
+    const t1 = setTimeout(drawCanvas, 100);
+    const t2 = setTimeout(drawCanvas, 300);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
   }, [drawCanvas, dataLength, firstTime, lastTime, containerWidth]);
 
   // Handle mouse down
