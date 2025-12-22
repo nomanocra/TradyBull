@@ -8,7 +8,7 @@ PARIS_TZ = pytz.timezone('Europe/Paris')
 SL_PERCENT = 1.0  # -1%
 MA_TREND_PERIOD = 200
 MA_SLOPE_LOOKBACK = 20  # 20 hours for slope calculation
-MIN_SLOPE_PCT = 0.1  # MA200 must have risen by at least 0.1%
+MIN_SLOPE_PCT = 0.01  # MA200 must have risen by at least 0.01%
 
 
 class DailySL1TrendSlope01Strategy(BaseStrategy):
@@ -33,8 +33,8 @@ class DailySL1TrendSlope01Strategy(BaseStrategy):
     @property
     def display_config(self) -> StrategyDisplayConfig:
         return StrategyDisplayConfig(
-            display_name="Multi-Daily SL-1% Trend MA200 Slope 0.1%",
-            description="Entry: price > MA200 and MA200 rising >= 0.1% over 20h. Exit: SL -1%, trend break, or 22h.",
+            display_name="Multi-Daily SL-1% Trend MA200 Slope 0.01%",
+            description="Entry: price > MA200 and MA200 rising >= 0.01% over 20h. Exit: SL -1%, trend break, or 22h.",
             show_moving_averages=True,
         )
 
@@ -167,7 +167,7 @@ class DailySL1TrendSlope01Strategy(BaseStrategy):
                         type='buy',
                         price=candle['open'],
                         label='Buy',
-                        metadata={'ma200': ma200[i], 'trend_filter': 'slope_0.1%'}
+                        metadata={'ma200': ma200[i], 'trend_filter': 'slope_0.01%'}
                     ))
                     open_position = {
                         'buy_price': candle['open'],

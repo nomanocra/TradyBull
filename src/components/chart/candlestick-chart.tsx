@@ -993,6 +993,21 @@ export function CandlestickChart({
     macdChart?.timeScale().subscribeVisibleLogicalRangeChange(range => syncRange(range, 'macd'));
     rsiChart?.timeScale().subscribeVisibleLogicalRangeChange(range => syncRange(range, 'rsi'));
 
+    // Subscribe to vertical zoom (price scale) changes via wheel, mousemove and mouseup events
+    let rafPending = false;
+    const handleVerticalZoom = () => {
+      if (rafPending) return;
+      rafPending = true;
+      requestAnimationFrame(() => {
+        updatePnlLabelPositions();
+        rafPending = false;
+      });
+    };
+    const chartContainer = mainChartContainerRef.current;
+    chartContainer.addEventListener('wheel', handleVerticalZoom);
+    chartContainer.addEventListener('mousemove', handleVerticalZoom);
+    chartContainer.addEventListener('mouseup', handleVerticalZoom);
+
     // Add indicator series FIRST (so they appear BELOW candlesticks)
 
     // Bollinger Bands - only create if showBollinger
@@ -1324,6 +1339,9 @@ export function CandlestickChart({
       }
 
       window.removeEventListener('resize', handleResize);
+      chartContainer.removeEventListener('wheel', handleVerticalZoom);
+      chartContainer.removeEventListener('mousemove', handleVerticalZoom);
+      chartContainer.removeEventListener('mouseup', handleVerticalZoom);
       mainChart.remove();
       if (macdChart) macdChart.remove();
       if (rsiChart) rsiChart.remove();
