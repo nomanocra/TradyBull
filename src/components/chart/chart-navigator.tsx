@@ -128,14 +128,10 @@ function ChartNavigatorComponent({
   }, []);
 
   // Draw canvas function
-  const drawCanvas = useCallback(() => {
+  const drawCanvas = useCallback((width: number) => {
     const canvas = canvasRef.current;
-    const container = containerRef.current;
     const currentData = dataRef.current;
-    if (!canvas || !container || currentData.length === 0) return;
-
-    const width = container.clientWidth;
-    if (width === 0) return;
+    if (!canvas || currentData.length === 0 || width === 0) return;
 
     const height = HEIGHT;
 
@@ -177,7 +173,9 @@ function ChartNavigatorComponent({
 
   // Trigger draw on data change, resize, or theme change
   useEffect(() => {
-    requestAnimationFrame(drawCanvas);
+    if (containerWidth > 0) {
+      requestAnimationFrame(() => drawCanvas(containerWidth));
+    }
   }, [drawCanvas, dataLength, firstTime, lastTime, containerWidth]);
 
   // Handle mouse down
