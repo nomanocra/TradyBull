@@ -162,36 +162,38 @@ function ChartNavigatorComponent({
   // Keep ref updated
   drawCanvasRef.current = drawCanvas;
 
-  // Window resize listener - calls drawCanvas directly via ref
+  // Window resize listener - throttled with RAF
   useEffect(() => {
+    let rafId: number | null = null;
+
     const handleResize = () => {
-      const container = containerRef.current;
-      if (container && container.clientWidth > 0) {
-        setContainerWidth(container.clientWidth);
-        drawCanvasRef.current();
-      }
+      if (rafId) return; // Already scheduled
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        const container = containerRef.current;
+        if (container && container.clientWidth > 0) {
+          setContainerWidth(container.clientWidth);
+          drawCanvasRef.current();
+        }
+      });
     };
 
-    // Initial width
+    // Initial width after mount
     handleResize();
-    requestAnimationFrame(handleResize);
-    setTimeout(handleResize, 50);
+    const initTimeout = setTimeout(handleResize, 50);
 
     window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      if (rafId) cancelAnimationFrame(rafId);
+      clearTimeout(initTimeout);
+    };
   }, []);
 
   // Trigger draw on data change or theme change
   useEffect(() => {
-    drawCanvas();
     requestAnimationFrame(drawCanvas);
-    const t1 = setTimeout(drawCanvas, 100);
-    const t2 = setTimeout(drawCanvas, 300);
-    return () => {
-      clearTimeout(t1);
-      clearTimeout(t2);
-    };
-  }, [drawCanvas, dataLength, firstTime, lastTime, containerWidth]);
+  }, [drawCanvas, dataLength, firstTime, lastTime]);
 
   // Handle mouse down
   const handleMouseDown = useCallback((e: React.MouseEvent, type: DragType) => {
