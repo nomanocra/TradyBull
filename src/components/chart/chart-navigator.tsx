@@ -113,6 +113,12 @@ function ChartNavigatorComponent({
     const container = containerRef.current;
     if (!container) return;
 
+    // Set initial width immediately
+    const initialWidth = container.clientWidth;
+    if (initialWidth > 0) {
+      setContainerWidth(initialWidth);
+    }
+
     const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const width = entry.contentRect.width;
@@ -174,7 +180,10 @@ function ChartNavigatorComponent({
   // Trigger draw on data change, resize, or theme change
   useEffect(() => {
     if (containerWidth > 0) {
+      drawCanvas(containerWidth);
       requestAnimationFrame(() => drawCanvas(containerWidth));
+      const timeoutId = setTimeout(() => drawCanvas(containerWidth), 100);
+      return () => clearTimeout(timeoutId);
     }
   }, [drawCanvas, dataLength, firstTime, lastTime, containerWidth]);
 
