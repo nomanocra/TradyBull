@@ -105,34 +105,13 @@ function ChartNavigatorComponent({
   const firstTime = data[0]?.time;
   const lastTime = data[dataLength - 1]?.time;
 
-  // Track container width for resize
+  // Track container width for resize - triggers redraw
   const [containerWidth, setContainerWidth] = useState(0);
 
   // ResizeObserver to track container width changes
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-
-    // Try multiple times to get initial width (layout might not be ready immediately)
-    const setInitialWidth = () => {
-      const width = container.clientWidth;
-      if (width > 0) {
-        setContainerWidth(width);
-        return true;
-      }
-      return false;
-    };
-
-    // Try immediately
-    if (!setInitialWidth()) {
-      // Try after a frame
-      requestAnimationFrame(() => {
-        if (!setInitialWidth()) {
-          // Try after a short delay as fallback
-          setTimeout(setInitialWidth, 50);
-        }
-      });
-    }
 
     const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
@@ -148,13 +127,16 @@ function ChartNavigatorComponent({
     return () => resizeObserver.disconnect();
   }, []);
 
-  useEffect(() => {
+  // Draw canvas function
+  const drawCanvas = useCallback(() => {
     const canvas = canvasRef.current;
     const container = containerRef.current;
     const currentData = dataRef.current;
-    if (!canvas || !container || currentData.length === 0 || containerWidth === 0) return;
+    if (!canvas || !container || currentData.length === 0) return;
 
-    const width = containerWidth;
+    const width = container.clientWidth;
+    if (width === 0) return;
+
     const height = HEIGHT;
 
     canvas.width = width;
@@ -191,7 +173,18 @@ function ChartNavigatorComponent({
       else ctx.lineTo(x, y);
     }
     ctx.stroke();
-  }, [dataLength, firstTime, lastTime, colors, containerWidth]);
+  }, [colors]);
+
+  // Trigger draw on data change, resize, or theme change
+  useEffect(() => {
+    // Draw immediately
+    drawCanvas();
+    // Also draw after a frame (ensures layout is ready)
+    requestAnimationFrame(drawCanvas);
+    // And after a short delay as final fallback
+    const timeoutId = setTimeout(drawCanvas, 100);
+    return () => clearTimeout(timeoutId);
+  }, [drawCanvas, dataLength, firstTime, lastTime, containerWidth]);
 
   // Handle mouse down
   const handleMouseDown = useCallback((e: React.MouseEvent, type: DragType) => {
