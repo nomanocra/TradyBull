@@ -277,6 +277,7 @@ class StrategyKPIs:
 - `'use client'` pour les composants interactifs
 - Types dans `src/types/`
 - Pas de `any`, utiliser des types explicites
+- **shadcn/ui obligatoire** : Toujours utiliser les composants shadcn/ui (Button, Input, Select, Checkbox, Switch, Dialog, etc.) au lieu des éléments HTML natifs. Ajouter avec `npx shadcn@latest add <component>`
 
 ### Styles
 - Tailwind CSS avec classes utilitaires

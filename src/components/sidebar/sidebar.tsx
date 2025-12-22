@@ -66,11 +66,14 @@ function generateStrategyNavigation(
   const sections: NavSection[] = [
     {
       title: 'Real Time',
-      items: strategies.map((s) => ({
-        name: s.display_name,
-        href: `/strategy/real-time/${s.name}`,
-        strategySlug: s.name,
-      })),
+      items: [
+        { name: 'Notifications', href: '/strategy/real-time/notifications' },
+        ...strategies.map((s) => ({
+          name: s.display_name,
+          href: `/strategy/real-time/${s.name}`,
+          strategySlug: s.name,
+        })),
+      ],
     },
     {
       title: 'Backtesting',
