@@ -1702,11 +1702,9 @@ export function CandlestickChart({
       setPnlLabelPositions(positions);
     };
 
-    // Update immediately, on next frame, and after a short delay (for initial load timing)
+    // Update immediately and on next frame (for initial load timing)
     updatePositions();
     requestAnimationFrame(updatePositions);
-    const timeoutId = setTimeout(updatePositions, 100);
-    return () => clearTimeout(timeoutId);
   }, [pnlLabelsData, navFrom, navTo]);
 
   return (
