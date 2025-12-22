@@ -177,13 +177,7 @@ function ChartNavigatorComponent({
 
   // Trigger draw on data change, resize, or theme change
   useEffect(() => {
-    // Draw immediately
-    drawCanvas();
-    // Also draw after a frame (ensures layout is ready)
     requestAnimationFrame(drawCanvas);
-    // And after a short delay as final fallback
-    const timeoutId = setTimeout(drawCanvas, 100);
-    return () => clearTimeout(timeoutId);
   }, [drawCanvas, dataLength, firstTime, lastTime, containerWidth]);
 
   // Handle mouse down
