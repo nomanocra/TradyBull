@@ -143,14 +143,15 @@ class Daily1xSL1TrendStrategy(BaseStrategy):
             if self._is_new_day(candles, i):
                 traded_today = None
 
-            # If new day and position open from previous day, close it at open
+            # If new day and position open from previous day, close at PREVIOUS candle's close
             if open_position and self._is_new_day(candles, i):
                 if open_position['date'] != date_string:
+                    prev_candle = candles[i - 1]
                     signals.append(Signal(
-                        signal_timestamp=candle['time'],
-                        trigger_timestamp=candle['time'],
+                        signal_timestamp=prev_candle['time'],
+                        trigger_timestamp=prev_candle['time'],
                         type='sell',
-                        price=candle['open'],
+                        price=prev_candle['close'],
                         label='Close',
                         metadata={
                             'buy_price': open_position['buy_price'],
@@ -178,6 +179,7 @@ class Daily1xSL1TrendStrategy(BaseStrategy):
                         'date': date_string,
                     }
                     traded_today = date_string  # Mark that we traded today
+                    continue  # Skip exit checks on entry candle
 
             # Check exit conditions if we have an open position
             if open_position:

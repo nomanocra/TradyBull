@@ -113,14 +113,24 @@ function ChartNavigatorComponent({
     const container = containerRef.current;
     if (!container) return;
 
+    // Set initial width after a frame to ensure layout is complete
+    requestAnimationFrame(() => {
+      const initialWidth = container.clientWidth;
+      if (initialWidth > 0) {
+        setContainerWidth(initialWidth);
+      }
+    });
+
     const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
-        setContainerWidth(entry.contentRect.width);
+        const width = entry.contentRect.width;
+        if (width > 0) {
+          setContainerWidth(width);
+        }
       }
     });
 
     resizeObserver.observe(container);
-    setContainerWidth(container.clientWidth);
 
     return () => resizeObserver.disconnect();
   }, []);
