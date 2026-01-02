@@ -1,8 +1,11 @@
 """
 Market Hours Utility for TradyBull
-Provides market close times based on US cash market (NYSE) hours.
-For daily trading strategies, we use NYSE close time (16:00 NY = 22:00 Paris)
-rather than CME futures hours (which are nearly 24h).
+Provides market close times for CME futures (NQ=F).
+
+CME Globex E-mini Nasdaq 100 (NQ) hours:
+- Normal close: 23:00 Paris (17:00 ET) - daily break
+- Early close days: varies based on CME calendar
+- Strategies close on the LAST candle before market close (e.g., 22h for 23h close)
 """
 
 import exchange_calendars as xcals
@@ -13,25 +16,28 @@ import pytz
 PARIS_TZ = pytz.timezone('Europe/Paris')
 NY_TZ = pytz.timezone('America/New_York')
 
-# NYSE calendar for cash market hours (more relevant for daily strategies)
+# CME calendar for futures
 _calendar = None
+
+# Default close hour in Paris (17:00 ET = 23:00 Paris)
+DEFAULT_CLOSE_HOUR_PARIS = 23
 
 
 def get_calendar():
-    """Get NYSE calendar (cached)"""
+    """Get CME calendar (cached)"""
     global _calendar
     if _calendar is None:
-        _calendar = xcals.get_calendar("XNYS")  # NYSE
+        _calendar = xcals.get_calendar("CME")
     return _calendar
 
 
 def get_market_close_hour_paris(timestamp: int) -> int:
     """
-    Get the US cash market close hour in Paris time for a given timestamp.
+    Get the CME futures close hour in Paris time for a given timestamp.
 
-    Uses NYSE calendar:
-    - Normal close: 22:00 Paris (16:00 NY)
-    - Early close days: 19:00 Paris (13:00 NY) - day after Thanksgiving, Christmas Eve, etc.
+    CME Globex:
+    - Normal close: 23:00 Paris (17:00 ET)
+    - Early close days: earlier (e.g., Christmas Eve)
     - Closed days: returns -1
 
     Args:
@@ -51,16 +57,26 @@ def get_market_close_hour_paris(timestamp: int) -> int:
         return -1
 
     try:
-        # Get the session close time
+        # Get the session close time from CME calendar
         close_time = calendar.session_close(check_date)
 
         # Convert to Paris timezone
         close_paris = close_time.astimezone(PARIS_TZ)
 
-        return close_paris.hour
+        # CME calendar returns close at midnight (00:00 next day)
+        # But actual futures close at 23:00 Paris (17:00 ET daily break)
+        # Check if this is an early close day by comparing to default
+        close_hour = close_paris.hour
+
+        # If close is at midnight (0), it means normal close at 23:00 Paris
+        if close_hour == 0:
+            return DEFAULT_CLOSE_HOUR_PARIS
+
+        # Otherwise it's an early close day
+        return close_hour
     except Exception:
         # Fallback to default close time
-        return 22
+        return DEFAULT_CLOSE_HOUR_PARIS
 
 
 def get_last_candle_hour_paris(timestamp: int) -> int:
