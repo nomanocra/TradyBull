@@ -110,6 +110,74 @@ def delete_notification_settings(strategy_name: str) -> bool:
         conn.close()
 
 
+def log_notification(
+    strategy_name: str,
+    signal_type: str,
+    price: float,
+    channel: str,
+    message: str,
+    signal_timestamp: int,
+    success: bool = True,
+    error_message: Optional[str] = None
+) -> None:
+    """Log a notification to the history table"""
+    conn = get_db()
+    try:
+        conn.execute("""
+            INSERT INTO notification_history
+            (strategy_name, signal_type, price, channel, message, signal_timestamp, success, error_message)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            strategy_name,
+            signal_type,
+            price,
+            channel,
+            message,
+            signal_timestamp,
+            int(success),
+            error_message
+        ))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_notification_history(
+    strategy_name: str,
+    limit: int = 50
+) -> list[Dict[str, Any]]:
+    """Get notification history for a strategy"""
+    conn = get_db()
+    try:
+        rows = conn.execute("""
+            SELECT id, strategy_name, sent_at, signal_type, price, channel, message, success, error_message, signal_timestamp
+            FROM notification_history
+            WHERE strategy_name = ?
+            ORDER BY sent_at DESC
+            LIMIT ?
+        """, (strategy_name, limit)).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def was_notification_already_sent(
+    strategy_name: str,
+    signal_timestamp: int,
+    signal_type: str
+) -> bool:
+    """Check if a notification was already sent for this signal"""
+    conn = get_db()
+    try:
+        row = conn.execute("""
+            SELECT COUNT(*) as count FROM notification_history
+            WHERE strategy_name = ? AND signal_timestamp = ? AND signal_type = ?
+        """, (strategy_name, signal_timestamp, signal_type)).fetchone()
+        return row['count'] > 0
+    finally:
+        conn.close()
+
+
 def is_within_time_window(time_start: str, time_end: str) -> bool:
     """Check if current time is within the notification time window"""
     now = datetime.now(PARIS_TZ)
@@ -221,14 +289,54 @@ async def send_signal_notification(
             )
             if telegram_result.get("ok"):
                 result["notifications_sent"].append("telegram")
+                log_notification(
+                    strategy_name=strategy_name,
+                    signal_type=signal_type,
+                    price=price,
+                    channel="telegram",
+                    message=message,
+                    signal_timestamp=timestamp,
+                    success=True
+                )
             else:
-                result["errors"].append(f"Telegram error: {telegram_result.get('description', 'Unknown error')}")
+                error_msg = telegram_result.get('description', 'Unknown error')
+                result["errors"].append(f"Telegram error: {error_msg}")
+                log_notification(
+                    strategy_name=strategy_name,
+                    signal_type=signal_type,
+                    price=price,
+                    channel="telegram",
+                    message=message,
+                    signal_timestamp=timestamp,
+                    success=False,
+                    error_message=error_msg
+                )
         except Exception as e:
-            result["errors"].append(f"Telegram exception: {str(e)}")
+            error_msg = str(e)
+            result["errors"].append(f"Telegram exception: {error_msg}")
+            log_notification(
+                strategy_name=strategy_name,
+                signal_type=signal_type,
+                price=price,
+                channel="telegram",
+                message=message,
+                signal_timestamp=timestamp,
+                success=False,
+                error_message=error_msg
+            )
 
     # Desktop notifications are handled by the frontend via WebSocket
     if settings["desktop_enabled"]:
         result["notifications_sent"].append("desktop_pending")
+        log_notification(
+            strategy_name=strategy_name,
+            signal_type=signal_type,
+            price=price,
+            channel="desktop",
+            message=message,
+            signal_timestamp=timestamp,
+            success=True
+        )
 
     return result
 

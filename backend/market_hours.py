@@ -134,3 +134,28 @@ def is_market_closed_day(timestamp: int) -> bool:
         True if market is closed
     """
     return get_market_close_hour_paris(timestamp) == -1
+
+
+def is_too_close_to_close(timestamp: int, min_hours_before_close: int = 2) -> bool:
+    """
+    Check if we're too close to market close to open a new position.
+
+    Args:
+        timestamp: Unix timestamp of the candle
+        min_hours_before_close: Minimum hours required before close (default 2)
+
+    Returns:
+        True if we're within min_hours_before_close of market close
+    """
+    close_hour = get_market_close_hour_paris(timestamp)
+
+    if close_hour == -1:
+        return True  # Market closed, don't open
+
+    dt = datetime.fromtimestamp(timestamp, tz=PARIS_TZ)
+    candle_hour = dt.hour
+
+    # Hours remaining until close
+    hours_until_close = close_hour - candle_hour
+
+    return hours_until_close < min_hours_before_close

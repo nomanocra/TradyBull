@@ -2,7 +2,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 import pytz
 from .base import BaseStrategy, Signal, StrategyDisplayConfig
-from market_hours import is_last_candle_of_day
+from market_hours import is_last_candle_of_day, is_too_close_to_close
 
 PARIS_TZ = pytz.timezone('Europe/Paris')
 
@@ -31,7 +31,7 @@ class BollingerSL25Strategy(BaseStrategy):
     @property
     def display_config(self) -> StrategyDisplayConfig:
         return StrategyDisplayConfig(
-            display_name="Bollinger SL-2.5%",
+            display_name="Bollinger SL-2.5% IntraD",
             description="Entry: 7h-21h, price touches lower BB. Exit: SL -2.5% or 22h.",
             show_bollinger=True,
         )
@@ -183,7 +183,7 @@ class BollingerSL25Strategy(BaseStrategy):
             # Check if LOW went below lower Bollinger band
             low_below_band = candle['low'] < lower_band
 
-            if low_below_band and is_in_trading_hours and not last_signal_triggered and not already_traded_today:
+            if low_below_band and is_in_trading_hours and not last_signal_triggered and not already_traded_today and not is_too_close_to_close(candle['time']):
                 next_candle = candles[i + 1]
                 next_hour = self._get_paris_hour(next_candle['time'])
                 next_date_string = self._get_paris_date_string(next_candle['time'])

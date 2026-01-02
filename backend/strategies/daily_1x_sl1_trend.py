@@ -2,7 +2,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 import pytz
 from .base import BaseStrategy, Signal, StrategyDisplayConfig
-from market_hours import is_last_candle_of_day
+from market_hours import is_last_candle_of_day, is_too_close_to_close
 
 PARIS_TZ = pytz.timezone('Europe/Paris')
 
@@ -33,7 +33,7 @@ class Daily1xSL1TrendStrategy(BaseStrategy):
     @property
     def display_config(self) -> StrategyDisplayConfig:
         return StrategyDisplayConfig(
-            display_name="Daily SL-1% Trend MA200",
+            display_name="Daily SL-1% Trend200 IntraD",
             description="Entry: price > MA200 and MA200 rising (1x/day). Exit: SL -1%, trend break, or 22h.",
             show_moving_averages=True,
         )
@@ -92,20 +92,19 @@ class Daily1xSL1TrendStrategy(BaseStrategy):
 
         return price_above_ma and ma_rising
 
-    def _check_trend_exit(self, closes: List[float], ma200: List[Optional[float]], index: int) -> tuple[bool, str]:
-        """Check if trend exit conditions are met: price < MA200 OR MA200 falling"""
+    def _check_trend_exit(self, candle: Dict, ma200: List[Optional[float]], index: int) -> tuple[bool, str]:
+        """Check if trend exit conditions are met: LOW < MA200 OR MA200 falling"""
         if index < MA_SLOPE_LOOKBACK:
             return False, ''
 
         current_ma = ma200[index]
         past_ma = ma200[index - MA_SLOPE_LOOKBACK]
-        current_price = closes[index]
 
         if current_ma is None or past_ma is None:
             return False, ''
 
-        # Exit if price below MA200
-        if current_price < current_ma:
+        # Exit if LOW goes below MA200 (price breached the trend line)
+        if candle['low'] < current_ma:
             return True, 'price_below_ma200'
 
         # Exit if MA200 is falling
@@ -163,9 +162,9 @@ class Daily1xSL1TrendStrategy(BaseStrategy):
                     open_position = None
                     # Don't set traded_today here - it's a new day, we can trade
 
-            # Check for buy signal (only if no open position AND haven't traded today)
+            # Check for buy signal (only if no open position AND haven't traded today AND not too close to close)
             if open_position is None and traded_today != date_string:
-                if self._check_trend_bullish(closes, ma200, i):
+                if self._check_trend_bullish(closes, ma200, i) and not is_too_close_to_close(candle['time']):
                     signals.append(Signal(
                         signal_timestamp=candle['time'],
                         trigger_timestamp=candle['time'],
@@ -205,14 +204,16 @@ class Daily1xSL1TrendStrategy(BaseStrategy):
                     traded_today = date_string  # No more trades today
                     continue
 
-                # Check for trend exit (price < MA200 OR MA200 falling)
-                trend_exit, exit_reason = self._check_trend_exit(closes, ma200, i)
+                # Check for trend exit (LOW < MA200 OR MA200 falling)
+                trend_exit, exit_reason = self._check_trend_exit(candle, ma200, i)
                 if trend_exit:
+                    # If price breached MA200, exit at MA200; if MA falling, exit at close
+                    exit_price = ma200[i] if exit_reason == 'price_below_ma200' else candle['close']
                     signals.append(Signal(
                         signal_timestamp=candle['time'],
                         trigger_timestamp=candle['time'],
                         type='sell',
-                        price=candle['close'],
+                        price=exit_price,
                         label='Trend',
                         metadata={
                             'buy_price': buy_price,

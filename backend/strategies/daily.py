@@ -26,7 +26,7 @@ class DailyStrategy(BaseStrategy):
     @property
     def display_config(self) -> StrategyDisplayConfig:
         return StrategyDisplayConfig(
-            display_name="Multi-Daily",
+            display_name="Multi-Daily IntraD",
             description="Entry: first candle of the day. Exit: 22h. No stop loss.",
         )
 

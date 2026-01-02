@@ -33,7 +33,7 @@ class MACDHistogramSL1TrendStrategy(BaseStrategy):
     @property
     def display_config(self) -> StrategyDisplayConfig:
         return StrategyDisplayConfig(
-            display_name="MACD Histogram SL-1% Trend MA200",
+            display_name="MACD Histogram SL-1% Trend200",
             description="BUY: histogram rising + price > MA200. SELL: SL -1%, histogram falling, or price < MA200.",
             show_macd=True,
             show_moving_averages=True,
@@ -241,13 +241,13 @@ class MACDHistogramSL1TrendStrategy(BaseStrategy):
                     position = None
                     continue
 
-                # Exit on price below MA200
-                if close < ma200[i]:
+                # Exit on LOW below MA200 (price breached the trend line)
+                if candle['low'] < ma200[i]:
                     signals.append(Signal(
                         signal_timestamp=candle['time'],
                         trigger_timestamp=candle['time'],
                         type='sell',
-                        price=candle['close'],
+                        price=ma200[i],  # Exit at MA200 level
                         label='MA200',
                         metadata={
                             'buy_price': buy_price,

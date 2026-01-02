@@ -30,7 +30,7 @@ class DailySL1Strategy(BaseStrategy):
     @property
     def display_config(self) -> StrategyDisplayConfig:
         return StrategyDisplayConfig(
-            display_name="Multi-Daily SL-1%",
+            display_name="Multi-Daily SL-1% IntraD",
             description="Entry: first candle of the day. Exit: SL -1% or 22h.",
         )
 

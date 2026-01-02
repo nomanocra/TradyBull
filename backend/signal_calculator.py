@@ -258,3 +258,39 @@ def calculate_all_strategies(conn: sqlite3.Connection, symbol: str, data_source:
         count, signals = calculate_signals_incremental(conn, strategy_name, symbol, data_source, candles_table)
         results[strategy_name] = (count, signals)
     return results
+
+
+def recalculate_strategy(conn: sqlite3.Connection, strategy_name: str, symbol: str, data_source: str, candles_table: str) -> int:
+    """
+    Force full recalculation of a strategy by clearing its state first.
+    Used when strategy code changes or for manual recalculation.
+    Does NOT return signals to prevent notification spam.
+
+    Returns:
+        Number of signals calculated
+    """
+    # Clear existing state and signals for this strategy
+    conn.execute("DELETE FROM signal_processing_state WHERE strategy_name = ? AND symbol = ? AND data_source = ?",
+                 (strategy_name, symbol, data_source))
+    conn.execute("DELETE FROM signals WHERE strategy_name = ? AND symbol = ?", (strategy_name, symbol))
+    conn.commit()
+
+    # Recalculate (will do full calculation since state was cleared)
+    count, _ = calculate_signals_incremental(conn, strategy_name, symbol, data_source, candles_table)
+    return count
+
+
+def recalculate_all_strategies(conn: sqlite3.Connection, symbol: str, data_source: str, candles_table: str) -> Dict[str, int]:
+    """
+    Force full recalculation of ALL strategies.
+    Used on startup or after strategy code changes.
+    Does NOT return signals to prevent notification spam.
+
+    Returns:
+        Dict mapping strategy name to signal count
+    """
+    results = {}
+    for strategy_name in STRATEGIES:
+        count = recalculate_strategy(conn, strategy_name, symbol, data_source, candles_table)
+        results[strategy_name] = count
+    return results

@@ -31,7 +31,7 @@ class MACDCrossTrendStrategy(BaseStrategy):
     @property
     def display_config(self) -> StrategyDisplayConfig:
         return StrategyDisplayConfig(
-            display_name="MACD Cross Trend MA200",
+            display_name="MACD Cross Trend200",
             description="BUY: MACD bullish cross + price > MA200. SELL: MACD bearish cross or price < MA200.",
             show_macd=True,
             show_moving_averages=True,
@@ -217,13 +217,13 @@ class MACDCrossTrendStrategy(BaseStrategy):
                     position = None
                     continue
 
-                # Exit on price below MA200
-                if close < ma200[i]:
+                # Exit on LOW below MA200 (price breached the trend line)
+                if candle['low'] < ma200[i]:
                     signals.append(Signal(
                         signal_timestamp=candle['time'],
                         trigger_timestamp=candle['time'],
                         type='sell',
-                        price=candle['close'],
+                        price=ma200[i],  # Exit at MA200 level
                         label='MA200',
                         metadata={
                             'buy_price': position['buy_price'],

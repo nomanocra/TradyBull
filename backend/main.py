@@ -2,6 +2,7 @@ from fastapi import FastAPI, Query, HTTPException, WebSocket, WebSocketDisconnec
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import json
+import time
 import yfinance as yf
 from datetime import datetime, timedelta
 import pytz
@@ -19,14 +20,16 @@ from notification_service import (
     save_notification_settings,
     delete_notification_settings,
     send_signal_notification,
-    test_telegram_notification
+    test_telegram_notification,
+    get_notification_history,
+    was_notification_already_sent
 )
 
 # Import signal calculator (lazy import to avoid circular deps)
 def get_signal_calculator():
-    from signal_calculator import calculate_signals_incremental, get_signals_from_db, calculate_all_strategies
+    from signal_calculator import calculate_signals_incremental, get_signals_from_db, calculate_all_strategies, recalculate_strategy, recalculate_all_strategies
     from strategies import STRATEGIES
-    return calculate_signals_incremental, get_signals_from_db, calculate_all_strategies, STRATEGIES
+    return calculate_signals_incremental, get_signals_from_db, calculate_all_strategies, recalculate_strategy, recalculate_all_strategies, STRATEGIES
 
 app = FastAPI(title="TradyBull API")
 
@@ -167,6 +170,24 @@ def init_db():
                 updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
             )
         """)
+
+        # Notification history table
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS notification_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                strategy_name TEXT NOT NULL,
+                sent_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+                signal_type TEXT NOT NULL,
+                price REAL NOT NULL,
+                channel TEXT NOT NULL,
+                message TEXT NOT NULL,
+                success INTEGER NOT NULL DEFAULT 1,
+                error_message TEXT,
+                FOREIGN KEY (strategy_name) REFERENCES notification_settings(strategy_name)
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_notif_history_strategy ON notification_history(strategy_name)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_notif_history_sent_at ON notification_history(sent_at)")
 
         conn.commit()
 
@@ -380,7 +401,7 @@ def get_all_data_payload() -> dict:
 
     # Add signals for all strategies
     try:
-        _, get_signals_from_db, _, STRATEGIES = get_signal_calculator()
+        _, get_signals_from_db, _, _, _, STRATEGIES = get_signal_calculator()
         with get_db() as conn:
             for strategy_name in STRATEGIES:
                 signals = get_signals_from_db(conn, strategy_name, SYMBOL)
@@ -437,7 +458,7 @@ def fetch_all_intervals():
 
         # Calculate signals for all strategies (real-time data)
         try:
-            _, _, calculate_all_strategies, STRATEGIES = get_signal_calculator()
+            _, _, calculate_all_strategies, _, _, STRATEGIES = get_signal_calculator()
             with get_db() as conn:
                 results = calculate_all_strategies(conn, SYMBOL, 'realtime', 'candles')
                 for strategy_name, (count, signals) in results.items():
@@ -452,6 +473,18 @@ def fetch_all_intervals():
                                 display_name = strategy_instance.display_config.display_name
 
                                 for signal in signals:
+                                    # Only send notifications for recent signals (< 15 minutes old)
+                                    # This prevents spam when recalculating historical signals
+                                    signal_age = int(time.time()) - signal.signal_timestamp
+                                    if signal_age > 900:  # 15 minutes in seconds
+                                        print(f"    Skipping notification for old signal ({signal_age//60}min old)")
+                                        continue
+
+                                    # Check if notification was already sent for this signal
+                                    if was_notification_already_sent(strategy_name, signal.signal_timestamp, signal.type):
+                                        print(f"    Skipping notification already sent for {signal.type} signal")
+                                        continue
+
                                     asyncio.run(send_signal_notification(
                                         strategy_name=strategy_name,
                                         strategy_display_name=display_name,
@@ -725,7 +758,7 @@ def get_signals(
 ):
     """Get signals for a strategy within optional date range"""
     try:
-        _, get_signals_from_db, _, STRATEGIES = get_signal_calculator()
+        _, get_signals_from_db, _, _, _, STRATEGIES = get_signal_calculator()
 
         if strategy not in STRATEGIES:
             raise HTTPException(status_code=400, detail=f"Unknown strategy: {strategy}. Available: {list(STRATEGIES.keys())}")
@@ -751,7 +784,7 @@ def get_signals_info(
 ):
     """Get information about signals for a strategy"""
     try:
-        _, _, _, STRATEGIES = get_signal_calculator()
+        _, _, _, _, _, STRATEGIES = get_signal_calculator()
 
         if strategy not in STRATEGIES:
             raise HTTPException(status_code=400, detail=f"Unknown strategy: {strategy}")
@@ -801,7 +834,7 @@ def calculate_signals_endpoint(
 ):
     """Trigger incremental signal calculation for new candles"""
     try:
-        calculate_signals_incremental, _, _, STRATEGIES = get_signal_calculator()
+        calculate_signals_incremental, _, _, _, _, STRATEGIES = get_signal_calculator()
 
         if strategy not in STRATEGIES:
             raise HTTPException(status_code=400, detail=f"Unknown strategy: {strategy}")
@@ -830,7 +863,7 @@ def calculate_signals_endpoint(
 def list_strategies():
     """List all available strategies with their display metadata"""
     try:
-        _, _, _, STRATEGIES = get_signal_calculator()
+        _, _, _, _, _, STRATEGIES = get_signal_calculator()
 
         # Get archived strategies
         with get_db() as conn:
@@ -850,11 +883,41 @@ def list_strategies():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/signals/recalculate")
+def recalculate_signals(
+    strategy: Optional[str] = Query(default=None, description="Strategy name to recalculate (all if not specified)"),
+    data_source: str = Query(default="realtime", description="'realtime' or 'backtest'")
+):
+    """
+    Force full recalculation of signals. Use after strategy code changes.
+    Does NOT send notifications (safe to use anytime).
+    """
+    try:
+        _, _, _, recalculate_strategy_fn, recalculate_all_strategies_fn, STRATEGIES = get_signal_calculator()
+
+        candles_table = 'candles' if data_source == 'realtime' else 'backtest_candles'
+
+        with get_db() as conn:
+            if strategy:
+                if strategy not in STRATEGIES:
+                    raise HTTPException(status_code=404, detail=f"Strategy not found: {strategy}")
+                count = recalculate_strategy_fn(conn, strategy, SYMBOL, data_source, candles_table)
+                return {"strategy": strategy, "signals_count": count, "message": "Recalculation complete (no notifications sent)"}
+            else:
+                results = recalculate_all_strategies_fn(conn, SYMBOL, data_source, candles_table)
+                total = sum(results.values())
+                return {"strategies": results, "total_signals": total, "message": "Recalculation complete (no notifications sent)"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/strategies/{strategy_name}/archive")
 def archive_strategy(strategy_name: str):
     """Archive a strategy (hide from Real Time and Backtesting)"""
     try:
-        _, _, _, STRATEGIES = get_signal_calculator()
+        _, _, _, _, _, STRATEGIES = get_signal_calculator()
 
         if strategy_name not in STRATEGIES:
             raise HTTPException(status_code=404, detail=f"Strategy not found: {strategy_name}")
@@ -877,7 +940,7 @@ def archive_strategy(strategy_name: str):
 def unarchive_strategy(strategy_name: str):
     """Unarchive a strategy (restore to Real Time and Backtesting)"""
     try:
-        _, _, _, STRATEGIES = get_signal_calculator()
+        _, _, _, _, _, STRATEGIES = get_signal_calculator()
 
         if strategy_name not in STRATEGIES:
             raise HTTPException(status_code=404, detail=f"Strategy not found: {strategy_name}")
@@ -906,7 +969,7 @@ def get_kpis(
     try:
         from kpi_calculator import calculate_kpis
 
-        _, get_signals_from_db, _, STRATEGIES = get_signal_calculator()
+        _, get_signals_from_db, _, _, _, STRATEGIES = get_signal_calculator()
 
         if strategy not in STRATEGIES:
             raise HTTPException(status_code=400, detail=f"Unknown strategy: {strategy}")
@@ -936,7 +999,7 @@ def get_all_kpis(
     try:
         from kpi_calculator import calculate_kpis
 
-        _, get_signals_from_db, _, STRATEGIES = get_signal_calculator()
+        _, get_signals_from_db, _, _, _, STRATEGIES = get_signal_calculator()
 
         results = []
         with get_db() as conn:
@@ -1054,7 +1117,7 @@ async def test_strategy_notification(strategy_name: str):
     """Send a test notification for a strategy"""
     try:
         # Get strategy display name
-        _, _, _, STRATEGIES = get_signal_calculator()
+        _, _, _, _, _, STRATEGIES = get_signal_calculator()
         strategy_class = STRATEGIES.get(strategy_name)
         if not strategy_class:
             raise HTTPException(status_code=404, detail=f"Strategy {strategy_name} not found")
@@ -1073,6 +1136,16 @@ async def test_strategy_notification(strategy_name: str):
         return result
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/notifications/history/{strategy_name}")
+def get_strategy_notification_history(strategy_name: str, limit: int = Query(default=50, le=200)):
+    """Get notification history for a strategy"""
+    try:
+        history = get_notification_history(strategy_name, limit)
+        return {"history": history}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

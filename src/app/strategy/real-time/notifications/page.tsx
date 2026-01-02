@@ -1,15 +1,18 @@
 'use client';
 
 import { useState } from 'react';
-import { Plus, Bell, Trash2, Edit2, Monitor, MessageCircle } from 'lucide-react';
+import { Plus, Bell, Trash2, Edit2, Monitor, MessageCircle, List } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { NotificationModal } from '@/components/notifications/notification-modal';
+import { NotificationHistoryModal } from '@/components/notifications/notification-history-modal';
 import { useNotifications, NotificationSettings } from '@/hooks/useNotifications';
 import { useStrategies } from '@/hooks/useStrategies';
 
 export default function NotificationsPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSettings, setEditingSettings] = useState<NotificationSettings | null>(null);
+  const [historyModalOpen, setHistoryModalOpen] = useState(false);
+  const [historyStrategyName, setHistoryStrategyName] = useState<string | null>(null);
 
   const { settings, isLoading, saveSettings, deleteSettings, testTelegram } = useNotifications();
   const { strategies, archivedStrategies } = useStrategies();
@@ -33,6 +36,11 @@ export default function NotificationsPage() {
     if (confirm('Delete this notification configuration?')) {
       await deleteSettings(strategyName);
     }
+  };
+
+  const handleHistoryClick = (strategyName: string) => {
+    setHistoryStrategyName(strategyName);
+    setHistoryModalOpen(true);
   };
 
   const getStrategyDisplayName = (strategyName: string) => {
@@ -124,6 +132,15 @@ export default function NotificationsPage() {
                   <Button
                     variant="ghost"
                     size="sm"
+                    onClick={() => handleHistoryClick(setting.strategy_name)}
+                    className="h-7 w-7 p-0"
+                    title="View history"
+                  >
+                    <List size={12} />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     onClick={() => handleEditClick(setting)}
                     className="h-7 w-7 p-0"
                   >
@@ -152,6 +169,14 @@ export default function NotificationsPage() {
         existingSettings={editingSettings}
         onSave={saveSettings}
         onTestTelegram={testTelegram}
+      />
+
+      {/* History Modal */}
+      <NotificationHistoryModal
+        open={historyModalOpen}
+        onOpenChange={setHistoryModalOpen}
+        strategyName={historyStrategyName}
+        strategyDisplayName={historyStrategyName ? getStrategyDisplayName(historyStrategyName) : ''}
       />
     </div>
   );
