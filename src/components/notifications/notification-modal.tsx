@@ -16,6 +16,7 @@ interface NotificationModalProps {
   onOpenChange: (open: boolean) => void;
   strategies: StrategyConfig[];
   existingSettings?: NotificationSettings | null;
+  defaultStrategy?: string | null;  // Pre-select strategy in add mode
   onSave: (strategyName: string, settings: NotificationSettingsInput) => Promise<boolean>;
   onTestTelegram: (botToken: string, chatId: string) => Promise<{ success: boolean; message: string }>;
 }
@@ -25,6 +26,7 @@ export function NotificationModal({
   onOpenChange,
   strategies,
   existingSettings,
+  defaultStrategy,
   onSave,
   onTestTelegram,
 }: NotificationModalProps) {
@@ -57,7 +59,7 @@ export function NotificationModal({
         setTimeStart(existingSettings.time_start);
         setTimeEnd(existingSettings.time_end);
       } else {
-        setSelectedStrategy('');
+        setSelectedStrategy(defaultStrategy || '');
         setDesktopEnabled(false);
         setTelegramEnabled(false);
         setBotToken('');
@@ -70,7 +72,7 @@ export function NotificationModal({
       }
       setTestResult(null);
     }
-  }, [open, existingSettings]);
+  }, [open, existingSettings, defaultStrategy]);
 
   const handleSave = async () => {
     if (!selectedStrategy) return;

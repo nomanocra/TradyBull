@@ -55,7 +55,16 @@ export function useNotifications(): UseNotificationsResult {
       }
 
       const data = await response.json();
-      setSettings(data.settings || []);
+      // Convert SQLite integers (0/1) to booleans
+      const normalizedSettings = (data.settings || []).map((s: NotificationSettings) => ({
+        ...s,
+        enabled: Boolean(s.enabled),
+        desktop_enabled: Boolean(s.desktop_enabled),
+        telegram_enabled: Boolean(s.telegram_enabled),
+        notify_buy: Boolean(s.notify_buy),
+        notify_sell: Boolean(s.notify_sell),
+      }));
+      setSettings(normalizedSettings);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load settings');
       setSettings([]);

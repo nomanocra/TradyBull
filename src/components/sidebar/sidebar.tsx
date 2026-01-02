@@ -4,11 +4,13 @@ import { useState, useEffect, useTransition, useMemo, useRef, useCallback } from
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { ChevronDown, ChevronRight, Compass, Play, Sun, Moon, Archive, ArchiveRestore, Search, X } from 'lucide-react';
-import { GroupButton } from '@/components/ui/group-button';
+import { ChevronDown, ChevronRight, Compass, Play, History, Sun, Moon, Archive, ArchiveRestore, Search, X, Bell } from 'lucide-react';
+import { ModeSelector, ModeOption } from '@/components/ui/mode-selector';
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useStrategies, StrategyConfig } from '@/hooks/useStrategies';
+import { useNotifications } from '@/hooks/useNotifications';
+import { NotificationModal } from '@/components/notifications/notification-modal';
 import packageJson from '../../../package.json';
 
 const STORAGE_KEY = 'tradybull-sidebar-sections';
@@ -19,7 +21,7 @@ const WIDTH_STORAGE_KEY = 'tradybull-sidebar-width';
 const MIN_WIDTH = 208; // w-52
 const MAX_WIDTH = 460;
 
-type Mode = 'exploration' | 'strategy';
+type Mode = 'exploration' | 'backtesting' | 'realtime';
 
 interface NavItem {
   name: string;
@@ -58,23 +60,12 @@ const explorationNavigation: NavSection[] = [
   },
 ];
 
-// Strategy navigation is now generated dynamically from the API
-function generateStrategyNavigation(
+// Backtesting navigation generated dynamically from the API
+function generateBacktestingNavigation(
   strategies: StrategyConfig[],
   archivedStrategies: StrategyConfig[]
 ): NavSection[] {
   const sections: NavSection[] = [
-    {
-      title: 'Real Time',
-      items: [
-        { name: 'Notifications', href: '/strategy/real-time/notifications' },
-        ...strategies.map((s) => ({
-          name: s.display_name,
-          href: `/strategy/real-time/${s.name}`,
-          strategySlug: s.name,
-        })),
-      ],
-    },
     {
       title: 'Backtesting',
       items: [
@@ -104,9 +95,27 @@ function generateStrategyNavigation(
   return sections;
 }
 
-const modeOptions = [
-  { value: 'exploration', label: 'Exploration', icon: <Compass size={12} /> },
-  { value: 'strategy', label: 'Strategy', icon: <Play size={12} /> },
+// Real Time navigation generated dynamically from the API
+function generateRealtimeNavigation(strategies: StrategyConfig[]): NavSection[] {
+  return [
+    {
+      title: 'Real Time',
+      items: [
+        { name: 'Notifications', href: '/strategy/real-time/notifications' },
+        ...strategies.map((s) => ({
+          name: s.display_name,
+          href: `/strategy/real-time/${s.name}`,
+          strategySlug: s.name,
+        })),
+      ],
+    },
+  ];
+}
+
+const modeOptions: ModeOption[] = [
+  { value: 'exploration', label: 'Exploration', description: 'Explore indicators', icon: Compass },
+  { value: 'backtesting', label: 'Backtesting', description: 'Test strategies', icon: History },
+  { value: 'realtime', label: 'Real Time', description: 'Live trading signals', icon: Play },
 ];
 
 const defaultSections: Record<string, boolean> = {
@@ -134,12 +143,25 @@ export function Sidebar() {
   const sidebarRef = useRef<HTMLDivElement>(null);
 
   // Fetch strategies from API
-  const { strategies, archivedStrategies, archiveStrategy, unarchiveStrategy } = useStrategies();
+  const { strategies, archivedStrategies, allStrategies, archiveStrategy, unarchiveStrategy } = useStrategies();
 
-  // Generate strategy navigation dynamically
-  const strategyNavigation = useMemo(
-    () => generateStrategyNavigation(strategies, archivedStrategies),
+  // Fetch notification settings
+  const { settings: notificationSettings, saveSettings, testTelegram } = useNotifications();
+
+  // Notification modal state
+  const [notificationModalOpen, setNotificationModalOpen] = useState(false);
+  const [notificationModalStrategy, setNotificationModalStrategy] = useState<string | null>(null);
+
+  // Generate backtesting navigation dynamically
+  const backtestingNavigation = useMemo(
+    () => generateBacktestingNavigation(strategies, archivedStrategies),
     [strategies, archivedStrategies]
+  );
+
+  // Generate realtime navigation dynamically
+  const realtimeNavigation = useMemo(
+    () => generateRealtimeNavigation(strategies),
+    [strategies]
   );
 
   // Clear pending path when navigation completes
@@ -151,8 +173,10 @@ export function Sidebar() {
 
   // Sync mode with current URL path
   useEffect(() => {
-    if (pathname.startsWith('/strategy')) {
-      setMode('strategy');
+    if (pathname.startsWith('/strategy/backtesting')) {
+      setMode('backtesting');
+    } else if (pathname.startsWith('/strategy/real-time')) {
+      setMode('realtime');
     } else if (pathname.startsWith('/exploration')) {
       setMode('exploration');
     }
@@ -169,8 +193,10 @@ export function Sidebar() {
       }
     }
     // Sync mode with current URL path (takes priority over localStorage)
-    if (pathname.startsWith('/strategy')) {
-      setMode('strategy');
+    if (pathname.startsWith('/strategy/backtesting')) {
+      setMode('backtesting');
+    } else if (pathname.startsWith('/strategy/real-time')) {
+      setMode('realtime');
     } else if (pathname.startsWith('/exploration')) {
       setMode('exploration');
     }
@@ -211,7 +237,18 @@ export function Sidebar() {
     }));
   };
 
-  const baseNavigation = mode === 'exploration' ? explorationNavigation : strategyNavigation;
+  const baseNavigation = useMemo(() => {
+    switch (mode) {
+      case 'exploration':
+        return explorationNavigation;
+      case 'backtesting':
+        return backtestingNavigation;
+      case 'realtime':
+        return realtimeNavigation;
+      default:
+        return explorationNavigation;
+    }
+  }, [mode, backtestingNavigation, realtimeNavigation]);
 
   // Filter navigation by search query
   const navigation = useMemo(() => {
@@ -264,6 +301,24 @@ export function Sidebar() {
     e.preventDefault();
     e.stopPropagation();
     await unarchiveStrategy(strategySlug);
+  };
+
+  // Check if strategy has notifications configured
+  const hasNotifications = useCallback((strategySlug: string) => {
+    return notificationSettings.some(s => s.strategy_name === strategySlug && s.enabled);
+  }, [notificationSettings]);
+
+  // Get notification settings for a strategy
+  const getNotificationSettings = useCallback((strategySlug: string) => {
+    return notificationSettings.find(s => s.strategy_name === strategySlug) || null;
+  }, [notificationSettings]);
+
+  // Handle notification icon click
+  const handleNotificationClick = (e: React.MouseEvent, strategySlug: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setNotificationModalStrategy(strategySlug);
+    setNotificationModalOpen(true);
   };
 
   // Handle resize
@@ -328,10 +383,26 @@ export function Sidebar() {
 
       {/* Mode Switch */}
       <div className="p-3">
-        <GroupButton
+        <ModeSelector
           options={modeOptions}
           value={mode}
-          onChange={(value) => setMode(value as Mode)}
+          onChange={(value) => {
+            const newMode = value as Mode;
+            setMode(newMode);
+            // Navigate to default page for the new mode
+            let targetPath = '/exploration/real-time';
+            if (newMode === 'backtesting') {
+              targetPath = '/strategy/backtesting/overview';
+            } else if (newMode === 'realtime') {
+              targetPath = '/strategy/real-time/notifications';
+            }
+            if (pathname !== targetPath) {
+              setPendingPath(targetPath);
+              startTransition(() => {
+                router.push(targetPath);
+              });
+            }
+          }}
         />
       </div>
 
@@ -349,7 +420,7 @@ export function Sidebar() {
           {searchQuery && (
             <button
               onClick={() => setSearchQuery('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted-foreground/20 transition-colors"
             >
               <X size={12} />
             </button>
@@ -388,8 +459,10 @@ export function Sidebar() {
                     const isActive = isPathActive(item.href);
                     const isLoading = pendingPath === item.href && isPending;
                     const isHovered = hoveredItem === item.href;
-                    const showArchiveIcon = item.strategySlug && isHovered && !section.isArchive && section.title !== 'Real Time';
+                    const showArchiveIcon = item.strategySlug && isHovered && !section.isArchive && mode === 'backtesting';
                     const showRestoreIcon = item.strategySlug && isHovered && section.isArchive;
+                    const strategyHasNotifications = item.strategySlug && hasNotifications(item.strategySlug);
+                    const showNotificationIcon = item.strategySlug && mode === 'realtime' && (isHovered || strategyHasNotifications);
 
                     return (
                       <div
@@ -417,7 +490,7 @@ export function Sidebar() {
                             <TooltipTrigger asChild>
                               <button
                                 onClick={(e) => handleArchiveClick(e, item.strategySlug!)}
-                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground hover:bg-muted-foreground/20 transition-colors"
+                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted-foreground/20 transition-colors"
                               >
                                 <Archive size={12} />
                               </button>
@@ -432,12 +505,33 @@ export function Sidebar() {
                             <TooltipTrigger asChild>
                               <button
                                 onClick={(e) => handleUnarchiveClick(e, item.strategySlug!)}
-                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground hover:bg-muted-foreground/20 transition-colors"
+                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted-foreground/20 transition-colors"
                               >
                                 <ArchiveRestore size={12} />
                               </button>
                             </TooltipTrigger>
                             <TooltipContent side="right">Restore</TooltipContent>
+                          </Tooltip>
+                        )}
+
+                        {/* Notification button (Real Time only) */}
+                        {showNotificationIcon && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                onClick={(e) => handleNotificationClick(e, item.strategySlug!)}
+                                className={`absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md transition-colors hover:bg-muted-foreground/20 ${
+                                  strategyHasNotifications
+                                    ? 'text-brand hover:text-brand'
+                                    : 'text-muted-foreground hover:text-foreground'
+                                }`}
+                              >
+                                <Bell size={12} />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="right">
+                              {strategyHasNotifications ? 'Edit Notification' : 'Add Notification'}
+                            </TooltipContent>
                           </Tooltip>
                         )}
                       </div>
@@ -459,7 +553,7 @@ export function Sidebar() {
           <div className="text-[10px] text-muted-foreground">v{packageJson.version}</div>
           <button
             onClick={toggleTheme}
-            className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
             title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
           >
             {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
@@ -473,6 +567,17 @@ export function Sidebar() {
         className={`h-screen cursor-ew-resize transition-all ${
           isResizing ? 'w-1 bg-muted-foreground/50' : 'w-px bg-border hover:w-1 hover:bg-muted-foreground/30'
         }`}
+      />
+
+      {/* Notification Modal */}
+      <NotificationModal
+        open={notificationModalOpen}
+        onOpenChange={setNotificationModalOpen}
+        strategies={allStrategies}
+        existingSettings={notificationModalStrategy ? getNotificationSettings(notificationModalStrategy) : null}
+        defaultStrategy={notificationModalStrategy}
+        onSave={saveSettings}
+        onTestTelegram={testTelegram}
       />
     </div>
   );
