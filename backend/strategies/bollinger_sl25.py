@@ -2,6 +2,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 import pytz
 from .base import BaseStrategy, Signal, StrategyDisplayConfig
+from market_hours import is_last_candle_of_day
 
 PARIS_TZ = pytz.timezone('Europe/Paris')
 
@@ -88,7 +89,7 @@ class BollingerSL25Strategy(BaseStrategy):
         return dt.strftime('%Y-%m-%d')
 
     def _is_closing_hour(self, timestamp: int) -> bool:
-        return self._get_paris_hour(timestamp) == 22
+        return is_last_candle_of_day(timestamp)
 
     def _is_last_candle_of_day(self, candles: List[Dict], index: int) -> bool:
         """Check if this candle is the last one of its day (in Paris time)"""
