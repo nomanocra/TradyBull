@@ -69,6 +69,30 @@ def save_signals(conn: sqlite3.Connection, strategy_name: str, symbol: str, sign
     return inserted
 
 
+def save_signals_and_return_new(conn: sqlite3.Connection, strategy_name: str, symbol: str, signals: List[Signal]) -> tuple[int, List[Signal]]:
+    """Save signals to database. Returns tuple of (count inserted, list of actually inserted signals)."""
+    inserted_signals = []
+    for signal in signals:
+        cursor = conn.execute("""
+            INSERT OR IGNORE INTO signals
+            (strategy_name, symbol, signal_timestamp, trigger_timestamp, type, price, label, metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            strategy_name,
+            symbol,
+            signal.signal_timestamp,
+            signal.trigger_timestamp,
+            signal.type,
+            signal.price,
+            signal.label,
+            json.dumps(signal.metadata) if signal.metadata else None
+        ))
+        if cursor.rowcount > 0:
+            inserted_signals.append(signal)
+    conn.commit()
+    return len(inserted_signals), inserted_signals
+
+
 def get_signals_from_db(conn: sqlite3.Connection, strategy_name: str, symbol: str,
                         start_ts: Optional[int] = None, end_ts: Optional[int] = None,
                         limit: int = 10000) -> List[Dict]:
@@ -208,13 +232,11 @@ def calculate_signals_incremental(
     if proc_state:
         signals = [s for s in signals if s.signal_timestamp > proc_state['last_processed_timestamp']]
 
-    # Save new signals
+    # Save new signals and track which ones were actually inserted
     new_count = 0
     new_signals = []
     if signals:
-        new_count = save_signals(conn, strategy_name, symbol, signals)
-        if new_count > 0:
-            new_signals = signals  # These are the signals that were just saved
+        new_count, new_signals = save_signals_and_return_new(conn, strategy_name, symbol, signals)
 
     # Update processing state
     if candles:
