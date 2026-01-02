@@ -17,6 +17,7 @@ const STORAGE_KEY = 'tradybull-sidebar-sections';
 const MODE_STORAGE_KEY = 'tradybull-sidebar-mode';
 const THEME_STORAGE_KEY = 'tradybull-theme';
 const WIDTH_STORAGE_KEY = 'tradybull-sidebar-width';
+const LAST_PATH_KEY = 'tradybull-last-path';
 
 const MIN_WIDTH = 208; // w-52
 const MAX_WIDTH = 460;
@@ -179,6 +180,13 @@ export function Sidebar() {
       setMode('realtime');
     } else if (pathname.startsWith('/exploration')) {
       setMode('exploration');
+    }
+  }, [pathname]);
+
+  // Save current path to localStorage for persistence
+  useEffect(() => {
+    if (pathname && pathname !== '/') {
+      localStorage.setItem(LAST_PATH_KEY, pathname);
     }
   }, [pathname]);
 

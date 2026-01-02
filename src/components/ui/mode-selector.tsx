@@ -33,7 +33,7 @@ export function ModeSelector({ options, value, onChange, className }: ModeSelect
       <PopoverTrigger asChild>
         <button
           className={cn(
-            'flex w-full items-center gap-2 px-2 py-1.5 bg-muted/50 border border-border hover:bg-muted transition-colors text-left rounded-[2px]',
+            'flex w-full items-center gap-2 px-2 py-1.5 bg-background dark:bg-muted/50 border border-border hover:bg-muted transition-colors text-left rounded-[2px]',
             className
           )}
         >
