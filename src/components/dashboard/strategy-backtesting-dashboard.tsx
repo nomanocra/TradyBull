@@ -19,6 +19,7 @@ interface StrategyBacktestingDashboardProps {
   showMovingAverages?: boolean;
   showRSI?: boolean;
   signals: Signal[];
+  signalsLoading?: boolean;
   kpis?: KPIs | null;
   kpisLoading?: boolean;
 }
@@ -32,6 +33,7 @@ export function StrategyBacktestingDashboard({
   showMovingAverages = false,
   showRSI = false,
   signals,
+  signalsLoading = false,
   kpis,
   kpisLoading = false,
 }: StrategyBacktestingDashboardProps) {
@@ -150,7 +152,7 @@ export function StrategyBacktestingDashboard({
           title="1H - Backtesting"
           timeframe="1h"
           data={data}
-          isLoading={isLoading}
+          isLoading={isLoading || signalsLoading}
           showBollinger={showBollinger}
           showMACD={showMACD}
           showIchimoku={showIchimoku}

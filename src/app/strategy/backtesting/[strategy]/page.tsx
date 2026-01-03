@@ -2,6 +2,7 @@
 
 import { useParams } from 'next/navigation';
 import { StrategyBacktestingDashboard } from '@/components/dashboard/strategy-backtesting-dashboard';
+import { BacktestingPageSkeleton } from '@/components/dashboard/backtesting-page-skeleton';
 import { useHistoricalData } from '@/app/exploration/historical/historical-context';
 import { useSignals } from '@/hooks/useSignals';
 import { useStrategies } from '@/hooks/useStrategies';
@@ -36,12 +37,17 @@ export default function StrategyBacktestingPage() {
     enabled: data.length > 0 && !!strategyConfig,
   });
 
-  // Loading state
-  if (strategiesLoading || !strategyConfig) {
+  // Loading state - show skeleton while loading strategies
+  if (strategiesLoading) {
+    return <BacktestingPageSkeleton />;
+  }
+
+  // Strategy not found
+  if (!strategyConfig) {
     return (
       <div className="h-full w-full flex items-center justify-center bg-background">
         <div className="text-muted-foreground text-sm">
-          {strategiesLoading ? 'Loading...' : `Strategy "${strategySlug}" not found`}
+          Strategy &quot;{strategySlug}&quot; not found
         </div>
       </div>
     );
@@ -57,6 +63,7 @@ export default function StrategyBacktestingPage() {
       showMovingAverages={strategyConfig.show_moving_averages}
       showRSI={strategyConfig.show_rsi}
       signals={signals}
+      signalsLoading={signalsLoading}
       kpis={kpis}
       kpisLoading={kpisLoading}
     />

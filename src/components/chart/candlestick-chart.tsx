@@ -4,6 +4,7 @@ import { useEffect, useRef, useMemo, useState, useCallback, memo } from 'react';
 import { createChart, IChartApi, ISeriesApi, CandlestickSeries, LineSeries, HistogramSeries, CandlestickData, LineData, HistogramData, Time, BusinessDay, SeriesMarker, createSeriesMarkers } from 'lightweight-charts';
 import { CandleData, TimeFrame, Signal } from '@/types/market';
 import { ChartNavigator } from './chart-navigator';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface ZoomState {
   fromPercent: number;
@@ -1741,9 +1742,32 @@ export function CandlestickChart({
             minHeight: '30%'
           }}
         >
-          {isLoading && data.length === 0 && (
-            <div className="absolute inset-0 flex items-center justify-center bg-card z-10">
-              <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Loading...</div>
+          {isLoading && (
+            <div className="absolute inset-0 bg-card z-10 p-4 flex flex-col">
+              {/* Y-axis skeleton */}
+              <div className="absolute right-0 top-4 bottom-4 w-12 flex flex-col justify-between items-end pr-2">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <Skeleton key={i} className="h-3 w-10" />
+                ))}
+              </div>
+              {/* Chart area skeleton */}
+              <div className="flex-1 mr-14 flex flex-col justify-end gap-0.5 pb-6">
+                <div className="flex-1 flex items-end gap-0.5">
+                  {Array.from({ length: 60 }).map((_, i) => (
+                    <Skeleton
+                      key={i}
+                      className="flex-1"
+                      style={{ height: `${Math.round(30 + Math.sin(i * 0.3) * 20 + Math.sin(i * 1.7) * 15)}%` }}
+                    />
+                  ))}
+                </div>
+              </div>
+              {/* X-axis skeleton */}
+              <div className="absolute bottom-0 left-4 right-14 flex justify-between">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <Skeleton key={i} className="h-3 w-8" />
+                ))}
+              </div>
             </div>
           )}
           <div ref={mainChartContainerRef} className="w-full h-full" />

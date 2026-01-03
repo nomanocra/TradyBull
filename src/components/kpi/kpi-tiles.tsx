@@ -1,6 +1,7 @@
 'use client';
 
 import { KPIs } from '@/hooks/useKPIs';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface KPITilesProps {
   kpis: KPIs | null;
@@ -30,9 +31,13 @@ function KPITile({ label, value, colorState = 'neutral', isLoading }: KPITilePro
       <div className="text-[9px] text-muted-foreground uppercase tracking-wide truncate">
         {label}
       </div>
-      <div className={`text-sm font-mono font-semibold ${isLoading ? 'text-muted-foreground' : colorClass}`}>
-        {isLoading ? '...' : value}
-      </div>
+      {isLoading ? (
+        <Skeleton className="h-5 w-12 mt-0.5" />
+      ) : (
+        <div className={`text-sm font-mono font-semibold ${colorClass}`}>
+          {value}
+        </div>
+      )}
     </div>
   );
 }

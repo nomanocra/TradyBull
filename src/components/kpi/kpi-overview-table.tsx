@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { StrategyKPIData } from '@/hooks/useKPIs';
+import { Skeleton } from '@/components/ui/skeleton';
 
 type SortKey =
   | 'display_name'
@@ -158,8 +159,53 @@ export function KPIOverviewTable({ data, isLoading, showArchived = false, search
   if (isLoading) {
     return (
       <div className="border border-border rounded-lg overflow-hidden">
-        <div className="p-8 text-center text-muted-foreground">
-          Loading KPIs...
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-muted/50 border-b border-border">
+                {columns.map((col) => (
+                  <th
+                    key={col.key}
+                    className={`px-3 py-2.5 font-medium text-muted-foreground ${
+                      col.numeric ? 'text-right' : 'text-left'
+                    }`}
+                  >
+                    <div
+                      className={`flex items-center gap-1.5 ${
+                        col.numeric ? 'justify-end' : 'justify-start'
+                      }`}
+                    >
+                      <span className="text-[11px] uppercase tracking-wide">
+                        {col.label}
+                      </span>
+                      <ArrowUpDown size={12} className="text-muted-foreground" />
+                    </div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {Array.from({ length: 8 }).map((_, rowIndex) => (
+                <tr
+                  key={rowIndex}
+                  className={`border-b border-border last:border-b-0 ${
+                    rowIndex % 2 === 0 ? 'bg-card' : 'bg-card/50'
+                  }`}
+                >
+                  <td className="px-3 py-2.5">
+                    <Skeleton className="h-4 w-32" />
+                  </td>
+                  {columns.slice(1).map((col) => (
+                    <td key={col.key} className="px-3 py-2.5">
+                      <div className="flex justify-end">
+                        <Skeleton className="h-4 w-14" />
+                      </div>
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
     );

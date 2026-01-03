@@ -4,7 +4,7 @@ import { useState, useEffect, useTransition, useMemo, useRef, useCallback } from
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { ChevronDown, ChevronRight, Compass, Play, History, Sun, Moon, Archive, ArchiveRestore, Search, X, Bell } from 'lucide-react';
+import { ChevronDown, ChevronRight, Compass, Play, History, Sun, Moon, Archive, ArchiveRestore, Search, X, Bell, Table } from 'lucide-react';
 import { ModeSelector, ModeOption } from '@/components/ui/mode-selector';
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -32,8 +32,10 @@ interface NavItem {
 
 interface NavSection {
   title: string;
+  storageKey?: string; // Key for localStorage (defaults to title)
   items: NavItem[];
   isArchive?: boolean;
+  isStandalone?: boolean; // Items rendered at root level without collapsible header
 }
 
 const explorationNavigation: NavSection[] = [
@@ -68,15 +70,20 @@ function generateBacktestingNavigation(
 ): NavSection[] {
   const sections: NavSection[] = [
     {
-      title: 'Backtesting',
+      title: 'Overview',
+      isStandalone: true,
       items: [
         { name: 'Overview', href: '/strategy/backtesting/overview' },
-        ...strategies.map((s) => ({
-          name: s.display_name,
-          href: `/strategy/backtesting/${s.name}`,
-          strategySlug: s.name,
-        })),
       ],
+    },
+    {
+      title: 'Strategies',
+      storageKey: 'Strategies-Backtesting',
+      items: strategies.map((s) => ({
+        name: s.display_name,
+        href: `/strategy/backtesting/${s.name}`,
+        strategySlug: s.name,
+      })),
     },
   ];
 
@@ -100,15 +107,20 @@ function generateBacktestingNavigation(
 function generateRealtimeNavigation(strategies: StrategyConfig[]): NavSection[] {
   return [
     {
-      title: 'Real Time',
+      title: 'Notifications',
+      isStandalone: true,
       items: [
         { name: 'Notifications', href: '/strategy/real-time/notifications' },
-        ...strategies.map((s) => ({
-          name: s.display_name,
-          href: `/strategy/real-time/${s.name}`,
-          strategySlug: s.name,
-        })),
       ],
+    },
+    {
+      title: 'Strategies',
+      storageKey: 'Strategies-RealTime',
+      items: strategies.map((s) => ({
+        name: s.display_name,
+        href: `/strategy/real-time/${s.name}`,
+        strategySlug: s.name,
+      })),
     },
   ];
 }
@@ -124,6 +136,9 @@ const defaultSections: Record<string, boolean> = {
   'Historical Data': true,
   'Backtesting': true,
   'Archive': false, // Collapsed by default
+  'Notifications': true,
+  'Strategies-Backtesting': true,
+  'Strategies-RealTime': true,
 };
 
 type Theme = 'dark' | 'light';
@@ -441,116 +456,148 @@ export function Sidebar() {
         {/* Sections */}
         {navigation.map((section) => (
           <div key={section.title} className="mb-1">
-            {/* Section Header */}
-            <button
-              onClick={() => toggleSection(section.title)}
-              className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-semibold text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-            >
-              {expandedSections[section.title] ? (
-                <ChevronDown size={14} className="text-muted-foreground" />
-              ) : (
-                <ChevronRight size={14} className="text-muted-foreground" />
-              )}
-              <span className="uppercase tracking-wider">{section.title}</span>
-              {section.isArchive && (
-                <span className="ml-auto text-[9px] text-muted-foreground/60">
-                  {section.items.length}
-                </span>
-              )}
-            </button>
+            {/* Standalone items (no collapsible header) */}
+            {section.isStandalone ? (
+              <div>
+                {section.items.map((item) => {
+                  const isActive = isPathActive(item.href);
+                  const isLoading = pendingPath === item.href && isPending;
+                  const isNotificationsItem = item.href === '/strategy/real-time/notifications';
+                  const isOverviewItem = item.href === '/strategy/backtesting/overview';
 
-            {/* Section Items */}
-            {expandedSections[section.title] && (
-              <div className="ml-4">
-                {section.items.length > 0 ? (
-                  section.items.map((item) => {
-                    const isActive = isPathActive(item.href);
-                    const isLoading = pendingPath === item.href && isPending;
-                    const isHovered = hoveredItem === item.href;
-                    const showArchiveIcon = item.strategySlug && isHovered && !section.isArchive && mode === 'backtesting';
-                    const showRestoreIcon = item.strategySlug && isHovered && section.isArchive;
-                    const strategyHasNotifications = item.strategySlug && hasNotifications(item.strategySlug);
-                    const showNotificationIcon = item.strategySlug && mode === 'realtime' && (isHovered || strategyHasNotifications);
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={(e) => handleNavClick(e, item.href)}
+                      title={item.name}
+                      className={`flex items-center gap-2 px-3 py-2 text-xs transition-colors ${
+                        isActive
+                          ? 'text-brand bg-brand/10'
+                          : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                      } ${isLoading ? 'opacity-70' : ''}`}
+                    >
+                      {isNotificationsItem && <Bell size={14} />}
+                      {isOverviewItem && <Table size={14} />}
+                      {item.name}
+                    </Link>
+                  );
+                })}
+              </div>
+            ) : (
+              <>
+                {/* Section Header */}
+                <button
+                  onClick={() => toggleSection(section.storageKey || section.title)}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-semibold text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                >
+                  {expandedSections[section.storageKey || section.title] ? (
+                    <ChevronDown size={14} className="text-muted-foreground" />
+                  ) : (
+                    <ChevronRight size={14} className="text-muted-foreground" />
+                  )}
+                  <span className="uppercase tracking-wider">{section.title}</span>
+                  {section.isArchive && (
+                    <span className="ml-auto text-[9px] text-muted-foreground/60">
+                      {section.items.length}
+                    </span>
+                  )}
+                </button>
 
-                    return (
-                      <div
-                        key={item.href}
-                        className="relative group"
-                        onMouseEnter={() => setHoveredItem(item.href)}
-                        onMouseLeave={() => setHoveredItem(null)}
-                      >
-                        <Link
-                          href={item.href}
-                          onClick={(e) => handleNavClick(e, item.href)}
-                          title={item.name}
-                          className={`block px-4 py-1.5 text-xs transition-colors pr-8 truncate ${
-                            isActive
-                              ? 'text-brand bg-brand/10 border-l-2 border-brand'
-                              : 'text-muted-foreground hover:text-foreground hover:bg-muted border-l-2 border-transparent'
-                          } ${isLoading ? 'opacity-70' : ''}`}
-                        >
-                          {item.name}
-                        </Link>
+                {/* Section Items */}
+                {expandedSections[section.storageKey || section.title] && (
+                  <div className="ml-4">
+                    {section.items.length > 0 ? (
+                      section.items.map((item) => {
+                        const isActive = isPathActive(item.href);
+                        const isLoading = pendingPath === item.href && isPending;
+                        const isHovered = hoveredItem === item.href;
+                        const showArchiveIcon = item.strategySlug && isHovered && !section.isArchive && mode === 'backtesting';
+                        const showRestoreIcon = item.strategySlug && isHovered && section.isArchive;
+                        const strategyHasNotifications = item.strategySlug && hasNotifications(item.strategySlug);
+                        const showNotificationIcon = item.strategySlug && mode === 'realtime' && (isHovered || strategyHasNotifications);
 
-                        {/* Archive button */}
-                        {showArchiveIcon && (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <button
-                                onClick={(e) => handleArchiveClick(e, item.strategySlug!)}
-                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted-foreground/20 transition-colors"
-                              >
-                                <Archive size={12} />
-                              </button>
-                            </TooltipTrigger>
-                            <TooltipContent side="right">Archive</TooltipContent>
-                          </Tooltip>
-                        )}
+                        return (
+                          <div
+                            key={item.href}
+                            className="relative group"
+                            onMouseEnter={() => setHoveredItem(item.href)}
+                            onMouseLeave={() => setHoveredItem(null)}
+                          >
+                            <Link
+                              href={item.href}
+                              onClick={(e) => handleNavClick(e, item.href)}
+                              title={item.name}
+                              className={`block px-4 py-1.5 text-xs transition-colors pr-8 truncate ${
+                                isActive
+                                  ? 'text-brand bg-brand/10 border-l-2 border-brand'
+                                  : 'text-muted-foreground hover:text-foreground hover:bg-muted border-l-2 border-transparent'
+                              } ${isLoading ? 'opacity-70' : ''}`}
+                            >
+                              {item.name}
+                            </Link>
 
-                        {/* Restore button */}
-                        {showRestoreIcon && (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <button
-                                onClick={(e) => handleUnarchiveClick(e, item.strategySlug!)}
-                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted-foreground/20 transition-colors"
-                              >
-                                <ArchiveRestore size={12} />
-                              </button>
-                            </TooltipTrigger>
-                            <TooltipContent side="right">Restore</TooltipContent>
-                          </Tooltip>
-                        )}
+                            {/* Archive button */}
+                            {showArchiveIcon && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    onClick={(e) => handleArchiveClick(e, item.strategySlug!)}
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted-foreground/20 transition-colors"
+                                  >
+                                    <Archive size={12} />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="right">Archive</TooltipContent>
+                              </Tooltip>
+                            )}
 
-                        {/* Notification button (Real Time only) */}
-                        {showNotificationIcon && (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <button
-                                onClick={(e) => handleNotificationClick(e, item.strategySlug!)}
-                                className={`absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md transition-colors hover:bg-muted-foreground/20 ${
-                                  strategyHasNotifications
-                                    ? 'text-brand hover:text-brand'
-                                    : 'text-muted-foreground hover:text-foreground'
-                                }`}
-                              >
-                                <Bell size={12} />
-                              </button>
-                            </TooltipTrigger>
-                            <TooltipContent side="right">
-                              {strategyHasNotifications ? 'Edit Notification' : 'Add Notification'}
-                            </TooltipContent>
-                          </Tooltip>
-                        )}
+                            {/* Restore button */}
+                            {showRestoreIcon && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    onClick={(e) => handleUnarchiveClick(e, item.strategySlug!)}
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted-foreground/20 transition-colors"
+                                  >
+                                    <ArchiveRestore size={12} />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="right">Restore</TooltipContent>
+                              </Tooltip>
+                            )}
+
+                            {/* Notification button (Real Time only) */}
+                            {showNotificationIcon && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    onClick={(e) => handleNotificationClick(e, item.strategySlug!)}
+                                    className={`absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md transition-colors hover:bg-muted-foreground/20 ${
+                                      strategyHasNotifications
+                                        ? 'text-brand hover:text-brand'
+                                        : 'text-muted-foreground hover:text-foreground'
+                                    }`}
+                                  >
+                                    <Bell size={12} />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="right">
+                                  {strategyHasNotifications ? 'Edit Notification' : 'Add Notification'}
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="px-4 py-1.5 text-xs text-muted-foreground italic">
+                        Coming soon
                       </div>
-                    );
-                  })
-                ) : (
-                  <div className="px-4 py-1.5 text-xs text-muted-foreground italic">
-                    Coming soon
+                    )}
                   </div>
                 )}
-              </div>
+              </>
             )}
           </div>
         ))}
