@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useCallback } from 'react';
 import { Info } from 'lucide-react';
 import { MemoizedCandlestickChart } from '@/components/chart/candlestick-chart';
 import { DatePicker } from '@/components/ui/date-picker';
@@ -59,6 +59,23 @@ export function StrategyBacktestingDashboard({
     return { lastPrice: last, priceChange: change };
   }, [data]);
 
+  // Handle year range selection
+  const handleYearRangeSelect = useCallback((year: number) => {
+    const startOfYear = new Date(year, 0, 1);
+    const endOfYear = new Date(year, 11, 31);
+
+    // Clamp to available data bounds
+    if (dateBounds) {
+      const clampedStart = startOfYear < dateBounds.minDate ? dateBounds.minDate : startOfYear;
+      const clampedEnd = endOfYear > dateBounds.maxDate ? dateBounds.maxDate : endOfYear;
+      setStartDate(clampedStart);
+      setEndDate(clampedEnd);
+    } else {
+      setStartDate(startOfYear);
+      setEndDate(endOfYear);
+    }
+  }, [dateBounds, setStartDate, setEndDate]);
+
   return (
     <div className="h-full w-full bg-background flex flex-col overflow-hidden">
       {/* Header */}
@@ -112,6 +129,7 @@ export function StrategyBacktestingDashboard({
                   onDateChange={setStartDate}
                   minDate={dateBounds.minDate}
                   maxDate={endDate || dateBounds.maxDate}
+                  onYearRangeSelect={handleYearRangeSelect}
                 />
               </div>
               <div className="flex items-center gap-1">
@@ -121,6 +139,7 @@ export function StrategyBacktestingDashboard({
                   onDateChange={setEndDate}
                   minDate={startDate || dateBounds.minDate}
                   maxDate={dateBounds.maxDate}
+                  onYearRangeSelect={handleYearRangeSelect}
                 />
               </div>
             </div>

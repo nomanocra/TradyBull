@@ -20,10 +20,9 @@ class BollingerSL1CrossingStrategy(BaseStrategy):
     Rules:
     - Buy signal when candle LOW goes below Bollinger lower band
     - Signal is placed on the NEXT candle (buy at open of next candle)
-    - Only between 7h and 21h (Paris time)
     - Only ONE position per day
     - Stop Loss at -1%: if LOW goes below buy_price * 0.99, close position
-    - If SL not triggered, close at 22h
+    - Close at last candle of day
 
     Golden Cross Filter:
     - Only buy if MA50 > MA200
@@ -37,7 +36,7 @@ class BollingerSL1CrossingStrategy(BaseStrategy):
     def display_config(self) -> StrategyDisplayConfig:
         return StrategyDisplayConfig(
             display_name="Bollinger SL-1% Crossing IntraD",
-            description="Entry: 7h-21h, price touches lower BB, MA50 > MA200. Exit: SL -1% or 22h.",
+            description="Entry: price touches lower BB + MA50 > MA200. Exit: SL -1% or end of day.",
             show_bollinger=True,
             show_moving_averages=True,
         )
@@ -142,7 +141,6 @@ class BollingerSL1CrossingStrategy(BaseStrategy):
         for i in range(start_index, len(candles)):
             candle = candles[i]
             lower_band = lower[i]
-            hour = self._get_paris_hour(candle['time'])
             date_string = self._get_paris_date_string(candle['time'])
 
             if date_string in position_open_on_day:
@@ -175,28 +173,25 @@ class BollingerSL1CrossingStrategy(BaseStrategy):
             if lower_band is None or i >= len(candles) - 1:
                 continue
 
-            is_in_trading_hours = 7 <= hour <= 21
             already_traded_today = date_string in traded_dates
             golden_cross_active = self._check_golden_cross(ma50, ma200, i)
             low_below_band = candle['low'] < lower_band
 
-            if low_below_band and is_in_trading_hours and not last_signal_triggered and not already_traded_today and golden_cross_active and not is_too_close_to_close(candle['time']):
+            if low_below_band and not last_signal_triggered and not already_traded_today and golden_cross_active and not is_too_close_to_close(candle['time']):
                 next_candle = candles[i + 1]
-                next_hour = self._get_paris_hour(next_candle['time'])
                 next_date_string = self._get_paris_date_string(next_candle['time'])
 
-                if 7 <= next_hour <= 21:
-                    signals.append(Signal(
-                        signal_timestamp=next_candle['time'],
-                        trigger_timestamp=candle['time'],
-                        type='buy',
-                        price=next_candle['open'],
-                        label='Buy',
-                        metadata={'lower_band': lower_band, 'trigger_low': candle['low'], 'ma50': ma50[i], 'ma200': ma200[i], 'filter': 'golden_cross'}
-                    ))
-                    position_open_on_day[next_date_string] = {'buy_price': next_candle['open'], 'buy_time': next_candle['time']}
-                    traded_dates.add(next_date_string)
-                    last_signal_triggered = True
+                signals.append(Signal(
+                    signal_timestamp=next_candle['time'],
+                    trigger_timestamp=candle['time'],
+                    type='buy',
+                    price=next_candle['open'],
+                    label='Buy',
+                    metadata={'lower_band': lower_band, 'trigger_low': candle['low'], 'ma50': ma50[i], 'ma200': ma200[i], 'filter': 'golden_cross'}
+                ))
+                position_open_on_day[next_date_string] = {'buy_price': next_candle['open'], 'buy_time': next_candle['time']}
+                traded_dates.add(next_date_string)
+                last_signal_triggered = True
 
             if lower_band is not None and candle['low'] > lower_band:
                 last_signal_triggered = False

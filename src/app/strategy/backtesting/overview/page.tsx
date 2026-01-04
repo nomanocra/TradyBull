@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Search } from 'lucide-react';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Switch } from '@/components/ui/switch';
@@ -43,6 +43,23 @@ export default function BacktestingOverviewPage() {
     });
   }, [refetch]);
 
+  // Handle year range selection
+  const handleYearRangeSelect = useCallback((year: number) => {
+    const startOfYear = new Date(year, 0, 1);
+    const endOfYear = new Date(year, 11, 31);
+
+    // Clamp to available data bounds
+    if (dateBounds) {
+      const clampedStart = startOfYear < dateBounds.minDate ? dateBounds.minDate : startOfYear;
+      const clampedEnd = endOfYear > dateBounds.maxDate ? dateBounds.maxDate : endOfYear;
+      setStartDate(clampedStart);
+      setEndDate(clampedEnd);
+    } else {
+      setStartDate(startOfYear);
+      setEndDate(endOfYear);
+    }
+  }, [dateBounds, setStartDate, setEndDate]);
+
   return (
     <div className="h-full w-full bg-background flex flex-col overflow-hidden">
       {/* Header */}
@@ -71,6 +88,7 @@ export default function BacktestingOverviewPage() {
                   onDateChange={setStartDate}
                   minDate={dateBounds.minDate}
                   maxDate={endDate || dateBounds.maxDate}
+                  onYearRangeSelect={handleYearRangeSelect}
                 />
               </div>
               <div className="flex items-center gap-1">
@@ -80,6 +98,7 @@ export default function BacktestingOverviewPage() {
                   onDateChange={setEndDate}
                   minDate={startDate || dateBounds.minDate}
                   maxDate={dateBounds.maxDate}
+                  onYearRangeSelect={handleYearRangeSelect}
                 />
               </div>
             </div>

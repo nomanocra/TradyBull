@@ -17,6 +17,7 @@ interface DatePickerProps {
   maxDate?: Date;
   placeholder?: string;
   className?: string;
+  onYearRangeSelect?: (year: number) => void;
 }
 
 export function DatePicker({
@@ -26,8 +27,21 @@ export function DatePicker({
   maxDate,
   placeholder = 'Sélectionner',
   className,
+  onYearRangeSelect,
 }: DatePickerProps) {
   const [open, setOpen] = React.useState(false);
+
+  // Calculate available years from minDate to maxDate
+  const availableYears = React.useMemo(() => {
+    if (!minDate || !maxDate) return [];
+    const startYear = minDate.getFullYear();
+    const endYear = maxDate.getFullYear();
+    const years: number[] = [];
+    for (let y = startYear; y <= endYear; y++) {
+      years.push(y);
+    }
+    return years;
+  }, [minDate, maxDate]);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -97,6 +111,28 @@ export function DatePicker({
             hidden: 'invisible',
           }}
         />
+        {/* Year shortcuts */}
+        {onYearRangeSelect && availableYears.length > 0 && (
+          <div className="mt-3 pt-3 border-t border-gray-200 dark:border-[#2a2a2a]">
+            <div
+              className="grid h-7 bg-gray-100 dark:bg-[#252525] rounded-[2px] p-0.5"
+              style={{ gridTemplateColumns: `repeat(${availableYears.length}, 1fr)` }}
+            >
+              {availableYears.map((year) => (
+                <button
+                  key={year}
+                  onClick={() => {
+                    onYearRangeSelect(year);
+                    setOpen(false);
+                  }}
+                  className="flex items-center justify-center text-[10px] font-medium rounded-[2px] transition-all duration-200 cursor-pointer text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-[#303030]"
+                >
+                  {year}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </PopoverContent>
     </Popover>
   );
