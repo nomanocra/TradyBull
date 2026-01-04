@@ -130,6 +130,7 @@ export function StrategyBacktestingDashboard({
                   minDate={dateBounds.minDate}
                   maxDate={endDate || dateBounds.maxDate}
                   onYearRangeSelect={handleYearRangeSelect}
+                  yearRangeBounds={dateBounds}
                 />
               </div>
               <div className="flex items-center gap-1">
@@ -140,6 +141,7 @@ export function StrategyBacktestingDashboard({
                   minDate={startDate || dateBounds.minDate}
                   maxDate={dateBounds.maxDate}
                   onYearRangeSelect={handleYearRangeSelect}
+                  yearRangeBounds={dateBounds}
                 />
               </div>
             </div>

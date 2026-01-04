@@ -18,6 +18,7 @@ interface DatePickerProps {
   placeholder?: string;
   className?: string;
   onYearRangeSelect?: (year: number) => void;
+  yearRangeBounds?: { minDate: Date; maxDate: Date };
 }
 
 export function DatePicker({
@@ -28,20 +29,23 @@ export function DatePicker({
   placeholder = 'Sélectionner',
   className,
   onYearRangeSelect,
+  yearRangeBounds,
 }: DatePickerProps) {
   const [open, setOpen] = React.useState(false);
 
-  // Calculate available years from minDate to maxDate
+  // Calculate available years from full data bounds (not constrained min/max)
   const availableYears = React.useMemo(() => {
-    if (!minDate || !maxDate) return [];
-    const startYear = minDate.getFullYear();
-    const endYear = maxDate.getFullYear();
+    const boundsMin = yearRangeBounds?.minDate || minDate;
+    const boundsMax = yearRangeBounds?.maxDate || maxDate;
+    if (!boundsMin || !boundsMax) return [];
+    const startYear = boundsMin.getFullYear();
+    const endYear = boundsMax.getFullYear();
     const years: number[] = [];
     for (let y = startYear; y <= endYear; y++) {
       years.push(y);
     }
     return years;
-  }, [minDate, maxDate]);
+  }, [yearRangeBounds, minDate, maxDate]);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>

@@ -89,6 +89,7 @@ export default function BacktestingOverviewPage() {
                   minDate={dateBounds.minDate}
                   maxDate={endDate || dateBounds.maxDate}
                   onYearRangeSelect={handleYearRangeSelect}
+                  yearRangeBounds={dateBounds}
                 />
               </div>
               <div className="flex items-center gap-1">
@@ -99,6 +100,7 @@ export default function BacktestingOverviewPage() {
                   minDate={startDate || dateBounds.minDate}
                   maxDate={dateBounds.maxDate}
                   onYearRangeSelect={handleYearRangeSelect}
+                  yearRangeBounds={dateBounds}
                 />
               </div>
             </div>
