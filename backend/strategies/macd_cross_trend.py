@@ -16,11 +16,12 @@ class MACDCrossTrendStrategy(BaseStrategy):
 
     Entry:
     - Buy when MACD line crosses above Signal line (bullish crossover)
-    - AND price is above MA200 (uptrend confirmation)
+    - AND price is above MA200
+    - AND MA200 is rising (positive trend)
 
     Exit:
     - Sell when MACD line crosses below Signal line (bearish crossover)
-    - OR price closes below MA200
+    - OR price breaks below MA200
     - No stop loss
     """
 
@@ -32,7 +33,7 @@ class MACDCrossTrendStrategy(BaseStrategy):
     def display_config(self) -> StrategyDisplayConfig:
         return StrategyDisplayConfig(
             display_name="MACD Cross Trend200",
-            description="BUY: MACD bullish cross + price > MA200. SELL: MACD bearish cross or price < MA200.",
+            description="BUY: MACD bullish cross + price > MA200 + MA200 rising. SELL: MACD bearish cross or price breaks MA200.",
             show_macd=True,
             show_moving_averages=True,
         )
@@ -175,10 +176,11 @@ class MACDCrossTrendStrategy(BaseStrategy):
             if ma200[i] is None:
                 continue
 
-            # Check for buy signal: MACD bullish cross + price above MA200
+            # Check for buy signal: MACD bullish cross + price above MA200 + MA200 rising
             # Condition checked on candle[i] close, entry on candle[i+1] open
             if position is None:
-                if self._is_bullish_cross(macd_line, signal_line, i) and close > ma200[i]:
+                ma200_rising = ma200[i] > ma200[i - 1] if ma200[i - 1] is not None else False
+                if self._is_bullish_cross(macd_line, signal_line, i) and close > ma200[i] and ma200_rising:
                     signals.append(Signal(
                         signal_timestamp=next_candle['time'],
                         trigger_timestamp=candle['time'],

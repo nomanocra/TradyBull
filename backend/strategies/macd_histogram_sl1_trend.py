@@ -18,12 +18,13 @@ class MACDHistogramSL1TrendStrategy(BaseStrategy):
 
     Entry:
     - Buy when histogram is negative AND starts rising (red bars turning pink)
-    - AND price is above MA200 (uptrend confirmation)
+    - AND price is above MA200
+    - AND MA200 is rising (positive trend)
 
     Exit (first condition met):
     - Stop Loss -1%
     - Histogram is positive AND starts falling (green bars turning light)
-    - Price closes below MA200
+    - Price breaks below MA200
     """
 
     @property
@@ -34,7 +35,7 @@ class MACDHistogramSL1TrendStrategy(BaseStrategy):
     def display_config(self) -> StrategyDisplayConfig:
         return StrategyDisplayConfig(
             display_name="MACD Histogram SL-1% Trend200",
-            description="BUY: histogram rising + price > MA200. SELL: SL -1%, histogram falling, or price < MA200.",
+            description="BUY: histogram rising + price > MA200 + MA200 rising. SELL: SL -1%, histogram falling, or price < MA200.",
             show_macd=True,
             show_moving_averages=True,
         )
@@ -178,10 +179,11 @@ class MACDHistogramSL1TrendStrategy(BaseStrategy):
             if ma200[i] is None:
                 continue
 
-            # Check for buy signal: histogram turning up + price above MA200
+            # Check for buy signal: histogram turning up + price above MA200 + MA200 rising
             # Condition checked on candle[i] close, entry on candle[i+1] open
             if position is None:
-                if self._is_histogram_turning_up(histogram, i) and close > ma200[i]:
+                ma200_rising = ma200[i] > ma200[i - 1] if ma200[i - 1] is not None else False
+                if self._is_histogram_turning_up(histogram, i) and close > ma200[i] and ma200_rising:
                     signals.append(Signal(
                         signal_timestamp=next_candle['time'],
                         trigger_timestamp=candle['time'],

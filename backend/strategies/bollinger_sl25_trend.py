@@ -20,12 +20,11 @@ class BollingerSL25TrendStrategy(BaseStrategy):
     Rules:
     - Buy signal when candle LOW goes below Bollinger lower band
     - Signal is placed on the NEXT candle (buy at open of next candle)
-    - Only between 7h and 21h (Paris time)
     - Only ONE position per day
     - Stop Loss at -2.5%: if LOW goes below buy_price * 0.975, close position
-    - If SL not triggered, close at 22h
+    - Close at last candle of day
 
-    Trend Filter (NEW):
+    Trend Filter:
     - Only buy if price > MA200
     - Only buy if MA200 is rising (MA200[t] > MA200[t-5])
     """
@@ -38,7 +37,7 @@ class BollingerSL25TrendStrategy(BaseStrategy):
     def display_config(self) -> StrategyDisplayConfig:
         return StrategyDisplayConfig(
             display_name="Bollinger SL-2.5% Trend200 IntraD",
-            description="Entry: 7h-21h, price touches lower BB, price > MA200 and MA200 rising. Exit: SL -2.5% or 22h.",
+            description="Entry: price touches lower BB + price > MA200 + MA200 rising. Exit: SL -2.5% or end of day.",
             show_bollinger=True,
             show_moving_averages=True,
         )
@@ -164,7 +163,6 @@ class BollingerSL25TrendStrategy(BaseStrategy):
         for i in range(start_index, len(candles)):
             candle = candles[i]
             lower_band = lower[i]
-            hour = self._get_paris_hour(candle['time'])
             date_string = self._get_paris_date_string(candle['time'])
 
             # Check if we have an open position today
@@ -210,42 +208,34 @@ class BollingerSL25TrendStrategy(BaseStrategy):
             if i >= len(candles) - 1:
                 continue
 
-            is_in_trading_hours = 7 <= hour <= 21
             already_traded_today = date_string in traded_dates
-
-            # NEW: Check trend filter
             trend_ok = self._check_trend_filter(closes, ma200, i)
-
-            # Check if LOW went below lower Bollinger band
             low_below_band = candle['low'] < lower_band
 
-            if low_below_band and is_in_trading_hours and not last_signal_triggered and not already_traded_today and trend_ok and not is_too_close_to_close(candle['time']):
+            if low_below_band and not last_signal_triggered and not already_traded_today and trend_ok and not is_too_close_to_close(candle['time']):
                 next_candle = candles[i + 1]
-                next_hour = self._get_paris_hour(next_candle['time'])
                 next_date_string = self._get_paris_date_string(next_candle['time'])
 
-                if 7 <= next_hour <= 21:
-                    signals.append(Signal(
-                        signal_timestamp=next_candle['time'],
-                        trigger_timestamp=candle['time'],
-                        type='buy',
-                        price=next_candle['open'],
-                        label='Buy',
-                        metadata={
-                            'lower_band': lower_band,
-                            'trigger_low': candle['low'],
-                            'ma200': ma200[i],
-                            'trend_filter': 'passed',
-                        }
-                    ))
-
-                    position_open_on_day[next_date_string] = {
-                        'buy_price': next_candle['open'],
-                        'buy_time': next_candle['time'],
+                signals.append(Signal(
+                    signal_timestamp=next_candle['time'],
+                    trigger_timestamp=candle['time'],
+                    type='buy',
+                    price=next_candle['open'],
+                    label='Buy',
+                    metadata={
+                        'lower_band': lower_band,
+                        'trigger_low': candle['low'],
+                        'ma200': ma200[i],
+                        'trend_filter': 'passed',
                     }
-                    traded_dates.add(next_date_string)
+                ))
 
-                    last_signal_triggered = True
+                position_open_on_day[next_date_string] = {
+                    'buy_price': next_candle['open'],
+                    'buy_time': next_candle['time'],
+                }
+                traded_dates.add(next_date_string)
+                last_signal_triggered = True
 
             # Reset trigger when price goes back above the band
             if lower_band is not None and candle['low'] > lower_band:

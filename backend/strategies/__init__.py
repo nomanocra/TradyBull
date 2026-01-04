@@ -19,7 +19,6 @@ from .daily_sl25 import DailySL25Strategy
 from .daily_sl25_trend import DailySL25TrendStrategy
 from .daily_sl25_crossing import DailySL25CrossingStrategy
 from .trend import TrendStrategy
-from .trend_22h import Trend22hStrategy
 from .ichimoku_kumo import IchimokuKumoStrategy
 from .ichimoku_kumo_sl1 import IchimokuKumoSL1Strategy
 from .ichimoku_tk_cross import IchimokuTKCrossStrategy
@@ -53,7 +52,6 @@ STRATEGIES = {
     'daily-sl25-trend': DailySL25TrendStrategy,
     'daily-sl25-crossing': DailySL25CrossingStrategy,
     'trend': TrendStrategy,
-    'trend-22h': Trend22hStrategy,
     'ichimoku-kumo': IchimokuKumoStrategy,
     'ichimoku-kumo-sl1': IchimokuKumoSL1Strategy,
     'ichimoku-tk-cross': IchimokuTKCrossStrategy,
@@ -91,7 +89,6 @@ __all__ = [
     'DailySL25TrendStrategy',
     'DailySL25CrossingStrategy',
     'TrendStrategy',
-    'Trend22hStrategy',
     'IchimokuKumoStrategy',
     'IchimokuKumoSL1Strategy',
     'IchimokuTKCrossStrategy',
