@@ -1,11 +1,13 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Search } from 'lucide-react';
+import { Search, Plus } from 'lucide-react';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 import { KPIOverviewTable } from '@/components/kpi/kpi-overview-table';
+import { StrategyCreationModal } from '@/components/strategy/strategy-creation-modal';
 import { useHistoricalData } from '@/app/exploration/historical/historical-context';
 import { useAllKPIs } from '@/hooks/useKPIs';
 import { strategyEvents } from '@/lib/strategy-events';
@@ -13,6 +15,7 @@ import { strategyEvents } from '@/lib/strategy-events';
 export default function BacktestingOverviewPage() {
   const [showArchived, setShowArchived] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [strategyModalOpen, setStrategyModalOpen] = useState(false);
 
   const {
     isLoading: dataLoading,
@@ -147,21 +150,41 @@ export default function BacktestingOverviewPage() {
             </label>
           </div>
 
-          {/* Search */}
-          <div className="relative">
-            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              type="text"
-              placeholder="Search strategies..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-8 h-8 w-48"
-            />
+          {/* Search + Add Button */}
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                type="text"
+                placeholder="Search strategies..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-8 h-8 w-48"
+              />
+            </div>
+            <Button
+              size="sm"
+              onClick={() => setStrategyModalOpen(true)}
+              className="h-8"
+            >
+              <Plus size={14} className="mr-1" />
+              Add Strategy
+            </Button>
           </div>
         </div>
 
         <KPIOverviewTable data={kpisData} isLoading={kpisLoading} showArchived={showArchived} searchQuery={searchQuery} />
       </div>
+
+      {/* Strategy Creation Modal */}
+      <StrategyCreationModal
+        open={strategyModalOpen}
+        onOpenChange={setStrategyModalOpen}
+        onCreated={() => {
+          refetch();
+          strategyEvents.emit();
+        }}
+      />
     </div>
   );
 }

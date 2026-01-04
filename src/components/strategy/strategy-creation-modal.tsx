@@ -20,6 +20,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
+import { GroupButton } from '@/components/ui/group-button';
 
 interface StrategyConfig {
   indicator?: {
@@ -48,43 +49,38 @@ interface StrategyCreationModalProps {
 
 const INDICATORS = [
   { value: 'none', label: 'None' },
-  { value: 'bollinger', label: 'Bollinger Bands' },
+  { value: 'bollinger', label: 'Bollinger' },
   { value: 'macd-cross', label: 'MACD Cross' },
   { value: 'macd-zero', label: 'MACD Zero' },
-  { value: 'macd-histogram', label: 'MACD Histogram' },
-  { value: 'ichimoku-kumo', label: 'Ichimoku Kumo' },
-  { value: 'ichimoku-tk', label: 'Ichimoku TK Cross' },
+  { value: 'macd-histogram', label: 'MACD Hist' },
+  { value: 'ichimoku-kumo', label: 'Ichi Kumo' },
+  { value: 'ichimoku-tk', label: 'Ichi TK' },
 ];
 
-const INDICATOR_MODES = [
-  { value: 'both', label: 'Both (Buy + Sell)' },
-  { value: 'buy', label: 'Buy only' },
-  { value: 'sell', label: 'Sell only' },
-];
 
 const STOP_LOSSES = [
   { value: 'none', label: 'None' },
-  { value: '0.5', label: '-0.5%' },
-  { value: '0.8', label: '-0.8%' },
-  { value: '1', label: '-1%' },
-  { value: '1.5', label: '-1.5%' },
-  { value: '2', label: '-2%' },
-  { value: '2.5', label: '-2.5%' },
-  { value: '5', label: '-5%' },
+  { value: '0.5', label: '0.5%' },
+  { value: '0.8', label: '0.8%' },
+  { value: '1', label: '1%' },
+  { value: '1.5', label: '1.5%' },
+  { value: '2', label: '2%' },
+  { value: '2.5', label: '2.5%' },
+  { value: '5', label: '5%' },
 ];
 
 const MA_OPTIONS = [
   { value: 'none', label: 'None' },
-  { value: '50', label: 'MA 50' },
-  { value: '100', label: 'MA 100' },
-  { value: '150', label: 'MA 150' },
-  { value: '200', label: 'MA 200' },
+  { value: '50', label: '50' },
+  { value: '100', label: '100' },
+  { value: '150', label: '150' },
+  { value: '200', label: '200' },
 ];
 
 const INTRADAY_OPTIONS = [
   { value: 'none', label: 'None' },
-  { value: 'daily', label: 'Daily (1 trade/day, EOD close)' },
-  { value: 'multi-daily', label: 'Multi-Daily (EOD close)' },
+  { value: 'daily', label: 'Daily' },
+  { value: 'multi-daily', label: 'Multi-D' },
 ];
 
 function generateStrategyName(config: StrategyConfig): string {
@@ -201,7 +197,8 @@ export function StrategyCreationModal({
 }: StrategyCreationModalProps) {
   // Form state
   const [indicator, setIndicator] = useState('none');
-  const [indicatorMode, setIndicatorMode] = useState<'both' | 'buy' | 'sell'>('both');
+  const [indicatorBuy, setIndicatorBuy] = useState(true);
+  const [indicatorSell, setIndicatorSell] = useState(true);
   const [stopLoss, setStopLoss] = useState('none');
   const [maTrend, setMaTrend] = useState('none');
   const [valueAboveMa, setValueAboveMa] = useState('none');
@@ -221,7 +218,8 @@ export function StrategyCreationModal({
   useEffect(() => {
     if (open) {
       setIndicator('none');
-      setIndicatorMode('both');
+      setIndicatorBuy(true);
+      setIndicatorSell(true);
       setStopLoss('none');
       setMaTrend('none');
       setValueAboveMa('none');
@@ -236,10 +234,17 @@ export function StrategyCreationModal({
     }
   }, [open]);
 
+  // Derive indicator mode from checkboxes
+  const indicatorMode = useMemo<'both' | 'buy' | 'sell'>(() => {
+    if (indicatorBuy && indicatorSell) return 'both';
+    if (indicatorBuy) return 'buy';
+    return 'sell';
+  }, [indicatorBuy, indicatorSell]);
+
   // Build config from form state
   const config = useMemo<StrategyConfig>(() => {
     return {
-      indicator: indicator !== 'none' ? { type: indicator, mode: indicatorMode } : null,
+      indicator: indicator !== 'none' && (indicatorBuy || indicatorSell) ? { type: indicator, mode: indicatorMode } : null,
       stop_loss: stopLoss !== 'none' ? parseFloat(stopLoss) : null,
       ma_trend: maTrend !== 'none' ? parseInt(maTrend) : null,
       value_above_ma: valueAboveMa !== 'none' ? parseInt(valueAboveMa) : null,
@@ -249,7 +254,7 @@ export function StrategyCreationModal({
         ? { open: `${timeOpen}:00`, close: `${timeClose}:00` }
         : null,
     };
-  }, [indicator, indicatorMode, stopLoss, maTrend, valueAboveMa, maCrossEnabled, maCrossFast, maCrossSlow, intraday, timeConstraintEnabled, timeOpen, timeClose]);
+  }, [indicator, indicatorBuy, indicatorSell, indicatorMode, stopLoss, maTrend, valueAboveMa, maCrossEnabled, maCrossFast, maCrossSlow, intraday, timeConstraintEnabled, timeOpen, timeClose]);
 
   const generatedName = useMemo(() => generateStrategyName(config), [config]);
   const generatedDisplayName = useMemo(() => generateDisplayName(config), [config]);
@@ -334,7 +339,7 @@ export function StrategyCreationModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent className="sm:max-w-[550px]">
         <DialogHeader>
           <DialogTitle>Create Strategy</DialogTitle>
           <DialogDescription>
@@ -351,91 +356,52 @@ export function StrategyCreationModal({
           </div>
 
           {/* Indicator */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs text-muted-foreground mb-1.5 block">Indicator</label>
-              <Select value={indicator} onValueChange={setIndicator}>
-                <SelectTrigger size="sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {INDICATORS.map((ind) => (
-                    <SelectItem key={ind.value} value={ind.value}>
-                      {ind.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {indicator !== 'none' && (
-              <div>
-                <label className="text-xs text-muted-foreground mb-1.5 block">Mode</label>
-                <Select value={indicatorMode} onValueChange={(v) => setIndicatorMode(v as 'both' | 'buy' | 'sell')}>
-                  <SelectTrigger size="sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {INDICATOR_MODES.map((mode) => (
-                      <SelectItem key={mode.value} value={mode.value}>
-                        {mode.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
+          <div>
+            <label className="text-xs text-muted-foreground mb-1.5 block">Indicator</label>
+            <GroupButton options={INDICATORS} value={indicator} onChange={setIndicator} />
           </div>
+
+          {/* Indicator Mode */}
+          {indicator !== 'none' && (
+            <div>
+              <label className="text-xs text-muted-foreground mb-1.5 block">Mode</label>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="indicator-buy"
+                    checked={indicatorBuy}
+                    onCheckedChange={(checked) => setIndicatorBuy(checked === true)}
+                  />
+                  <label htmlFor="indicator-buy" className="text-xs cursor-pointer">Buy</label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="indicator-sell"
+                    checked={indicatorSell}
+                    onCheckedChange={(checked) => setIndicatorSell(checked === true)}
+                  />
+                  <label htmlFor="indicator-sell" className="text-xs cursor-pointer">Sell</label>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Stop Loss */}
           <div>
             <label className="text-xs text-muted-foreground mb-1.5 block">Stop Loss (sell constraint)</label>
-            <Select value={stopLoss} onValueChange={setStopLoss}>
-              <SelectTrigger size="sm">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {STOP_LOSSES.map((sl) => (
-                  <SelectItem key={sl.value} value={sl.value}>
-                    {sl.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <GroupButton options={STOP_LOSSES} value={stopLoss} onChange={setStopLoss} />
           </div>
 
           {/* MA Trend */}
           <div>
             <label className="text-xs text-muted-foreground mb-1.5 block">MA Trend (symmetric)</label>
-            <Select value={maTrend} onValueChange={setMaTrend}>
-              <SelectTrigger size="sm">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {MA_OPTIONS.map((ma) => (
-                  <SelectItem key={ma.value} value={ma.value}>
-                    {ma.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <GroupButton options={MA_OPTIONS} value={maTrend} onChange={setMaTrend} />
           </div>
 
           {/* Value Above MA */}
           <div>
             <label className="text-xs text-muted-foreground mb-1.5 block">Price Above MA (symmetric)</label>
-            <Select value={valueAboveMa} onValueChange={setValueAboveMa}>
-              <SelectTrigger size="sm">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {MA_OPTIONS.map((ma) => (
-                  <SelectItem key={ma.value} value={ma.value}>
-                    {ma.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <GroupButton options={MA_OPTIONS} value={valueAboveMa} onChange={setValueAboveMa} />
           </div>
 
           {/* MA Cross */}
@@ -480,18 +446,7 @@ export function StrategyCreationModal({
           {/* Intraday */}
           <div>
             <label className="text-xs text-muted-foreground mb-1.5 block">Intraday (sell constraint)</label>
-            <Select value={intraday} onValueChange={setIntraday}>
-              <SelectTrigger size="sm">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {INTRADAY_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <GroupButton options={INTRADAY_OPTIONS} value={intraday} onChange={setIntraday} />
           </div>
 
           {/* Time Constraint */}

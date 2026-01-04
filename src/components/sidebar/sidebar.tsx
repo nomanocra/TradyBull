@@ -476,7 +476,7 @@ export function Sidebar() {
                       href={item.href}
                       onClick={(e) => handleNavClick(e, item.href)}
                       title={item.name}
-                      className={`flex items-center gap-2 px-3 py-2 text-xs transition-colors ${
+                      className={`h-8 flex items-center gap-2 px-3 text-xs transition-colors ${
                         isActive
                           ? 'text-brand bg-brand/10'
                           : 'text-muted-foreground hover:text-foreground hover:bg-muted'
@@ -493,7 +493,7 @@ export function Sidebar() {
               <>
                 {/* Section Header */}
                 <div
-                  className="flex items-center gap-2 px-3 py-2 text-[10px] font-semibold text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
+                  className="h-8 flex items-center gap-2 pl-3 pr-2 text-[10px] font-semibold text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
                   onClick={() => toggleSection(section.storageKey || section.title)}
                 >
                   {expandedSections[section.storageKey || section.title] ? (
