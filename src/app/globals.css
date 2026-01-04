@@ -126,7 +126,11 @@
   [role="button"],
   [type="button"],
   [type="submit"],
-  [type="reset"] {
+  [type="reset"],
+  select,
+  [role="combobox"],
+  [role="listbox"],
+  [role="option"] {
     cursor: pointer;
   }
 }
