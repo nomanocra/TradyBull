@@ -43,8 +43,15 @@ export default function BacktestingOverviewPage() {
     });
   }, [refetch]);
 
-  // Handle year range selection
+  // Handle year range selection (year=0 means "All")
   const handleYearRangeSelect = useCallback((year: number) => {
+    if (year === 0 && dateBounds) {
+      // "All" - reset to full data bounds
+      setStartDate(dateBounds.minDate);
+      setEndDate(dateBounds.maxDate);
+      return;
+    }
+
     const startOfYear = new Date(year, 0, 1);
     const endOfYear = new Date(year, 11, 31);
 
