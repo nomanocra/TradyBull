@@ -152,17 +152,19 @@ class MACDHistogramSL1Strategy(BaseStrategy):
         signals: List[Signal] = []
         start_index = self.required_lookback
 
-        for i in range(start_index, len(candles)):
+        for i in range(start_index, len(candles) - 1):  # -1 to ensure next candle exists
             candle = candles[i]
+            next_candle = candles[i + 1]
 
             # Check for buy signal: histogram negative and turning up
+            # Condition checked on candle[i] close, entry on candle[i+1] open
             if position is None:
                 if self._is_histogram_turning_up(histogram, i):
                     signals.append(Signal(
-                        signal_timestamp=candle['time'],
+                        signal_timestamp=next_candle['time'],
                         trigger_timestamp=candle['time'],
                         type='buy',
-                        price=candle['close'],
+                        price=next_candle['open'],
                         label='Buy',
                         metadata={
                             'macd': macd_line[i],
@@ -173,15 +175,15 @@ class MACDHistogramSL1Strategy(BaseStrategy):
                         }
                     ))
                     position = {
-                        'buy_price': candle['close'],
-                        'buy_time': candle['time'],
+                        'buy_price': next_candle['open'],
+                        'buy_time': next_candle['time'],
                     }
 
             # Check for exit conditions
             elif position is not None:
                 buy_price = position['buy_price']
 
-                # Check stop loss first
+                # Check stop loss first (intraday trigger - stays on same candle)
                 if self._check_stop_loss(candle, buy_price):
                     sl_price = buy_price * (1 - SL_PERCENT / 100)
                     signals.append(Signal(
@@ -203,12 +205,13 @@ class MACDHistogramSL1Strategy(BaseStrategy):
                     continue
 
                 # Exit on histogram turning down
+                # Condition checked on candle[i] close, exit on candle[i+1] open
                 if self._is_histogram_turning_down(histogram, i):
                     signals.append(Signal(
-                        signal_timestamp=candle['time'],
+                        signal_timestamp=next_candle['time'],
                         trigger_timestamp=candle['time'],
                         type='sell',
-                        price=candle['close'],
+                        price=next_candle['open'],
                         label='Hist',
                         metadata={
                             'buy_price': buy_price,

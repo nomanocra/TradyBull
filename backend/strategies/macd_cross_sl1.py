@@ -155,17 +155,19 @@ class MACDCrossSL1Strategy(BaseStrategy):
         signals: List[Signal] = []
         start_index = self.required_lookback
 
-        for i in range(start_index, len(candles)):
+        for i in range(start_index, len(candles) - 1):  # -1 to ensure next candle exists
             candle = candles[i]
+            next_candle = candles[i + 1]
 
             # Check for buy signal: MACD bullish cross
+            # Condition checked on candle[i] close, entry on candle[i+1] open
             if position is None:
                 if self._is_bullish_cross(macd_line, signal_line, i):
                     signals.append(Signal(
-                        signal_timestamp=candle['time'],
+                        signal_timestamp=next_candle['time'],
                         trigger_timestamp=candle['time'],
                         type='buy',
-                        price=candle['close'],
+                        price=next_candle['open'],
                         label='Buy',
                         metadata={
                             'macd': macd_line[i],
@@ -175,15 +177,15 @@ class MACDCrossSL1Strategy(BaseStrategy):
                         }
                     ))
                     position = {
-                        'buy_price': candle['close'],
-                        'buy_time': candle['time'],
+                        'buy_price': next_candle['open'],
+                        'buy_time': next_candle['time'],
                     }
 
             # Check for exit conditions
             elif position is not None:
                 buy_price = position['buy_price']
 
-                # Check stop loss first
+                # Check stop loss first (intraday trigger - stays on same candle)
                 if self._check_stop_loss(candle, buy_price):
                     sl_price = buy_price * (1 - SL_PERCENT / 100)
                     signals.append(Signal(
@@ -204,12 +206,13 @@ class MACDCrossSL1Strategy(BaseStrategy):
                     continue
 
                 # Exit on MACD bearish cross
+                # Condition checked on candle[i] close, exit on candle[i+1] open
                 if self._is_bearish_cross(macd_line, signal_line, i):
                     signals.append(Signal(
-                        signal_timestamp=candle['time'],
+                        signal_timestamp=next_candle['time'],
                         trigger_timestamp=candle['time'],
                         type='sell',
-                        price=candle['close'],
+                        price=next_candle['open'],
                         label='MACD',
                         metadata={
                             'buy_price': buy_price,

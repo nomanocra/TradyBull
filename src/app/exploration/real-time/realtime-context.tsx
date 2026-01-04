@@ -3,6 +3,18 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback, ReactNode } from 'react';
 import { CandleData, Signal } from '@/types/market';
 
+const API_URL = 'http://localhost:8000/api';
+
+interface NotificationSettings {
+  strategy_name: string;
+  enabled: boolean;
+  desktop_enabled: boolean;
+  notify_buy: boolean;
+  notify_sell: boolean;
+  time_start: string;
+  time_end: string;
+}
+
 interface ChartData {
   '1h': CandleData[];
   '1day': CandleData[];
@@ -79,6 +91,116 @@ export function RealtimeProvider({ children }: RealtimeProviderProps) {
   const lastFetchRef = useRef<string | null>(null);
   const isClosingRef = useRef(false);
 
+  // Notification tracking
+  const notifiedSignalsRef = useRef<Set<string>>(new Set());
+  const notificationSettingsRef = useRef<NotificationSettings[]>([]);
+  const previousSignalsRef = useRef<SignalsByStrategy>({});
+
+  // Check if current time is within notification window
+  const isWithinTimeWindow = useCallback((timeStart: string, timeEnd: string): boolean => {
+    const now = new Date();
+    const currentTime = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
+
+    if (timeStart <= timeEnd) {
+      return currentTime >= timeStart && currentTime <= timeEnd;
+    } else {
+      // Overnight window (e.g., 22:00 - 06:00)
+      return currentTime >= timeStart || currentTime <= timeEnd;
+    }
+  }, []);
+
+  // Show desktop notification for a signal
+  const showDesktopNotification = useCallback((strategyName: string, signal: Signal) => {
+    if (!('Notification' in window) || Notification.permission !== 'granted') {
+      return;
+    }
+
+    const emoji = signal.type === 'buy' ? '🟢' : '🔴';
+    const action = signal.type === 'buy' ? 'BUY' : 'SELL';
+    const price = signal.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    // Format strategy name for display
+    const displayName = strategyName
+      .split('-')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+
+    try {
+      const notification = new Notification(`${emoji} ${action} Signal - TradyBull`, {
+        body: `${displayName}\nPrice: ${price}`,
+        icon: '/logo.svg',
+        tag: `tradybull-${strategyName}-${signal.time}`,
+        requireInteraction: false,
+      });
+
+      // Auto-close after 10 seconds
+      setTimeout(() => notification.close(), 10000);
+    } catch (err) {
+      console.error('Failed to show notification:', err);
+    }
+  }, []);
+
+  // Check for new signals and trigger notifications
+  const checkAndNotifyNewSignals = useCallback((newSignals: SignalsByStrategy) => {
+    const settings = notificationSettingsRef.current;
+
+    for (const [strategyName, signals] of Object.entries(newSignals)) {
+      // Find settings for this strategy
+      const strategySettings = settings.find(s => s.strategy_name === strategyName);
+      if (!strategySettings || !strategySettings.enabled || !strategySettings.desktop_enabled) {
+        continue;
+      }
+
+      // Check time window
+      if (!isWithinTimeWindow(strategySettings.time_start, strategySettings.time_end)) {
+        continue;
+      }
+
+      // Get previous signals for this strategy
+      const previousStrategySignals = previousSignalsRef.current[strategyName] || [];
+      const previousTimestamps = new Set(previousStrategySignals.map(s => `${s.time}-${s.type}`));
+
+      // Find new signals
+      for (const signal of signals) {
+        const signalKey = `${strategyName}-${signal.time}-${signal.type}`;
+        const isNew = !previousTimestamps.has(`${signal.time}-${signal.type}`);
+        const alreadyNotified = notifiedSignalsRef.current.has(signalKey);
+
+        if (isNew && !alreadyNotified) {
+          // Check signal type filter
+          if (signal.type === 'buy' && !strategySettings.notify_buy) continue;
+          if (signal.type === 'sell' && !strategySettings.notify_sell) continue;
+
+          // Show notification
+          showDesktopNotification(strategyName, signal);
+          notifiedSignalsRef.current.add(signalKey);
+        }
+      }
+    }
+
+    // Update previous signals ref
+    previousSignalsRef.current = newSignals;
+  }, [isWithinTimeWindow, showDesktopNotification]);
+
+  // Fetch notification settings
+  const fetchNotificationSettings = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_URL}/notifications/settings`);
+      if (response.ok) {
+        const data = await response.json();
+        notificationSettingsRef.current = (data.settings || []).map((s: NotificationSettings) => ({
+          ...s,
+          enabled: Boolean(s.enabled),
+          desktop_enabled: Boolean(s.desktop_enabled),
+          notify_buy: Boolean(s.notify_buy),
+          notify_sell: Boolean(s.notify_sell),
+        }));
+      }
+    } catch (err) {
+      console.error('Failed to fetch notification settings:', err);
+    }
+  }, []);
+
   const handleMessage = useCallback((event: MessageEvent) => {
     try {
       const message: WebSocketMessage = JSON.parse(event.data);
@@ -91,6 +213,8 @@ export function RealtimeProvider({ children }: RealtimeProviderProps) {
         });
         // Update signals from WebSocket
         if (message.signals) {
+          // Check for new signals and trigger desktop notifications
+          checkAndNotifyNewSignals(message.signals);
           setSignals(message.signals);
         }
         setMarketOpen(message.market_open);
@@ -122,7 +246,7 @@ export function RealtimeProvider({ children }: RealtimeProviderProps) {
     } catch (err) {
       console.error('Error parsing WebSocket message:', err);
     }
-  }, []);
+  }, [checkAndNotifyNewSignals]);
 
   const connectWebSocket = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -180,6 +304,16 @@ export function RealtimeProvider({ children }: RealtimeProviderProps) {
       }
     };
   }, [connectWebSocket]);
+
+  // Fetch notification settings on mount and periodically
+  useEffect(() => {
+    fetchNotificationSettings();
+
+    // Refresh settings every 30 seconds to pick up changes
+    const intervalId = setInterval(fetchNotificationSettings, 30000);
+
+    return () => clearInterval(intervalId);
+  }, [fetchNotificationSettings]);
 
   const value: RealtimeContextValue = {
     data,

@@ -135,8 +135,9 @@ class IchimokuTKCrossStrategy(BaseStrategy):
         signals: List[Signal] = []
         start_index = self.required_lookback
 
-        for i in range(start_index, len(candles)):
+        for i in range(start_index, len(candles) - 1):  # -1 to ensure next candle exists
             candle = candles[i]
+            next_candle = candles[i + 1]
             close = candle['close']
 
             # Use cloud values from DISPLACEMENT periods ago
@@ -148,13 +149,14 @@ class IchimokuTKCrossStrategy(BaseStrategy):
             span_b = senkou_b[cloud_index]
 
             # Check for buy signal: TK bullish cross + price above cloud
+            # Condition checked on candle[i] close, entry on candle[i+1] open
             if position is None:
                 if self._is_tk_bullish_cross(tenkan, kijun, i) and self._is_above_cloud(close, span_a, span_b):
                     signals.append(Signal(
-                        signal_timestamp=candle['time'],
+                        signal_timestamp=next_candle['time'],
                         trigger_timestamp=candle['time'],
                         type='buy',
-                        price=candle['close'],
+                        price=next_candle['open'],
                         label='Buy',
                         metadata={
                             'tenkan': tenkan[i],
@@ -165,19 +167,20 @@ class IchimokuTKCrossStrategy(BaseStrategy):
                         }
                     ))
                     position = {
-                        'buy_price': candle['close'],
-                        'buy_time': candle['time'],
+                        'buy_price': next_candle['open'],
+                        'buy_time': next_candle['time'],
                     }
 
             # Check for exit conditions
             elif position is not None:
                 # Exit on TK bearish cross
+                # Condition checked on candle[i] close, exit on candle[i+1] open
                 if self._is_tk_bearish_cross(tenkan, kijun, i):
                     signals.append(Signal(
-                        signal_timestamp=candle['time'],
+                        signal_timestamp=next_candle['time'],
                         trigger_timestamp=candle['time'],
                         type='sell',
-                        price=candle['close'],
+                        price=next_candle['open'],
                         label='TK',
                         metadata={
                             'buy_price': position['buy_price'],
@@ -191,12 +194,13 @@ class IchimokuTKCrossStrategy(BaseStrategy):
                     continue
 
                 # Exit on price in/below cloud
+                # Condition checked on candle[i] close, exit on candle[i+1] open
                 if self._is_in_or_below_cloud(close, span_a, span_b):
                     signals.append(Signal(
-                        signal_timestamp=candle['time'],
+                        signal_timestamp=next_candle['time'],
                         trigger_timestamp=candle['time'],
                         type='sell',
-                        price=candle['close'],
+                        price=next_candle['open'],
                         label='Cloud',
                         metadata={
                             'buy_price': position['buy_price'],

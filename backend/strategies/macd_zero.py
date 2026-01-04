@@ -146,17 +146,19 @@ class MACDZeroStrategy(BaseStrategy):
         signals: List[Signal] = []
         start_index = self.required_lookback
 
-        for i in range(start_index, len(candles)):
+        for i in range(start_index, len(candles) - 1):  # -1 to ensure next candle exists
             candle = candles[i]
+            next_candle = candles[i + 1]
 
             # Check for buy signal: MACD crosses above zero
+            # Condition checked on candle[i] close, entry on candle[i+1] open
             if position is None:
                 if self._crosses_above_zero(macd_line, i):
                     signals.append(Signal(
-                        signal_timestamp=candle['time'],
+                        signal_timestamp=next_candle['time'],
                         trigger_timestamp=candle['time'],
                         type='buy',
-                        price=candle['close'],
+                        price=next_candle['open'],
                         label='Buy',
                         metadata={
                             'macd': macd_line[i],
@@ -166,18 +168,19 @@ class MACDZeroStrategy(BaseStrategy):
                         }
                     ))
                     position = {
-                        'buy_price': candle['close'],
-                        'buy_time': candle['time'],
+                        'buy_price': next_candle['open'],
+                        'buy_time': next_candle['time'],
                     }
 
             # Check for exit: MACD crosses below zero
+            # Condition checked on candle[i] close, exit on candle[i+1] open
             elif position is not None:
                 if self._crosses_below_zero(macd_line, i):
                     signals.append(Signal(
-                        signal_timestamp=candle['time'],
+                        signal_timestamp=next_candle['time'],
                         trigger_timestamp=candle['time'],
                         type='sell',
-                        price=candle['close'],
+                        price=next_candle['open'],
                         label='Zero',
                         metadata={
                             'buy_price': position['buy_price'],

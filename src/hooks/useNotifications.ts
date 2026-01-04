@@ -37,6 +37,7 @@ interface UseNotificationsResult {
   saveSettings: (strategyName: string, settings: NotificationSettingsInput) => Promise<boolean>;
   deleteSettings: (strategyName: string) => Promise<boolean>;
   testTelegram: (botToken: string, chatId: string) => Promise<{ success: boolean; message: string }>;
+  testDesktop: () => Promise<{ success: boolean; message: string }>;
 }
 
 export function useNotifications(): UseNotificationsResult {
@@ -126,6 +127,44 @@ export function useNotifications(): UseNotificationsResult {
     }
   }, []);
 
+  const testDesktop = useCallback(async (): Promise<{ success: boolean; message: string }> => {
+    // Check if browser supports notifications
+    if (!('Notification' in window)) {
+      return { success: false, message: 'Desktop notifications are not supported in this browser' };
+    }
+
+    // Check/request permission
+    let permission = Notification.permission;
+
+    if (permission === 'denied') {
+      return { success: false, message: 'Notifications are blocked. Please enable them in your browser settings.' };
+    }
+
+    if (permission === 'default') {
+      permission = await Notification.requestPermission();
+    }
+
+    if (permission !== 'granted') {
+      return { success: false, message: 'Notification permission was not granted' };
+    }
+
+    // Show test notification
+    try {
+      const notification = new Notification('TradyBull Test', {
+        body: '✅ Desktop notifications are working correctly!',
+        icon: '/logo.svg',
+        tag: 'tradybull-test',
+      });
+
+      // Auto-close after 5 seconds
+      setTimeout(() => notification.close(), 5000);
+
+      return { success: true, message: 'Test notification sent!' };
+    } catch (err) {
+      return { success: false, message: err instanceof Error ? err.message : 'Failed to show notification' };
+    }
+  }, []);
+
   useEffect(() => {
     fetchSettings();
   }, [fetchSettings]);
@@ -138,5 +177,6 @@ export function useNotifications(): UseNotificationsResult {
     saveSettings,
     deleteSettings,
     testTelegram,
+    testDesktop,
   };
 }

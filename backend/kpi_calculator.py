@@ -2,6 +2,7 @@
 KPI Calculator for trading strategies.
 Calculates key performance indicators from trading signals.
 """
+import math
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, asdict
 
@@ -17,6 +18,7 @@ class StrategyKPIs:
     num_trades: int                  # Number of completed trades
     avg_return_per_trade_pct: float  # Average return per trade (%)
     avg_trade_duration_hours: float  # Average trade duration in hours
+    score: float                     # Normalized score (0-10) based on Calmar ratio
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -42,6 +44,7 @@ def calculate_kpis(signals: List[Dict[str, Any]]) -> StrategyKPIs:
             num_trades=0,
             avg_return_per_trade_pct=0.0,
             avg_trade_duration_hours=0.0,
+            score=0.0,
         )
 
     # Pair buy and sell signals to calculate trade returns
@@ -92,6 +95,7 @@ def calculate_kpis(signals: List[Dict[str, Any]]) -> StrategyKPIs:
             num_trades=0,
             avg_return_per_trade_pct=0.0,
             avg_trade_duration_hours=0.0,
+            score=0.0,
         )
 
     # Calculate metrics
@@ -133,6 +137,15 @@ def calculate_kpis(signals: List[Dict[str, Any]]) -> StrategyKPIs:
     else:
         avg_yearly_return_pct = 0.0
 
+    # Calculate score based on Calmar ratio: Score = 10 × tanh(Calmar / 2)
+    # Calmar = Yearly Return / Max Drawdown
+    if max_drawdown_pct > 0:
+        calmar_ratio = avg_yearly_return_pct / max_drawdown_pct
+        score = 10 * math.tanh(calmar_ratio / 2)
+    else:
+        # No drawdown: perfect score if positive return, 0 otherwise
+        score = 10.0 if avg_yearly_return_pct > 0 else 0.0
+
     return StrategyKPIs(
         total_return_pct=round(total_return_pct, 2),
         avg_yearly_return_pct=round(avg_yearly_return_pct, 2),
@@ -142,6 +155,7 @@ def calculate_kpis(signals: List[Dict[str, Any]]) -> StrategyKPIs:
         num_trades=num_trades,
         avg_return_per_trade_pct=round(avg_return_per_trade_pct, 2),
         avg_trade_duration_hours=round(avg_trade_duration_hours, 1),
+        score=round(score, 1),
     )
 
 

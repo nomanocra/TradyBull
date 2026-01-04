@@ -162,7 +162,7 @@ export function Sidebar() {
   const { strategies, archivedStrategies, allStrategies, archiveStrategy, unarchiveStrategy } = useStrategies();
 
   // Fetch notification settings
-  const { settings: notificationSettings, saveSettings, testTelegram } = useNotifications();
+  const { settings: notificationSettings, saveSettings, testTelegram, testDesktop } = useNotifications();
 
   // Notification modal state
   const [notificationModalOpen, setNotificationModalOpen] = useState(false);
@@ -633,6 +633,7 @@ export function Sidebar() {
         defaultStrategy={notificationModalStrategy}
         onSave={saveSettings}
         onTestTelegram={testTelegram}
+        onTestDesktop={testDesktop}
       />
     </div>
   );

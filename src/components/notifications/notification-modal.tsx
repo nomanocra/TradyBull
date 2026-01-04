@@ -19,6 +19,7 @@ interface NotificationModalProps {
   defaultStrategy?: string | null;  // Pre-select strategy in add mode
   onSave: (strategyName: string, settings: NotificationSettingsInput) => Promise<boolean>;
   onTestTelegram: (botToken: string, chatId: string) => Promise<{ success: boolean; message: string }>;
+  onTestDesktop: () => Promise<{ success: boolean; message: string }>;
 }
 
 export function NotificationModal({
@@ -29,6 +30,7 @@ export function NotificationModal({
   defaultStrategy,
   onSave,
   onTestTelegram,
+  onTestDesktop,
 }: NotificationModalProps) {
   const [selectedStrategy, setSelectedStrategy] = useState<string>('');
   const [desktopEnabled, setDesktopEnabled] = useState(false);
@@ -42,7 +44,9 @@ export function NotificationModal({
   const [timeEnd, setTimeEnd] = useState('22:00');
   const [isSaving, setIsSaving] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
+  const [isTestingDesktop, setIsTestingDesktop] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [desktopTestResult, setDesktopTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   // Reset form when modal opens/closes or existingSettings changes
   useEffect(() => {
@@ -71,6 +75,7 @@ export function NotificationModal({
         setTimeEnd('22:00');
       }
       setTestResult(null);
+      setDesktopTestResult(null);
     }
   }, [open, existingSettings, defaultStrategy]);
 
@@ -104,6 +109,14 @@ export function NotificationModal({
     const result = await onTestTelegram(botToken, chatId);
     setTestResult(result);
     setIsTesting(false);
+  };
+
+  const handleTestDesktop = async () => {
+    setIsTestingDesktop(true);
+    setDesktopTestResult(null);
+    const result = await onTestDesktop();
+    setDesktopTestResult(result);
+    setIsTestingDesktop(false);
   };
 
   const isValid = selectedStrategy && (desktopEnabled || telegramEnabled) && (notifyBuy || notifySell);
@@ -159,6 +172,30 @@ export function NotificationModal({
               </div>
             </div>
           </div>
+
+          {/* Desktop Config */}
+          {desktopEnabled && (
+            <div className="space-y-2 p-3 bg-muted/50 rounded">
+              <p className="text-xs text-muted-foreground">
+                Desktop notifications require browser permission.
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleTestDesktop}
+                disabled={isTestingDesktop}
+                className="w-full h-7 text-xs"
+              >
+                <Send size={12} className="mr-1.5" />
+                {isTestingDesktop ? 'Testing...' : 'Test Notification'}
+              </Button>
+              {desktopTestResult && (
+                <p className={`text-xs ${desktopTestResult.success ? 'text-emerald-500' : 'text-red-500'}`}>
+                  {desktopTestResult.message}
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Telegram Config */}
           {telegramEnabled && (

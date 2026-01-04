@@ -8,6 +8,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 type SortKey =
   | 'display_name'
+  | 'score'
   | 'total_return_pct'
   | 'avg_yearly_return_pct'
   | 'win_rate_pct'
@@ -40,6 +41,8 @@ function formatDuration(hours: number): string {
 function formatValue(value: number | undefined, type: SortKey): string {
   if (value === undefined || value === null) return '-';
   switch (type) {
+    case 'score':
+      return `${value.toFixed(1)}/10`;
     case 'total_return_pct':
     case 'avg_yearly_return_pct':
     case 'avg_return_per_trade_pct':
@@ -62,6 +65,11 @@ function formatValue(value: number | undefined, type: SortKey): string {
 function getColorClass(value: number | undefined, type: SortKey): string {
   if (value === undefined || value === null) return 'text-muted-foreground';
   switch (type) {
+    case 'score':
+      if (value >= 7) return 'text-emerald-500';
+      if (value >= 5) return 'text-yellow-500';
+      if (value >= 3) return 'text-orange-500';
+      return 'text-red-500';
     case 'total_return_pct':
     case 'avg_yearly_return_pct':
     case 'avg_return_per_trade_pct':
@@ -82,6 +90,7 @@ function getColorClass(value: number | undefined, type: SortKey): string {
 
 const columns: { key: SortKey; label: string; numeric: boolean }[] = [
   { key: 'display_name', label: 'Strategy', numeric: false },
+  { key: 'score', label: 'Score', numeric: true },
   { key: 'total_return_pct', label: 'Total Return', numeric: true },
   { key: 'avg_yearly_return_pct', label: 'Yearly Return', numeric: true },
   { key: 'win_rate_pct', label: 'Win Rate', numeric: true },
@@ -93,7 +102,7 @@ const columns: { key: SortKey; label: string; numeric: boolean }[] = [
 ];
 
 export function KPIOverviewTable({ data, isLoading, showArchived = false, searchQuery = '' }: KPIOverviewTableProps) {
-  const [sortKey, setSortKey] = useState<SortKey>('total_return_pct');
+  const [sortKey, setSortKey] = useState<SortKey>('score');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
   const sortedData = useMemo(() => {

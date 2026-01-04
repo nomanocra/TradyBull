@@ -93,17 +93,19 @@ class TrendStrategy(BaseStrategy):
         signals: List[Signal] = []
         start_index = MA_TREND_PERIOD + MA_SLOPE_LOOKBACK
 
-        for i in range(start_index, len(candles)):
+        for i in range(start_index, len(candles) - 1):  # -1 to ensure next candle exists
             candle = candles[i]
+            next_candle = candles[i + 1]
             current_trend_bullish = self._check_trend_bullish(closes, ma200, i)
 
             # Trend just turned bullish - BUY
+            # Condition checked on candle[i] close, entry on candle[i+1] open
             if current_trend_bullish and not previous_trend_bullish and position is None:
                 signals.append(Signal(
-                    signal_timestamp=candle['time'],
+                    signal_timestamp=next_candle['time'],
                     trigger_timestamp=candle['time'],
                     type='buy',
-                    price=candle['close'],
+                    price=next_candle['open'],
                     label='Buy',
                     metadata={
                         'ma200': ma200[i],
@@ -111,17 +113,18 @@ class TrendStrategy(BaseStrategy):
                     }
                 ))
                 position = {
-                    'buy_price': candle['close'],
-                    'buy_time': candle['time'],
+                    'buy_price': next_candle['open'],
+                    'buy_time': next_candle['time'],
                 }
 
             # Trend just turned bearish - SELL
+            # Condition checked on candle[i] close, exit on candle[i+1] open
             elif not current_trend_bullish and previous_trend_bullish and position is not None:
                 signals.append(Signal(
-                    signal_timestamp=candle['time'],
+                    signal_timestamp=next_candle['time'],
                     trigger_timestamp=candle['time'],
                     type='sell',
-                    price=candle['close'],
+                    price=next_candle['open'],
                     label='Sell',
                     metadata={
                         'buy_price': position['buy_price'],

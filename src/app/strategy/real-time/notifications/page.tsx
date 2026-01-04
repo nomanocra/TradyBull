@@ -14,7 +14,7 @@ export default function NotificationsPage() {
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
   const [historyStrategyName, setHistoryStrategyName] = useState<string | null>(null);
 
-  const { settings, isLoading, saveSettings, deleteSettings, testTelegram } = useNotifications();
+  const { settings, isLoading, saveSettings, deleteSettings, testTelegram, testDesktop } = useNotifications();
   const { strategies, archivedStrategies } = useStrategies();
 
   // Only use non-archived strategies for the dropdown
@@ -56,15 +56,11 @@ export default function NotificationsPage() {
   return (
     <div className="h-full w-full bg-background flex flex-col overflow-hidden">
       {/* Header */}
-      <header className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-card">
+      <header className="flex items-center px-3 py-1.5 border-b border-border bg-card">
         <div className="flex items-center gap-2">
           <Bell size={14} className="text-brand" />
           <span className="text-xs font-semibold text-brand">Notifications</span>
         </div>
-        <Button size="sm" onClick={handleAddClick} className="h-7 text-xs">
-          <Plus size={12} className="mr-1" />
-          Add Notification
-        </Button>
       </header>
 
       {/* Content */}
@@ -81,7 +77,14 @@ export default function NotificationsPage() {
             </Button>
           </div>
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-3">
+            <div className="flex justify-end">
+              <Button size="sm" onClick={handleAddClick} className="h-7 text-xs">
+                <Plus size={12} className="mr-1" />
+                Add Notification
+              </Button>
+            </div>
+            <div className="space-y-2">
             {settings.map((setting) => (
               <div
                 key={setting.strategy_name}
@@ -157,6 +160,7 @@ export default function NotificationsPage() {
                 </div>
               </div>
             ))}
+            </div>
           </div>
         )}
       </div>
@@ -169,6 +173,7 @@ export default function NotificationsPage() {
         existingSettings={editingSettings}
         onSave={saveSettings}
         onTestTelegram={testTelegram}
+        onTestDesktop={testDesktop}
       />
 
       {/* History Modal */}

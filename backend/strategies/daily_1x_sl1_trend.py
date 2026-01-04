@@ -135,9 +135,11 @@ class Daily1xSL1TrendStrategy(BaseStrategy):
         signals: List[Signal] = []
         start_index = MA_TREND_PERIOD + MA_SLOPE_LOOKBACK
 
-        for i in range(start_index, len(candles)):
+        for i in range(start_index, len(candles) - 1):  # -1 to ensure next candle exists
             candle = candles[i]
+            next_candle = candles[i + 1]
             date_string = self._get_paris_date_string(candle['time'])
+            next_date_string = self._get_paris_date_string(next_candle['time'])
 
             # Reset traded_today flag on new day
             if self._is_new_day(candles, i):
@@ -163,22 +165,23 @@ class Daily1xSL1TrendStrategy(BaseStrategy):
                     # Don't set traded_today here - it's a new day, we can trade
 
             # Check for buy signal (only if no open position AND haven't traded today AND not too close to close)
+            # Condition checked on candle[i] close, entry on candle[i+1] open
             if open_position is None and traded_today != date_string:
                 if self._check_trend_bullish(closes, ma200, i) and not is_too_close_to_close(candle['time']):
                     signals.append(Signal(
-                        signal_timestamp=candle['time'],
+                        signal_timestamp=next_candle['time'],
                         trigger_timestamp=candle['time'],
                         type='buy',
-                        price=candle['open'],
+                        price=next_candle['open'],
                         label='Buy',
                         metadata={'ma200': ma200[i], 'trend_filter': 'passed'}
                     ))
                     open_position = {
-                        'buy_price': candle['open'],
-                        'buy_time': candle['time'],
-                        'date': date_string,
+                        'buy_price': next_candle['open'],
+                        'buy_time': next_candle['time'],
+                        'date': next_date_string,
                     }
-                    traded_today = date_string  # Mark that we traded today
+                    traded_today = next_date_string  # Mark that we traded today
                     continue  # Skip exit checks on entry candle
 
             # Check exit conditions if we have an open position

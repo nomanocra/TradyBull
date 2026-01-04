@@ -73,7 +73,7 @@ export function BacktestingPageSkeleton() {
                 <Skeleton
                   key={i}
                   className="flex-1"
-                  style={{ height: `${30 + Math.sin(i * 0.2) * 25 + Math.random() * 25}%` }}
+                  style={{ height: `${Math.round(30 + Math.sin(i * 0.2) * 25 + Math.sin(i * 1.3) * 15)}%` }}
                 />
               ))}
             </div>

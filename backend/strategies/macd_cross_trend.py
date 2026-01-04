@@ -166,8 +166,9 @@ class MACDCrossTrendStrategy(BaseStrategy):
         signals: List[Signal] = []
         start_index = self.required_lookback
 
-        for i in range(start_index, len(candles)):
+        for i in range(start_index, len(candles) - 1):  # -1 to ensure next candle exists
             candle = candles[i]
+            next_candle = candles[i + 1]
             close = candle['close']
 
             # Skip if MA200 not available
@@ -175,13 +176,14 @@ class MACDCrossTrendStrategy(BaseStrategy):
                 continue
 
             # Check for buy signal: MACD bullish cross + price above MA200
+            # Condition checked on candle[i] close, entry on candle[i+1] open
             if position is None:
                 if self._is_bullish_cross(macd_line, signal_line, i) and close > ma200[i]:
                     signals.append(Signal(
-                        signal_timestamp=candle['time'],
+                        signal_timestamp=next_candle['time'],
                         trigger_timestamp=candle['time'],
                         type='buy',
-                        price=candle['close'],
+                        price=next_candle['open'],
                         label='Buy',
                         metadata={
                             'macd': macd_line[i],
@@ -192,32 +194,13 @@ class MACDCrossTrendStrategy(BaseStrategy):
                         }
                     ))
                     position = {
-                        'buy_price': candle['close'],
-                        'buy_time': candle['time'],
+                        'buy_price': next_candle['open'],
+                        'buy_time': next_candle['time'],
                     }
 
             # Check for exit conditions
             elif position is not None:
-                # Exit on MACD bearish cross
-                if self._is_bearish_cross(macd_line, signal_line, i):
-                    signals.append(Signal(
-                        signal_timestamp=candle['time'],
-                        trigger_timestamp=candle['time'],
-                        type='sell',
-                        price=candle['close'],
-                        label='MACD',
-                        metadata={
-                            'buy_price': position['buy_price'],
-                            'buy_time': position['buy_time'],
-                            'exit_reason': 'macd_bearish_cross',
-                            'macd': macd_line[i],
-                            'signal': signal_line[i],
-                        }
-                    ))
-                    position = None
-                    continue
-
-                # Exit on LOW below MA200 (price breached the trend line)
+                # Exit on LOW below MA200 (price breached the trend line) - intraday trigger
                 if candle['low'] < ma200[i]:
                     signals.append(Signal(
                         signal_timestamp=candle['time'],
@@ -230,6 +213,26 @@ class MACDCrossTrendStrategy(BaseStrategy):
                             'buy_time': position['buy_time'],
                             'exit_reason': 'price_below_ma200',
                             'ma200': ma200[i],
+                        }
+                    ))
+                    position = None
+                    continue
+
+                # Exit on MACD bearish cross
+                # Condition checked on candle[i] close, exit on candle[i+1] open
+                if self._is_bearish_cross(macd_line, signal_line, i):
+                    signals.append(Signal(
+                        signal_timestamp=next_candle['time'],
+                        trigger_timestamp=candle['time'],
+                        type='sell',
+                        price=next_candle['open'],
+                        label='MACD',
+                        metadata={
+                            'buy_price': position['buy_price'],
+                            'buy_time': position['buy_time'],
+                            'exit_reason': 'macd_bearish_cross',
+                            'macd': macd_line[i],
+                            'signal': signal_line[i],
                         }
                     ))
                     position = None

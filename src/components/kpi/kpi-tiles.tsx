@@ -60,8 +60,20 @@ function getDrawdownColor(drawdown: number): ColorState {
   return 'negative';
 }
 
+function getScoreColor(score: number): ColorState {
+  if (score >= 7) return 'positive';
+  if (score >= 5) return 'caution';
+  if (score >= 3) return 'warning';
+  return 'negative';
+}
+
 export function KPITiles({ kpis, isLoading }: KPITilesProps) {
   const tiles: { label: string; value: string; colorState: ColorState }[] = [
+    {
+      label: 'Score',
+      value: kpis ? `${kpis.score.toFixed(1)}/10` : '-',
+      colorState: kpis ? getScoreColor(kpis.score) : 'neutral',
+    },
     {
       label: 'Total Return',
       value: kpis ? `${kpis.total_return_pct >= 0 ? '+' : ''}${kpis.total_return_pct.toFixed(2)}%` : '-',

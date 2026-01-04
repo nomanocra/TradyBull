@@ -109,8 +109,9 @@ class IchimokuKumoSL1Strategy(BaseStrategy):
         signals: List[Signal] = []
         start_index = self.required_lookback
 
-        for i in range(start_index, len(candles)):
+        for i in range(start_index, len(candles) - 1):  # -1 to ensure next candle exists
             candle = candles[i]
+            next_candle = candles[i + 1]
             close = candle['close']
 
             # Use cloud values from DISPLACEMENT periods ago
@@ -122,13 +123,14 @@ class IchimokuKumoSL1Strategy(BaseStrategy):
             span_b = senkou_b[cloud_index]
 
             # Check for buy signal: price above cloud and no position
+            # Condition checked on candle[i] close, entry on candle[i+1] open
             if position is None:
                 if self._is_above_cloud(close, span_a, span_b):
                     signals.append(Signal(
-                        signal_timestamp=candle['time'],
+                        signal_timestamp=next_candle['time'],
                         trigger_timestamp=candle['time'],
                         type='buy',
-                        price=candle['close'],
+                        price=next_candle['open'],
                         label='Buy',
                         metadata={
                             'senkou_a': span_a,
@@ -136,15 +138,15 @@ class IchimokuKumoSL1Strategy(BaseStrategy):
                         }
                     ))
                     position = {
-                        'buy_price': candle['close'],
-                        'buy_time': candle['time'],
+                        'buy_price': next_candle['open'],
+                        'buy_time': next_candle['time'],
                     }
 
             # Check for exit conditions
             elif position is not None:
                 buy_price = position['buy_price']
 
-                # Check stop loss first
+                # Check stop loss first (intraday trigger - stays on same candle)
                 if self._check_stop_loss(candle, buy_price):
                     sl_price = buy_price * (1 - SL_PERCENT / 100)
                     signals.append(Signal(
@@ -163,12 +165,13 @@ class IchimokuKumoSL1Strategy(BaseStrategy):
                     continue
 
                 # Check cloud exit
+                # Condition checked on candle[i] close, exit on candle[i+1] open
                 if self._is_in_or_below_cloud(close, span_a, span_b):
                     signals.append(Signal(
-                        signal_timestamp=candle['time'],
+                        signal_timestamp=next_candle['time'],
                         trigger_timestamp=candle['time'],
                         type='sell',
-                        price=candle['close'],
+                        price=next_candle['open'],
                         label='Cloud',
                         metadata={
                             'buy_price': buy_price,

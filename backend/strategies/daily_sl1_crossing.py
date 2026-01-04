@@ -104,26 +104,29 @@ class DailySL1CrossingStrategy(BaseStrategy):
         bought_dates: set = set(position_open_on_day.keys())
         start_index = MA_LONG
 
-        for i in range(start_index, len(candles)):
+        for i in range(start_index, len(candles) - 1):  # -1 to ensure next candle exists
             candle = candles[i]
+            next_candle = candles[i + 1]
             date_string = self._get_paris_date_string(candle['time'])
+            next_date_string = self._get_paris_date_string(next_candle['time'])
 
             # Check for buy signal at first candle of the day with golden cross filter
+            # Condition checked on candle[i] close, entry on candle[i+1] open
             if self._is_first_candle_of_day(candles, i, bought_dates):
                 if self._check_golden_cross(ma50, ma200, i):
                     signals.append(Signal(
-                        signal_timestamp=candle['time'],
+                        signal_timestamp=next_candle['time'],
                         trigger_timestamp=candle['time'],
                         type='buy',
-                        price=candle['open'],
+                        price=next_candle['open'],
                         label='Buy',
                         metadata={'ma50': ma50[i], 'ma200': ma200[i], 'filter': 'golden_cross'}
                     ))
-                    position_open_on_day[date_string] = {
-                        'buy_price': candle['open'],
-                        'buy_time': candle['time'],
+                    position_open_on_day[next_date_string] = {
+                        'buy_price': next_candle['open'],
+                        'buy_time': next_candle['time'],
                     }
-                    bought_dates.add(date_string)
+                    bought_dates.add(next_date_string)
 
             # Check if we have an open position today
             if date_string in position_open_on_day:

@@ -11,6 +11,7 @@ export interface KPIs {
   num_trades: number;
   avg_return_per_trade_pct: number;
   avg_trade_duration_hours: number;
+  score: number;
 }
 
 interface UseKPIsOptions {
