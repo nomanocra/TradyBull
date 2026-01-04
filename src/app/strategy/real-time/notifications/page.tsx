@@ -72,15 +72,15 @@ export default function NotificationsPage() {
             <Bell size={48} className="text-muted-foreground/30 mb-4" />
             <p className="text-sm text-muted-foreground mb-4">No notifications configured</p>
             <Button size="sm" onClick={handleAddClick} className="h-8 text-xs">
-              <Plus size={12} className="mr-1.5" />
+              <Plus size={12} />
               Add your first notification
             </Button>
           </div>
         ) : (
           <div className="space-y-3">
             <div className="flex justify-end">
-              <Button size="sm" onClick={handleAddClick} className="h-7 text-xs">
-                <Plus size={12} className="mr-1" />
+              <Button size="sm" onClick={handleAddClick} className="h-8 text-xs">
+                <Plus size={12} />
                 Add Notification
               </Button>
             </div>

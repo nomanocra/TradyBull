@@ -186,7 +186,7 @@ export function NotificationModal({
                 disabled={isTestingDesktop}
                 className="w-full h-7 text-xs"
               >
-                <Send size={12} className="mr-1.5" />
+                <Send size={12} />
                 {isTestingDesktop ? 'Testing...' : 'Test Notification'}
               </Button>
               {desktopTestResult && (
@@ -226,7 +226,7 @@ export function NotificationModal({
                 disabled={!botToken || !chatId || isTesting}
                 className="w-full h-7 text-xs"
               >
-                <Send size={12} className="mr-1.5" />
+                <Send size={12} />
                 {isTesting ? 'Testing...' : 'Test Connection'}
               </Button>
               {testResult && (

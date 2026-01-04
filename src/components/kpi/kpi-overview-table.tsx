@@ -2,9 +2,10 @@
 
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
-import { ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { ArrowUpDown, ArrowUp, ArrowDown, Plus, LineChart } from 'lucide-react';
 import { StrategyKPIData } from '@/hooks/useKPIs';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Button } from '@/components/ui/button';
 
 type SortKey =
   | 'display_name'
@@ -25,6 +26,7 @@ interface KPIOverviewTableProps {
   isLoading?: boolean;
   showArchived?: boolean;
   searchQuery?: string;
+  onAddStrategy?: () => void;
 }
 
 function formatDuration(hours: number): string {
@@ -101,7 +103,7 @@ const columns: { key: SortKey; label: string; numeric: boolean }[] = [
   { key: 'avg_trade_duration_hours', label: 'Avg Duration', numeric: true },
 ];
 
-export function KPIOverviewTable({ data, isLoading, showArchived = false, searchQuery = '' }: KPIOverviewTableProps) {
+export function KPIOverviewTable({ data, isLoading, showArchived = false, searchQuery = '', onAddStrategy }: KPIOverviewTableProps) {
   const [sortKey, setSortKey] = useState<SortKey>('score');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
@@ -220,26 +222,33 @@ export function KPIOverviewTable({ data, isLoading, showArchived = false, search
     );
   }
 
-  if (!data.length) {
+  if (!sortedData.length) {
     return (
-      <div className="border border-border rounded-lg overflow-hidden">
-        <div className="p-8 text-center text-muted-foreground">
-          No strategy data available
+      <div className="h-full flex items-center justify-center">
+        <div className="text-center flex flex-col items-center">
+          <LineChart size={48} className="text-muted-foreground/30 mb-4" />
+          <p className="text-sm font-medium mb-1">Create your first strategy</p>
+          <p className="text-xs text-muted-foreground mb-5">Build and backtest custom trading strategies</p>
+          {onAddStrategy && (
+            <Button onClick={onAddStrategy} size="sm" className="h-8 text-xs">
+              <Plus size={12} />
+              Add Strategy
+            </Button>
+          )}
         </div>
       </div>
     );
   }
 
   return (
-    <div className="border border-border rounded-lg overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="bg-muted/50 border-b border-border">
+    <div className="border border-border overflow-auto h-full">
+      <table className="w-full text-sm">
+          <thead className="sticky top-0 z-10">
+            <tr className="bg-neutral-100 dark:bg-neutral-900">
               {columns.map((col) => (
                 <th
                   key={col.key}
-                  className={`px-3 py-2.5 font-medium text-muted-foreground cursor-pointer hover:text-foreground transition-colors ${
+                  className={`px-3 py-2.5 font-medium text-muted-foreground cursor-pointer hover:text-foreground transition-colors bg-neutral-100 dark:bg-neutral-900 ${
                     col.numeric ? 'text-right' : 'text-left'
                   }`}
                   onClick={() => handleSort(col.key)}
@@ -256,6 +265,9 @@ export function KPIOverviewTable({ data, isLoading, showArchived = false, search
                   </div>
                 </th>
               ))}
+            </tr>
+            <tr className="sticky top-[37px] z-10">
+              <td colSpan={columns.length} className="h-px bg-border p-0" />
             </tr>
           </thead>
           <tbody>
@@ -294,7 +306,6 @@ export function KPIOverviewTable({ data, isLoading, showArchived = false, search
             ))}
           </tbody>
         </table>
-      </div>
     </div>
   );
 }

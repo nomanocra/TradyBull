@@ -7,6 +7,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { ChevronDown, ChevronRight, Compass, Play, History, Sun, Moon, Archive, ArchiveRestore, Search, X, Bell, Table, Plus } from 'lucide-react';
 import { ModeSelector, ModeOption } from '@/components/ui/mode-selector';
 import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useStrategies, StrategyConfig } from '@/hooks/useStrategies';
 import { useNotifications } from '@/hooks/useNotifications';
@@ -613,8 +614,26 @@ export function Sidebar() {
                         );
                       })
                     ) : (
-                      <div className="px-4 py-1.5 text-xs text-muted-foreground italic">
-                        Coming soon
+                      <div className="px-4 py-4 text-center">
+                        {section.title === 'Strategies' ? (
+                          mode === 'backtesting' ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setStrategyCreationModalOpen(true)}
+                              className="w-full h-8 text-xs border-dashed border-muted-foreground/30 hover:border-brand/50 hover:bg-brand/5 text-muted-foreground hover:text-brand"
+                            >
+                              <Plus size={12} />
+                              Add Strategy
+                            </Button>
+                          ) : (
+                            <p className="text-xs text-muted-foreground/60">
+                              Create strategies in Backtesting mode
+                            </p>
+                          )
+                        ) : (
+                          <span className="text-xs text-muted-foreground/60">No items</span>
+                        )}
                       </div>
                     )}
                   </div>

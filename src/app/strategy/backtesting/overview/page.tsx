@@ -132,48 +132,58 @@ export default function BacktestingOverviewPage() {
       </header>
 
       {/* Content */}
-      <div className="flex-1 p-4 overflow-auto">
-        {/* Filters */}
-        <div className="flex items-center justify-between mb-4">
-          {/* Show Archived Switch */}
-          <div className="flex items-center gap-2">
-            <Switch
-              id="show-archived"
-              checked={showArchived}
-              onCheckedChange={setShowArchived}
-            />
-            <label
-              htmlFor="show-archived"
-              className="text-xs text-muted-foreground cursor-pointer select-none"
-            >
-              Show Archived
-            </label>
-          </div>
-
-          {/* Search + Add Button */}
-          <div className="flex items-center gap-2">
-            <div className="relative">
-              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                type="text"
-                placeholder="Search strategies..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-8 h-8 w-48"
+      <div className="flex-1 p-4 flex flex-col overflow-hidden">
+        {/* Filters - only show if there are strategies */}
+        {kpisData.length > 0 && (
+          <div className="flex items-center justify-between mb-4 shrink-0">
+            {/* Show Archived Switch */}
+            <div className="flex items-center gap-2">
+              <Switch
+                id="show-archived"
+                checked={showArchived}
+                onCheckedChange={setShowArchived}
               />
+              <label
+                htmlFor="show-archived"
+                className="text-xs text-muted-foreground cursor-pointer select-none"
+              >
+                Show Archived
+              </label>
             </div>
-            <Button
-              size="sm"
-              onClick={() => setStrategyModalOpen(true)}
-              className="h-8"
-            >
-              <Plus size={14} className="mr-1" />
-              Add Strategy
-            </Button>
-          </div>
-        </div>
 
-        <KPIOverviewTable data={kpisData} isLoading={kpisLoading} showArchived={showArchived} searchQuery={searchQuery} />
+            {/* Search + Add Button */}
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  type="text"
+                  placeholder="Search strategies..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-8 h-8 w-48"
+                />
+              </div>
+              <Button
+                size="sm"
+                onClick={() => setStrategyModalOpen(true)}
+                className="h-8 text-xs"
+              >
+                <Plus size={12} />
+                Add Strategy
+              </Button>
+            </div>
+          </div>
+        )}
+
+        <div className="flex-1 min-h-0 overflow-auto">
+          <KPIOverviewTable
+            data={kpisData}
+            isLoading={kpisLoading}
+            showArchived={showArchived}
+            searchQuery={searchQuery}
+            onAddStrategy={() => setStrategyModalOpen(true)}
+          />
+        </div>
       </div>
 
       {/* Strategy Creation Modal */}

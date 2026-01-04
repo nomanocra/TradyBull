@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useMemo, useEffect } from 'react';
-import { Plus, Loader2 } from 'lucide-react';
+import { Loader2, Plus, Info } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   Dialog,
   DialogContent,
@@ -138,53 +139,55 @@ function generateStrategyName(config: StrategyConfig): string {
 function generateDisplayName(config: StrategyConfig): string {
   const parts: string[] = [];
 
-  // Indicator
+  // Indicator - keep hyphens, capitalize each word
   if (config.indicator) {
-    let indType = config.indicator.type.replace(/-/g, ' ');
-    indType = indType.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    let indType = config.indicator.type
+      .split('-')
+      .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+      .join('-');
     const mode = config.indicator.mode;
     if (mode === 'buy') {
-      indType += ' (B)';
+      indType += '(B)';
     } else if (mode === 'sell') {
-      indType += ' (S)';
+      indType += '(S)';
     }
     parts.push(indType);
   }
 
   // Stop loss
   if (config.stop_loss) {
-    parts.push(`SL${config.stop_loss}%`);
+    parts.push(`SL-${config.stop_loss}%`);
   }
 
   // MA Trend
   if (config.ma_trend) {
-    parts.push(`Trend${config.ma_trend}`);
+    parts.push(`Trend-${config.ma_trend}`);
   }
 
   // Value above MA
   if (config.value_above_ma) {
-    parts.push(`>MA${config.value_above_ma}`);
+    parts.push(`Above-MA${config.value_above_ma}`);
   }
 
   // MA Cross
   if (config.ma_cross) {
-    parts.push(`X${config.ma_cross.fast}/${config.ma_cross.slow}`);
+    parts.push(`Cross-${config.ma_cross.fast}/${config.ma_cross.slow}`);
   }
 
   // Intraday
   if (config.intraday === 'daily') {
     parts.push('Daily');
   } else if (config.intraday === 'multi-daily') {
-    parts.push('MultiD');
+    parts.push('Multi-D');
   }
 
   // Time constraint
   if (config.time_constraint) {
-    parts.push(`${config.time_constraint.open}-${config.time_constraint.close}`);
+    parts.push(`H${config.time_constraint.open.split(':')[0]}-${config.time_constraint.close.split(':')[0]}`);
   }
 
   if (!parts.length) {
-    return 'Default Strategy';
+    return 'Default-Strategy';
   }
 
   return parts.join(' ');
@@ -270,6 +273,14 @@ export function StrategyCreationModal({
     return null;
   }, [maCrossEnabled, maCrossFast, maCrossSlow]);
 
+  // Check if indicator mode is valid (at least one of buy/sell if indicator selected)
+  const indicatorModeError = useMemo(() => {
+    if (indicator !== 'none' && !indicatorBuy && !indicatorSell) {
+      return 'Select at least Buy or Sell';
+    }
+    return null;
+  }, [indicator, indicatorBuy, indicatorSell]);
+
   // Check if strategy has at least one meaningful config
   const isValidConfig = useMemo(() => {
     return (
@@ -339,7 +350,7 @@ export function StrategyCreationModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[550px]">
+      <DialogContent className="sm:max-w-[700px]">
         <DialogHeader>
           <DialogTitle>Create Strategy</DialogTitle>
           <DialogDescription>
@@ -349,22 +360,41 @@ export function StrategyCreationModal({
 
         <div className="grid gap-4 py-4">
           {/* Preview Name */}
-          <div className="p-3 bg-muted/50 border">
+          <div className="p-3 bg-muted/50">
             <div className="text-xs text-muted-foreground mb-1">Generated Name</div>
             <div className="font-medium">{generatedDisplayName}</div>
-            <div className="text-xs text-muted-foreground mt-1">ID: {generatedName}</div>
           </div>
 
           {/* Indicator */}
           <div>
-            <label className="text-xs text-muted-foreground mb-1.5 block">Indicator</label>
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <label className="text-xs text-muted-foreground">Indicator</label>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info size={12} className="text-muted-foreground/50 cursor-help" />
+                </TooltipTrigger>
+                <TooltipContent side="right" className="max-w-[250px]">
+                  Technical indicator used to generate buy/sell signals based on market conditions
+                </TooltipContent>
+              </Tooltip>
+            </div>
             <GroupButton options={INDICATORS} value={indicator} onChange={setIndicator} />
           </div>
 
           {/* Indicator Mode */}
           {indicator !== 'none' && (
             <div>
-              <label className="text-xs text-muted-foreground mb-1.5 block">Mode</label>
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <label className="text-xs text-muted-foreground">Mode</label>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Info size={12} className="text-muted-foreground/50 cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent side="right" className="max-w-[250px]">
+                    Use indicator for Buy signals, Sell signals, or both
+                  </TooltipContent>
+                </Tooltip>
+              </div>
               <div className="flex items-center gap-4">
                 <div className="flex items-center gap-2">
                   <Checkbox
@@ -382,25 +412,58 @@ export function StrategyCreationModal({
                   />
                   <label htmlFor="indicator-sell" className="text-xs cursor-pointer">Sell</label>
                 </div>
+                {indicatorModeError && (
+                  <span className="text-xs text-destructive">{indicatorModeError}</span>
+                )}
               </div>
             </div>
           )}
 
           {/* Stop Loss */}
           <div>
-            <label className="text-xs text-muted-foreground mb-1.5 block">Stop Loss (sell constraint)</label>
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <label className="text-xs text-muted-foreground">Stop Loss</label>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info size={12} className="text-muted-foreground/50 cursor-help" />
+                </TooltipTrigger>
+                <TooltipContent side="right" className="max-w-[250px]">
+                  Automatically sell if price drops by this percentage from entry price
+                </TooltipContent>
+              </Tooltip>
+            </div>
             <GroupButton options={STOP_LOSSES} value={stopLoss} onChange={setStopLoss} />
           </div>
 
           {/* MA Trend */}
           <div>
-            <label className="text-xs text-muted-foreground mb-1.5 block">MA Trend (symmetric)</label>
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <label className="text-xs text-muted-foreground">MA Trend</label>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info size={12} className="text-muted-foreground/50 cursor-help" />
+                </TooltipTrigger>
+                <TooltipContent side="right" className="max-w-[250px]">
+                  Only buy when MA is trending up, only sell when MA is trending down
+                </TooltipContent>
+              </Tooltip>
+            </div>
             <GroupButton options={MA_OPTIONS} value={maTrend} onChange={setMaTrend} />
           </div>
 
           {/* Value Above MA */}
           <div>
-            <label className="text-xs text-muted-foreground mb-1.5 block">Price Above MA (symmetric)</label>
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <label className="text-xs text-muted-foreground">Price Above MA</label>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info size={12} className="text-muted-foreground/50 cursor-help" />
+                </TooltipTrigger>
+                <TooltipContent side="right" className="max-w-[250px]">
+                  Only buy when price is above MA, only sell when price is below MA
+                </TooltipContent>
+              </Tooltip>
+            </div>
             <GroupButton options={MA_OPTIONS} value={valueAboveMa} onChange={setValueAboveMa} />
           </div>
 
@@ -413,8 +476,16 @@ export function StrategyCreationModal({
                 onCheckedChange={(checked) => setMaCrossEnabled(checked === true)}
               />
               <label htmlFor="ma-cross" className="text-xs text-muted-foreground cursor-pointer">
-                MA Cross (symmetric)
+                MA Cross
               </label>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info size={12} className="text-muted-foreground/50 cursor-help" />
+                </TooltipTrigger>
+                <TooltipContent side="right" className="max-w-[250px]">
+                  Buy when fast MA crosses above slow MA, sell when fast MA crosses below
+                </TooltipContent>
+              </Tooltip>
             </div>
             {maCrossEnabled && (
               <div className="grid grid-cols-2 gap-3 mt-2">
@@ -445,7 +516,17 @@ export function StrategyCreationModal({
 
           {/* Intraday */}
           <div>
-            <label className="text-xs text-muted-foreground mb-1.5 block">Intraday (sell constraint)</label>
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <label className="text-xs text-muted-foreground">Intraday</label>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info size={12} className="text-muted-foreground/50 cursor-help" />
+                </TooltipTrigger>
+                <TooltipContent side="right" className="max-w-[250px]">
+                  Daily: close all positions at end of day. Multi-D: hold positions overnight
+                </TooltipContent>
+              </Tooltip>
+            </div>
             <GroupButton options={INTRADAY_OPTIONS} value={intraday} onChange={setIntraday} />
           </div>
 
@@ -458,8 +539,16 @@ export function StrategyCreationModal({
                 onCheckedChange={(checked) => setTimeConstraintEnabled(checked === true)}
               />
               <label htmlFor="time-constraint" className="text-xs text-muted-foreground cursor-pointer">
-                Time Constraint (buy + sell)
+                Time Constraint
               </label>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info size={12} className="text-muted-foreground/50 cursor-help" />
+                </TooltipTrigger>
+                <TooltipContent side="right" className="max-w-[250px]">
+                  Only trade during specific hours (Paris time)
+                </TooltipContent>
+              </Tooltip>
             </div>
             {timeConstraintEnabled && (
               <div className="grid grid-cols-2 gap-3 mt-2">
@@ -515,17 +604,17 @@ export function StrategyCreationModal({
           </Button>
           <Button
             onClick={handleCreate}
-            disabled={!isValidConfig || !!maCrossError || isCreating}
+            disabled={!isValidConfig || !!maCrossError || !!indicatorModeError || isCreating}
           >
             {isCreating ? (
               <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <Loader2 className="h-4 w-4 animate-spin" />
                 Creating...
               </>
             ) : (
               <>
-                <Plus className="mr-2 h-4 w-4" />
-                Create & Backtest
+                <Plus className="h-4 w-4" />
+                Create
               </>
             )}
           </Button>
