@@ -23,6 +23,7 @@ interface UseStrategiesResult {
   error: string | null;
   archiveStrategy: (name: string) => Promise<void>;
   unarchiveStrategy: (name: string) => Promise<void>;
+  deleteStrategy: (name: string) => Promise<void>;
   refetch: () => Promise<void>;
 }
 
@@ -101,6 +102,25 @@ export function useStrategies(): UseStrategiesResult {
     }
   }, [fetchStrategies]);
 
+  const deleteStrategy = useCallback(async (name: string) => {
+    try {
+      const response = await fetch(`${API_URL}/strategies/${name}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to delete strategy: ${response.status}`);
+      }
+      // Remove from local state
+      setAllStrategies(prev => prev.filter(s => s.name !== name));
+      // Notify other components
+      strategyEvents.emit();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete strategy');
+      // Refetch to get correct state
+      await fetchStrategies();
+    }
+  }, [fetchStrategies]);
+
   // Separate active and archived strategies
   const strategies = allStrategies.filter(s => !s.is_archived);
   const archivedStrategies = allStrategies.filter(s => s.is_archived);
@@ -113,6 +133,7 @@ export function useStrategies(): UseStrategiesResult {
     error,
     archiveStrategy,
     unarchiveStrategy,
+    deleteStrategy,
     refetch: fetchStrategies,
   };
 }

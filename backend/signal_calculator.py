@@ -11,11 +11,28 @@ from typing import List, Dict, Optional, Type
 from strategies import STRATEGIES, BaseStrategy, Signal
 
 
-def get_strategy(name: str) -> BaseStrategy:
-    """Get a strategy instance by name"""
-    if name not in STRATEGIES:
-        raise ValueError(f"Unknown strategy: {name}. Available: {list(STRATEGIES.keys())}")
-    return STRATEGIES[name]()
+def get_strategy(name: str, conn: sqlite3.Connection = None) -> BaseStrategy:
+    """Get a strategy instance by name (from registry or dynamic strategies)"""
+    # First try the hardcoded registry
+    if name in STRATEGIES:
+        return STRATEGIES[name]()
+
+    # Then try dynamic strategies from DB
+    if conn:
+        from strategies.dynamic import create_dynamic_strategy
+        cursor = conn.execute(
+            "SELECT name, display_name, config FROM dynamic_strategies WHERE name = ?",
+            (name,)
+        )
+        row = cursor.fetchone()
+        if row:
+            import json
+            config = json.loads(row[2])
+            config['name'] = row[0]
+            config['display_name'] = row[1]
+            return create_dynamic_strategy(config)
+
+    raise ValueError(f"Unknown strategy: {name}. Available: {list(STRATEGIES.keys())}")
 
 
 def get_processing_state(conn: sqlite3.Connection, strategy_name: str, symbol: str, data_source: str) -> Optional[Dict]:
@@ -143,7 +160,8 @@ def calculate_signals_incremental(
     strategy_name: str,
     symbol: str,
     data_source: str,  # 'backtest' or 'realtime'
-    candles_table: str  # 'backtest_candles' or 'candles'
+    candles_table: str,  # 'backtest_candles' or 'candles'
+    strategy_instance: Optional[BaseStrategy] = None  # For dynamic strategies
 ) -> tuple[int, List[Signal]]:
     """
     Calculate signals incrementally for new candles only.
@@ -154,11 +172,16 @@ def calculate_signals_incremental(
         symbol: Symbol to process (e.g., 'NQ=F')
         data_source: 'backtest' or 'realtime'
         candles_table: Table to read candles from
+        strategy_instance: Optional pre-created strategy instance (for dynamic strategies)
 
     Returns:
         Tuple of (number of new signals, list of new Signal objects)
     """
-    strategy = get_strategy(strategy_name)
+    # Use provided instance or get from registry/DB
+    if strategy_instance:
+        strategy = strategy_instance
+    else:
+        strategy = get_strategy(strategy_name, conn)
 
     # Get last processing state
     proc_state = get_processing_state(conn, strategy_name, symbol, data_source)

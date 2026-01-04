@@ -136,6 +136,20 @@ def is_market_closed_day(timestamp: int) -> bool:
     return get_market_close_hour_paris(timestamp) == -1
 
 
+def get_paris_hour(timestamp: int) -> int:
+    """
+    Get the hour in Paris time for a given timestamp.
+
+    Args:
+        timestamp: Unix timestamp
+
+    Returns:
+        Hour in Paris time (0-23)
+    """
+    dt = datetime.fromtimestamp(timestamp, tz=PARIS_TZ)
+    return dt.hour
+
+
 def is_too_close_to_close(timestamp: int, min_hours_before_close: int = 2) -> bool:
     """
     Check if we're too close to market close to open a new position.

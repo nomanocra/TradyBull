@@ -7,14 +7,17 @@ MACD_SLOW = 26
 MACD_SIGNAL = 9
 
 SL_PERCENT = 1.0  # -1%
+MA_TREND_PERIOD = 200
 
 
 class MACDCrossSL1Strategy(BaseStrategy):
     """
-    MACD Cross Strategy with Stop Loss
+    MACD Cross Strategy with Stop Loss and MA200 Trend Filter
 
     Entry:
     - Buy when MACD line crosses above Signal line (bullish crossover)
+    - AND price is above MA200
+    - AND MA200 is rising (positive trend)
 
     Exit (first condition met):
     - Stop Loss -1%
@@ -28,14 +31,26 @@ class MACDCrossSL1Strategy(BaseStrategy):
     @property
     def display_config(self) -> StrategyDisplayConfig:
         return StrategyDisplayConfig(
-            display_name="MACD Cross SL-1%",
-            description="BUY: MACD crosses above Signal. SELL: SL -1% or MACD crosses below Signal.",
+            display_name="MACD Cross SL-1% Trend200",
+            description="BUY: MACD bullish cross + price > MA200 + MA200 rising. SELL: SL -1% or MACD bearish cross.",
             show_macd=True,
+            show_moving_averages=True,
         )
 
     @property
     def required_lookback(self) -> int:
-        return MACD_SLOW + MACD_SIGNAL + 1
+        return max(MACD_SLOW + MACD_SIGNAL, MA_TREND_PERIOD) + 1
+
+    def _calculate_sma(self, data: List[float], period: int) -> List[Optional[float]]:
+        """Calculate Simple Moving Average"""
+        result: List[Optional[float]] = []
+        for i in range(len(data)):
+            if i < period - 1:
+                result.append(None)
+            else:
+                window = data[i - period + 1:i + 1]
+                result.append(sum(window) / period)
+        return result
 
     def _calculate_ema(self, values: List[float], period: int) -> List[Optional[float]]:
         """Calculate Exponential Moving Average"""
@@ -152,17 +167,27 @@ class MACDCrossSL1Strategy(BaseStrategy):
         # Calculate MACD components
         macd_line, signal_line, histogram = self._calculate_macd(candles)
 
+        # Calculate MA200 for trend filter
+        closes = [c['close'] for c in candles]
+        ma200 = self._calculate_sma(closes, MA_TREND_PERIOD)
+
         signals: List[Signal] = []
         start_index = self.required_lookback
 
         for i in range(start_index, len(candles) - 1):  # -1 to ensure next candle exists
             candle = candles[i]
             next_candle = candles[i + 1]
+            close = candle['close']
 
-            # Check for buy signal: MACD bullish cross
+            # Skip if MA200 not available
+            if ma200[i] is None:
+                continue
+
+            # Check for buy signal: MACD bullish cross + price > MA200 + MA200 rising
             # Condition checked on candle[i] close, entry on candle[i+1] open
             if position is None:
-                if self._is_bullish_cross(macd_line, signal_line, i):
+                ma200_rising = ma200[i] > ma200[i - 1] if ma200[i - 1] is not None else False
+                if self._is_bullish_cross(macd_line, signal_line, i) and close > ma200[i] and ma200_rising:
                     signals.append(Signal(
                         signal_timestamp=next_candle['time'],
                         trigger_timestamp=candle['time'],
@@ -173,6 +198,7 @@ class MACDCrossSL1Strategy(BaseStrategy):
                             'macd': macd_line[i],
                             'signal': signal_line[i],
                             'histogram': histogram[i],
+                            'ma200': ma200[i],
                             'signal_type': 'macd_bullish_cross',
                         }
                     ))

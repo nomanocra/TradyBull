@@ -153,6 +153,18 @@ def init_db():
             )
         """)
 
+        # Dynamic strategies table (user-created strategies with JSON config)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS dynamic_strategies (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
+                display_name TEXT NOT NULL,
+                config TEXT NOT NULL,
+                created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+                updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+            )
+        """)
+
         # Notification settings table
         conn.execute("""
             CREATE TABLE IF NOT EXISTS notification_settings (
@@ -861,21 +873,45 @@ def calculate_signals_endpoint(
 
 @app.get("/api/signals/strategies")
 def list_strategies():
-    """List all available strategies with their display metadata"""
+    """List all available strategies with their display metadata (Python + dynamic)"""
     try:
         _, _, _, _, _, STRATEGIES = get_signal_calculator()
+        from strategies.dynamic import create_dynamic_strategy
 
-        # Get archived strategies
         with get_db() as conn:
+            # Get archived strategies
             archived_rows = conn.execute("SELECT strategy_name FROM archived_strategies").fetchall()
             archived_set = {row['strategy_name'] for row in archived_rows}
 
+            # Get dynamic strategies from DB
+            dynamic_rows = conn.execute(
+                "SELECT name, display_name, config FROM dynamic_strategies"
+            ).fetchall()
+
         strategies_list = []
+
+        # Add Python-defined strategies
         for name, strategy_class in STRATEGIES.items():
             strategy_instance = strategy_class()
             strategy_dict = strategy_instance.to_dict()
             strategy_dict['is_archived'] = name in archived_set
+            strategy_dict['is_dynamic'] = False
             strategies_list.append(strategy_dict)
+
+        # Add dynamic strategies from DB
+        for row in dynamic_rows:
+            config = json.loads(row['config'])
+            config['name'] = row['name']
+            config['display_name'] = row['display_name']
+            try:
+                strategy = create_dynamic_strategy(config)
+                strategy_dict = strategy.to_dict()
+                strategy_dict['is_archived'] = row['name'] in archived_set
+                strategy_dict['is_dynamic'] = True
+                strategies_list.append(strategy_dict)
+            except Exception as e:
+                print(f"Error loading dynamic strategy {row['name']}: {e}")
+
         return {
             "strategies": strategies_list
         }
@@ -912,6 +948,168 @@ def recalculate_signals(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# ==================== Dynamic Strategies ====================
+# NOTE: These routes must come BEFORE /api/strategies/{strategy_name} routes
+# to avoid "dynamic" being matched as a strategy_name parameter
+
+class DynamicStrategyCreate(BaseModel):
+    """Request body for creating a dynamic strategy"""
+    indicator: Optional[dict] = None  # {"type": "bollinger", "mode": "both"}
+    stop_loss: Optional[float] = None
+    ma_trend: Optional[int] = None
+    value_above_ma: Optional[int] = None
+    ma_cross: Optional[dict] = None  # {"fast": 50, "slow": 200}
+    intraday: str = "none"
+    time_constraint: Optional[dict] = None  # {"open": "07:00", "close": "23:00"}
+
+
+@app.post("/api/strategies/dynamic")
+def create_dynamic_strategy_endpoint(body: DynamicStrategyCreate):
+    """Create a new dynamic strategy and run initial backtest"""
+    try:
+        from strategies.dynamic import (
+            create_dynamic_strategy,
+            generate_strategy_name,
+            generate_display_name
+        )
+
+        config = body.model_dump()
+
+        # Generate name and display_name
+        name = generate_strategy_name(config)
+        display_name = generate_display_name(config)
+
+        # Check if name already exists
+        _, _, _, _, _, STRATEGIES = get_signal_calculator()
+        with get_db() as conn:
+            existing = conn.execute(
+                "SELECT name FROM dynamic_strategies WHERE name = ?", (name,)
+            ).fetchone()
+
+        if name in STRATEGIES or existing:
+            # Add timestamp suffix to make unique
+            name = f"{name}-{int(datetime.now().timestamp())}"
+            display_name = f"{display_name} ({int(datetime.now().timestamp()) % 10000})"
+
+        config['name'] = name
+        config['display_name'] = display_name
+
+        # Validate by creating the strategy instance
+        strategy = create_dynamic_strategy(config)
+
+        # Save to database
+        with get_db() as conn:
+            conn.execute(
+                """INSERT INTO dynamic_strategies (name, display_name, config, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (name, display_name, json.dumps(config), int(datetime.now().timestamp()), int(datetime.now().timestamp()))
+            )
+            conn.commit()
+
+        # Run backtest calculation
+        calculate_signals_incremental, _, _, _, _, _ = get_signal_calculator()
+        with get_db() as conn:
+            new_signals, _ = calculate_signals_incremental(
+                conn, name, SYMBOL, 'backtest', 'backtest_candles',
+                strategy_instance=strategy
+            )
+
+        return {
+            "status": "created",
+            "strategy": {
+                "name": name,
+                "display_name": display_name,
+                "config": config,
+                "signals_count": new_signals
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/strategies/dynamic")
+def list_dynamic_strategies():
+    """List all dynamic strategies"""
+    try:
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT id, name, display_name, config, created_at, updated_at FROM dynamic_strategies ORDER BY created_at DESC"
+            ).fetchall()
+
+        strategies = []
+        for row in rows:
+            strategies.append({
+                "id": row['id'],
+                "name": row['name'],
+                "display_name": row['display_name'],
+                "config": json.loads(row['config']),
+                "created_at": row['created_at'],
+                "updated_at": row['updated_at']
+            })
+
+        return {"strategies": strategies}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/strategies/dynamic/{name}")
+def get_dynamic_strategy(name: str):
+    """Get a specific dynamic strategy by name"""
+    try:
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT id, name, display_name, config, created_at, updated_at FROM dynamic_strategies WHERE name = ?",
+                (name,)
+            ).fetchone()
+
+        if not row:
+            raise HTTPException(status_code=404, detail=f"Dynamic strategy not found: {name}")
+
+        return {
+            "id": row['id'],
+            "name": row['name'],
+            "display_name": row['display_name'],
+            "config": json.loads(row['config']),
+            "created_at": row['created_at'],
+            "updated_at": row['updated_at']
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/strategies/dynamic/{name}")
+def delete_dynamic_strategy(name: str):
+    """Delete a dynamic strategy and all its data"""
+    try:
+        with get_db() as conn:
+            # Check if exists
+            existing = conn.execute(
+                "SELECT name FROM dynamic_strategies WHERE name = ?", (name,)
+            ).fetchone()
+
+            if not existing:
+                raise HTTPException(status_code=404, detail=f"Dynamic strategy not found: {name}")
+
+            # Delete all associated data
+            conn.execute("DELETE FROM signals WHERE strategy_name = ?", (name,))
+            conn.execute("DELETE FROM signal_processing_state WHERE strategy_name = ?", (name,))
+            conn.execute("DELETE FROM notification_settings WHERE strategy_name = ?", (name,))
+            conn.execute("DELETE FROM notification_history WHERE strategy_name = ?", (name,))
+            conn.execute("DELETE FROM archived_strategies WHERE strategy_name = ?", (name,))
+            conn.execute("DELETE FROM dynamic_strategies WHERE name = ?", (name,))
+            conn.commit()
+
+        return {"status": "deleted", "strategy": name}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== Strategy Archive ====================
 
 @app.post("/api/strategies/{strategy_name}/archive")
 def archive_strategy(strategy_name: str):
@@ -959,6 +1157,24 @@ def unarchive_strategy(strategy_name: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.delete("/api/strategies/{strategy_name}")
+def delete_strategy(strategy_name: str):
+    """Delete a strategy's data (signals, settings, history). Strategy stays archived."""
+    try:
+        with get_db() as conn:
+            # Delete all data associated with the strategy
+            conn.execute("DELETE FROM signals WHERE strategy_name = ?", (strategy_name,))
+            conn.execute("DELETE FROM signal_processing_state WHERE strategy_name = ?", (strategy_name,))
+            conn.execute("DELETE FROM notification_settings WHERE strategy_name = ?", (strategy_name,))
+            conn.execute("DELETE FROM notification_history WHERE strategy_name = ?", (strategy_name,))
+            # Keep in archived_strategies - strategy is defined in Python code
+            conn.commit()
+
+        return {"status": "deleted", "strategy": strategy_name}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/kpis")
 def get_kpis(
     strategy: str = Query(..., description="Strategy name (e.g., 'bollinger-nosl')"),
@@ -971,8 +1187,15 @@ def get_kpis(
 
         _, get_signals_from_db, _, _, _, STRATEGIES = get_signal_calculator()
 
-        if strategy not in STRATEGIES:
-            raise HTTPException(status_code=400, detail=f"Unknown strategy: {strategy}")
+        # Check if strategy exists (Python or dynamic)
+        with get_db() as conn:
+            if strategy not in STRATEGIES:
+                # Check dynamic strategies
+                dynamic_row = conn.execute(
+                    "SELECT name FROM dynamic_strategies WHERE name = ?", (strategy,)
+                ).fetchone()
+                if not dynamic_row:
+                    raise HTTPException(status_code=400, detail=f"Unknown strategy: {strategy}")
 
         with get_db() as conn:
             signals = get_signals_from_db(conn, strategy, SYMBOL, start, end)
@@ -995,9 +1218,10 @@ def get_all_kpis(
     start: Optional[int] = Query(None, description="Start timestamp (Unix)"),
     end: Optional[int] = Query(None, description="End timestamp (Unix)"),
 ):
-    """Get KPIs for all strategies within optional date range"""
+    """Get KPIs for all strategies (Python + dynamic) within optional date range"""
     try:
         from kpi_calculator import calculate_kpis
+        from strategies.dynamic import create_dynamic_strategy
 
         _, get_signals_from_db, _, _, _, STRATEGIES = get_signal_calculator()
 
@@ -1007,6 +1231,7 @@ def get_all_kpis(
             archived_rows = conn.execute("SELECT strategy_name FROM archived_strategies").fetchall()
             archived_set = {row['strategy_name'] for row in archived_rows}
 
+            # Python-defined strategies
             for strategy_name, strategy_class in STRATEGIES.items():
                 strategy_instance = strategy_class()
                 signals = get_signals_from_db(conn, strategy_name, SYMBOL, start, end)
@@ -1017,8 +1242,34 @@ def get_all_kpis(
                     "display_name": strategy_instance.display_config.display_name,
                     "kpis": kpis.to_dict(),
                     "signal_count": len(signals),
-                    "is_archived": strategy_name in archived_set
+                    "is_archived": strategy_name in archived_set,
+                    "is_dynamic": False
                 })
+
+            # Dynamic strategies from DB
+            dynamic_rows = conn.execute(
+                "SELECT name, display_name, config FROM dynamic_strategies"
+            ).fetchall()
+
+            for row in dynamic_rows:
+                config = json.loads(row['config'])
+                config['name'] = row['name']
+                config['display_name'] = row['display_name']
+                try:
+                    strategy_instance = create_dynamic_strategy(config)
+                    signals = get_signals_from_db(conn, row['name'], SYMBOL, start, end)
+                    kpis = calculate_kpis(signals)
+
+                    results.append({
+                        "strategy": row['name'],
+                        "display_name": row['display_name'],
+                        "kpis": kpis.to_dict(),
+                        "signal_count": len(signals),
+                        "is_archived": row['name'] in archived_set,
+                        "is_dynamic": True
+                    })
+                except Exception as e:
+                    print(f"Error calculating KPIs for dynamic strategy {row['name']}: {e}")
 
         return {
             "symbol": SYMBOL,

@@ -4,13 +4,14 @@ import { useState, useEffect, useTransition, useMemo, useRef, useCallback } from
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { ChevronDown, ChevronRight, Compass, Play, History, Sun, Moon, Archive, ArchiveRestore, Search, X, Bell, Table } from 'lucide-react';
+import { ChevronDown, ChevronRight, Compass, Play, History, Sun, Moon, Archive, ArchiveRestore, Search, X, Bell, Table, Plus } from 'lucide-react';
 import { ModeSelector, ModeOption } from '@/components/ui/mode-selector';
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useStrategies, StrategyConfig } from '@/hooks/useStrategies';
 import { useNotifications } from '@/hooks/useNotifications';
 import { NotificationModal } from '@/components/notifications/notification-modal';
+import { StrategyCreationModal } from '@/components/strategy/strategy-creation-modal';
 import packageJson from '../../../package.json';
 
 const STORAGE_KEY = 'tradybull-sidebar-sections';
@@ -159,7 +160,7 @@ export function Sidebar() {
   const sidebarRef = useRef<HTMLDivElement>(null);
 
   // Fetch strategies from API
-  const { strategies, archivedStrategies, allStrategies, archiveStrategy, unarchiveStrategy } = useStrategies();
+  const { strategies, archivedStrategies, allStrategies, archiveStrategy, unarchiveStrategy, refetch: refetchStrategies } = useStrategies();
 
   // Fetch notification settings
   const { settings: notificationSettings, saveSettings, testTelegram, testDesktop } = useNotifications();
@@ -167,6 +168,10 @@ export function Sidebar() {
   // Notification modal state
   const [notificationModalOpen, setNotificationModalOpen] = useState(false);
   const [notificationModalStrategy, setNotificationModalStrategy] = useState<string | null>(null);
+
+  // Strategy creation modal state
+  const [strategyCreationModalOpen, setStrategyCreationModalOpen] = useState(false);
+
 
   // Generate backtesting navigation dynamically
   const backtestingNavigation = useMemo(
@@ -487,9 +492,9 @@ export function Sidebar() {
             ) : (
               <>
                 {/* Section Header */}
-                <button
+                <div
+                  className="flex items-center gap-2 px-3 py-2 text-[10px] font-semibold text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
                   onClick={() => toggleSection(section.storageKey || section.title)}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-semibold text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                 >
                   {expandedSections[section.storageKey || section.title] ? (
                     <ChevronDown size={14} className="text-muted-foreground" />
@@ -502,7 +507,24 @@ export function Sidebar() {
                       {section.items.length}
                     </span>
                   )}
-                </button>
+                  {/* Add Strategy button (Backtesting mode only) */}
+                  {section.title === 'Strategies' && mode === 'backtesting' && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setStrategyCreationModalOpen(true);
+                          }}
+                          className="ml-auto p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted-foreground/20 transition-colors"
+                        >
+                          <Plus size={14} />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="right">Add Strategy</TooltipContent>
+                    </Tooltip>
+                  )}
+                </div>
 
                 {/* Section Items */}
                 {expandedSections[section.storageKey || section.title] && (
@@ -513,7 +535,7 @@ export function Sidebar() {
                         const isLoading = pendingPath === item.href && isPending;
                         const isHovered = hoveredItem === item.href;
                         const showArchiveIcon = item.strategySlug && isHovered && !section.isArchive && mode === 'backtesting';
-                        const showRestoreIcon = item.strategySlug && isHovered && section.isArchive;
+                        const showRestoreIcon = item.strategySlug && section.isArchive && isHovered;
                         const strategyHasNotifications = item.strategySlug && hasNotifications(item.strategySlug);
                         const showNotificationIcon = item.strategySlug && mode === 'realtime' && (isHovered || strategyHasNotifications);
 
@@ -635,6 +657,17 @@ export function Sidebar() {
         onTestTelegram={testTelegram}
         onTestDesktop={testDesktop}
       />
+
+      {/* Strategy Creation Modal */}
+      <StrategyCreationModal
+        open={strategyCreationModalOpen}
+        onOpenChange={setStrategyCreationModalOpen}
+        onCreated={() => {
+          // Refresh strategies list
+          refetchStrategies();
+        }}
+      />
+
     </div>
   );
 }
