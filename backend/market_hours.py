@@ -173,3 +173,19 @@ def is_too_close_to_close(timestamp: int, min_hours_before_close: int = 2) -> bo
     hours_until_close = close_hour - candle_hour
 
     return hours_until_close < min_hours_before_close
+
+
+def is_first_candle_of_session(timestamp: int) -> bool:
+    """
+    Check if the candle at this timestamp is the first one after market reopen.
+
+    Market reopens at 00:00 Paris (after 23:00 close).
+
+    Args:
+        timestamp: Unix timestamp of the candle
+
+    Returns:
+        True if this is the first candle of the trading session (00:00 Paris)
+    """
+    dt = datetime.fromtimestamp(timestamp, tz=PARIS_TZ)
+    return dt.hour == 0

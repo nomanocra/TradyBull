@@ -22,7 +22,7 @@ export default function StrategyBacktestingPage() {
   const endTs = endDate ? Math.floor(new Date(endDate).setHours(23, 59, 59, 999) / 1000) : undefined;
 
   // Fetch signals from backend
-  const { signals, isLoading: signalsLoading } = useSignals({
+  const { signals, isLoading: signalsLoading, refetch: refetchSignals } = useSignals({
     strategy: strategySlug,
     startTs,
     endTs,
@@ -30,12 +30,18 @@ export default function StrategyBacktestingPage() {
   });
 
   // Fetch KPIs from backend
-  const { kpis, isLoading: kpisLoading } = useKPIs({
+  const { kpis, isLoading: kpisLoading, refetch: refetchKPIs } = useKPIs({
     strategy: strategySlug,
     startTs,
     endTs,
     enabled: data.length > 0 && !!strategyConfig,
   });
+
+  // Refresh both signals and KPIs
+  const handleRefresh = () => {
+    refetchSignals();
+    refetchKPIs();
+  };
 
   // Loading state - show skeleton while loading strategies
   if (strategiesLoading) {
@@ -56,16 +62,19 @@ export default function StrategyBacktestingPage() {
   return (
     <StrategyBacktestingDashboard
       strategyName={strategyConfig.display_name}
+      strategySlug={strategySlug}
       strategyDescription={strategyConfig.description}
       showBollinger={strategyConfig.show_bollinger}
       showMACD={strategyConfig.show_macd}
       showIchimoku={strategyConfig.show_ichimoku}
       showMovingAverages={strategyConfig.show_moving_averages}
       showRSI={strategyConfig.show_rsi}
+      maPeriods={strategyConfig.ma_periods}
       signals={signals}
       signalsLoading={signalsLoading}
       kpis={kpis}
       kpisLoading={kpisLoading}
+      onRefresh={handleRefresh}
     />
   );
 }

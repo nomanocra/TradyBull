@@ -21,6 +21,7 @@ interface CandlestickChartProps {
   showIchimoku?: boolean;
   showMovingAverages?: boolean;
   showRSI?: boolean;
+  maPeriods?: number[];  // Specific MA periods to display (e.g., [50, 200])
   showNavigator?: boolean;
   signals?: Signal[];
   initialZoom?: ZoomState;
@@ -414,6 +415,7 @@ export function CandlestickChart({
   showIchimoku = false,
   showMovingAverages = false,
   showRSI = false,
+  maPeriods = [],
   showNavigator = false,
   signals = [],
   initialZoom,
@@ -444,10 +446,8 @@ export function CandlestickChart({
   const ichimokuSenkouARef = useRef<ISeriesApi<'Line'> | null>(null);
   const ichimokuSenkouBRef = useRef<ISeriesApi<'Line'> | null>(null);
   const ichimokuChikouRef = useRef<ISeriesApi<'Line'> | null>(null);
-  // Moving Averages refs
-  const maShortRef = useRef<ISeriesApi<'Line'> | null>(null);
-  const maMediumRef = useRef<ISeriesApi<'Line'> | null>(null);
-  const maLongRef = useRef<ISeriesApi<'Line'> | null>(null);
+  // Moving Averages refs - Map of period -> series
+  const maSeriesRef = useRef<Map<number, ISeriesApi<'Line'>>>(new Map());
   // RSI refs
   const stochRsiKRef = useRef<ISeriesApi<'Line'> | null>(null);
   const stochRsiDRef = useRef<ISeriesApi<'Line'> | null>(null);
@@ -492,6 +492,7 @@ export function CandlestickChart({
   const [minVisibleBars, setMinVisibleBars] = useState(50);
   const [maxVisibleBars, setMaxVisibleBars] = useState(10000);
   const isNavigatorUpdating = useRef(false);
+  const isSyncingRangeRef = useRef(false);
 
   // Notify parent of zoom changes (debounced)
   const onZoomChangeRef = useRef(onZoomChange);
@@ -680,15 +681,22 @@ export function CandlestickChart({
     return calculateStochRSI(closes);
   }, [data, showRSI]);
 
+  // Calculate MAs for specific periods (or default 20, 50, 200 if no specific periods)
+  const effectiveMaPeriods = useMemo(() => {
+    if (maPeriods.length > 0) return maPeriods;
+    if (showMovingAverages) return [MA_SHORT, MA_MEDIUM, MA_LONG];
+    return [];
+  }, [maPeriods, showMovingAverages]);
+
   const movingAveragesData = useMemo(() => {
-    if (!showMovingAverages || data.length === 0) return null;
+    if (effectiveMaPeriods.length === 0 || data.length === 0) return null;
     const closes = data.map(d => d.close);
-    return {
-      short: calculateSMA(closes, MA_SHORT),
-      medium: calculateSMA(closes, MA_MEDIUM),
-      long: calculateSMA(closes, MA_LONG),
-    };
-  }, [data, showMovingAverages]);
+    const result: Record<number, (number | null)[]> = {};
+    for (const period of effectiveMaPeriods) {
+      result[period] = calculateSMA(closes, period);
+    }
+    return result;
+  }, [data, effectiveMaPeriods]);
 
   // Prepare markers from signals (triangles only, PnL shown as HTML overlay)
   const markersData = useMemo((): SeriesMarker<Time>[] => {
@@ -973,10 +981,9 @@ export function CandlestickChart({
     };
 
     // Sync visible range between all charts and navigator
-    let isSyncingRange = false;
     const syncRange = (range: { from: number; to: number } | null, source: 'main' | 'macd' | 'rsi') => {
-      if (isSyncingRange || !range || isChartDisposedRef.current) return;
-      isSyncingRange = true;
+      if (isSyncingRangeRef.current || !range || isChartDisposedRef.current) return;
+      isSyncingRangeRef.current = true;
       if (source !== 'main' && mainChart) mainChart.timeScale().setVisibleLogicalRange(range);
       if (source !== 'macd' && macdChart) macdChart.timeScale().setVisibleLogicalRange(range);
       // Update navigator state
@@ -987,7 +994,10 @@ export function CandlestickChart({
       if (source !== 'rsi' && rsiChart) rsiChart.timeScale().setVisibleLogicalRange(range);
       // Update PnL label positions
       requestAnimationFrame(updatePnlLabelPositions);
-      isSyncingRange = false;
+      // Reset flag after a short delay to allow state updates to settle
+      requestAnimationFrame(() => {
+        isSyncingRangeRef.current = false;
+      });
     };
 
     mainChart.timeScale().subscribeVisibleLogicalRangeChange(range => syncRange(range, 'main'));
@@ -1075,28 +1085,18 @@ export function CandlestickChart({
       });
     }
 
-    // Moving Averages - only create if showMovingAverages
-    let maShort: ISeriesApi<'Line'> | null = null;
-    let maMedium: ISeriesApi<'Line'> | null = null;
-    let maLong: ISeriesApi<'Line'> | null = null;
-    if (showMovingAverages) {
-      maShort = mainChart.addSeries(LineSeries, {
-        color: '#eab308',
-        lineWidth: 1,
-        priceLineVisible: false,
-        lastValueVisible: false,
-      });
-      maMedium = mainChart.addSeries(LineSeries, {
-        color: '#06b6d4',
-        lineWidth: 1,
-        priceLineVisible: false,
-        lastValueVisible: false,
-      });
-      maLong = mainChart.addSeries(LineSeries, {
-        color: '#d946ef',
-        lineWidth: 1,
-        priceLineVisible: false,
-        lastValueVisible: false,
+    // Moving Averages - create dynamically based on effectiveMaPeriods
+    const maColors = ['#eab308', '#06b6d4', '#d946ef', '#22c55e', '#f97316']; // Yellow, Cyan, Magenta, Green, Orange
+    const maSeries = new Map<number, ISeriesApi<'Line'>>();
+    if (effectiveMaPeriods.length > 0) {
+      effectiveMaPeriods.forEach((period, index) => {
+        const series = mainChart.addSeries(LineSeries, {
+          color: maColors[index % maColors.length],
+          lineWidth: 1,
+          priceLineVisible: false,
+          lastValueVisible: false,
+        });
+        maSeries.set(period, series);
       });
     }
 
@@ -1260,9 +1260,7 @@ export function CandlestickChart({
     ichimokuSenkouARef.current = ichimokuSenkouA;
     ichimokuSenkouBRef.current = ichimokuSenkouB;
     ichimokuChikouRef.current = ichimokuChikou;
-    maShortRef.current = maShort;
-    maMediumRef.current = maMedium;
-    maLongRef.current = maLong;
+    maSeriesRef.current = maSeries;
     macdLineRef.current = macdLine;
     macdSignalRef.current = macdSignal;
     macdHistogramRef.current = macdHistogram;
@@ -1324,9 +1322,7 @@ export function CandlestickChart({
       ichimokuSenkouARef.current = null;
       ichimokuSenkouBRef.current = null;
       ichimokuChikouRef.current = null;
-      maShortRef.current = null;
-      maMediumRef.current = null;
-      maLongRef.current = null;
+      maSeriesRef.current.clear();
       macdLineRef.current = null;
       macdSignalRef.current = null;
       macdHistogramRef.current = null;
@@ -1348,7 +1344,7 @@ export function CandlestickChart({
       if (rsiChart) rsiChart.remove();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timeframe, showBollinger, showMACD, showIchimoku, showMovingAverages, showRSI, data.length]);
+  }, [timeframe, showBollinger, showMACD, showIchimoku, effectiveMaPeriods, showRSI, data.length]);
 
   // Update chart theme colors without recreating the chart
   useEffect(() => {
@@ -1498,20 +1494,18 @@ export function CandlestickChart({
       }
     }
 
-    // Moving Averages data
-    let maShortData: LineData<Time>[] = [];
-    let maMediumData: LineData<Time>[] = [];
-    let maLongData: LineData<Time>[] = [];
+    // Moving Averages data - dynamic based on effectiveMaPeriods
+    const maDataByPeriod: Record<number, LineData<Time>[]> = {};
     if (movingAveragesData) {
-      for (let i = 0; i < data.length; i++) {
-        if (movingAveragesData.short[i] != null) {
-          maShortData.push({ time: chartTimes[i], value: movingAveragesData.short[i]! });
-        }
-        if (movingAveragesData.medium[i] != null) {
-          maMediumData.push({ time: chartTimes[i], value: movingAveragesData.medium[i]! });
-        }
-        if (movingAveragesData.long[i] != null) {
-          maLongData.push({ time: chartTimes[i], value: movingAveragesData.long[i]! });
+      for (const period of effectiveMaPeriods) {
+        maDataByPeriod[period] = [];
+        const maValues = movingAveragesData[period];
+        if (maValues) {
+          for (let i = 0; i < data.length; i++) {
+            if (maValues[i] != null) {
+              maDataByPeriod[period].push({ time: chartTimes[i], value: maValues[i]! });
+            }
+          }
         }
       }
     }
@@ -1577,11 +1571,11 @@ export function CandlestickChart({
       candlestickData,
       bbUpperData, bbMiddleData, bbLowerData,
       ichimokuTenkanData, ichimokuKijunData, ichimokuSenkouAData, ichimokuSenkouBData, ichimokuChikouData,
-      maShortData, maMediumData, maLongData,
+      maDataByPeriod,
       macdLineData, macdSignalData, macdHistogramData,
       stochRsiKData, stochRsiDData, stochRsiOverboughtData, stochRsiOversoldData,
     };
-  }, [data, chartTimes, bollingerData, ichimokuData, movingAveragesData, macdData, stochRsiData]);
+  }, [data, chartTimes, bollingerData, ichimokuData, movingAveragesData, macdData, stochRsiData, effectiveMaPeriods]);
 
   // Update data when it changes - now uses memoized arrays
   useEffect(() => {
@@ -1607,10 +1601,14 @@ export function CandlestickChart({
     }
 
     // Set Moving Averages data
-    if (showMovingAverages && movingAveragesData) {
-      maShortRef.current?.setData(chartDataArrays.maShortData);
-      maMediumRef.current?.setData(chartDataArrays.maMediumData);
-      maLongRef.current?.setData(chartDataArrays.maLongData);
+    if (effectiveMaPeriods.length > 0 && movingAveragesData) {
+      for (const period of effectiveMaPeriods) {
+        const series = maSeriesRef.current.get(period);
+        const data = chartDataArrays.maDataByPeriod[period];
+        if (series && data) {
+          series.setData(data);
+        }
+      }
     }
 
     // Set MACD data
@@ -1656,7 +1654,7 @@ export function CandlestickChart({
       });
     }
 
-  }, [chartDataArrays, showBollinger, showMACD, showIchimoku, showMovingAverages, showRSI, bollingerData, ichimokuData, movingAveragesData, macdData, stochRsiData, data.length, timeframe]);
+  }, [chartDataArrays, showBollinger, showMACD, showIchimoku, effectiveMaPeriods, showRSI, bollingerData, ichimokuData, movingAveragesData, macdData, stochRsiData, data.length, timeframe]);
 
   // Update markers when signals change
   useEffect(() => {
@@ -1726,7 +1724,7 @@ export function CandlestickChart({
           )}
           {showBollinger && <span className="text-[9px] text-muted-foreground/70 ml-2">BB(20,2)</span>}
           {showIchimoku && <span className="text-[9px] text-muted-foreground/70 ml-2">Ichimoku</span>}
-          {showMovingAverages && <span className="text-[9px] text-muted-foreground/70 ml-2">SMA(20,50,200)</span>}
+          {effectiveMaPeriods.length > 0 && <span className="text-[9px] text-muted-foreground/70 ml-2">SMA({effectiveMaPeriods.join(',')})</span>}
           {showMACD && <span className="text-[9px] text-muted-foreground/70">MACD(12,26,9)</span>}
           {showRSI && <span className="text-[9px] text-muted-foreground/70">Stoch RSI(14,14,3,3)</span>}
         </div>

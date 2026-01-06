@@ -17,6 +17,7 @@ interface StrategyRealtimeDashboardProps {
   showIchimoku?: boolean;
   showMovingAverages?: boolean;
   showRSI?: boolean;
+  maPeriods?: number[];
   signals: Signal[]; // Signals for 1H chart only
 }
 
@@ -28,6 +29,7 @@ export function StrategyRealtimeDashboard({
   showIchimoku = false,
   showMovingAverages = false,
   showRSI = false,
+  maPeriods = [],
   signals,
 }: StrategyRealtimeDashboardProps) {
   const {
@@ -173,6 +175,7 @@ export function StrategyRealtimeDashboard({
             showIchimoku={showIchimoku}
             showMovingAverages={showMovingAverages}
             showRSI={showRSI}
+            maPeriods={maPeriods}
             signals={signals}
           />
         </div>
@@ -190,6 +193,7 @@ export function StrategyRealtimeDashboard({
               showIchimoku={showIchimoku}
               showMovingAverages={showMovingAverages}
               showRSI={showRSI}
+              maPeriods={maPeriods}
             />
           </div>
           <div className="flex-1 min-w-0">
@@ -203,6 +207,7 @@ export function StrategyRealtimeDashboard({
               showIchimoku={showIchimoku}
               showMovingAverages={showMovingAverages}
               showRSI={showRSI}
+              maPeriods={maPeriods}
             />
           </div>
         </div>

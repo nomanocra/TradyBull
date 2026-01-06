@@ -33,11 +33,11 @@ export function ModeSelector({ options, value, onChange, className }: ModeSelect
       <PopoverTrigger asChild>
         <button
           className={cn(
-            'flex w-full items-center gap-2 px-2 py-1.5 bg-background dark:bg-muted/50 border border-border hover:bg-muted transition-colors text-left rounded-[2px]',
+            'flex w-full items-center gap-2 px-2 py-1.5 bg-background dark:bg-muted/50 border border-border hover:bg-muted transition-colors text-left rounded-md',
             className
           )}
         >
-          <div className="flex h-5 w-5 items-center justify-center bg-brand/20 text-brand rounded-[2px]">
+          <div className="flex h-5 w-5 items-center justify-center bg-brand/20 text-brand rounded-md">
             <selectedOption.icon size={12} />
           </div>
           <span className="flex-1 text-xs font-medium text-foreground">
@@ -55,7 +55,7 @@ export function ModeSelector({ options, value, onChange, className }: ModeSelect
       <PopoverContent
         align="start"
         sideOffset={4}
-        className="w-[var(--radix-popover-trigger-width)] p-1 rounded-[2px] border-border"
+        className="w-[var(--radix-popover-trigger-width)] p-1 rounded-md border-border"
       >
         {options.map((option) => {
           const isSelected = option.value === value;
@@ -65,7 +65,7 @@ export function ModeSelector({ options, value, onChange, className }: ModeSelect
               key={option.value}
               onClick={() => handleSelect(option.value)}
               className={cn(
-                'flex w-full items-center gap-2.5 px-2 py-2 text-left transition-colors rounded-[2px]',
+                'flex w-full items-center gap-2.5 px-2 py-2 text-left transition-colors rounded-md',
                 isSelected
                   ? 'bg-brand/10 text-foreground'
                   : 'hover:bg-muted text-muted-foreground hover:text-foreground'
@@ -73,7 +73,7 @@ export function ModeSelector({ options, value, onChange, className }: ModeSelect
             >
               <div
                 className={cn(
-                  'flex h-7 w-7 items-center justify-center rounded-[2px]',
+                  'flex h-7 w-7 items-center justify-center rounded-md',
                   isSelected ? 'bg-brand/20 text-brand' : 'bg-muted text-muted-foreground'
                 )}
               >

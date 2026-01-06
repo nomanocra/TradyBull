@@ -100,6 +100,7 @@ interface UseAllKPIsResult {
   isLoading: boolean;
   error: string | null;
   refetch: () => Promise<void>;
+  updateStrategyArchived: (strategyName: string, isArchived: boolean) => void;
 }
 
 /**
@@ -147,10 +148,22 @@ export function useAllKPIs({
     fetchAllKPIs();
   }, [fetchAllKPIs]);
 
+  // Optimistically update a strategy's archived status without refetching
+  const updateStrategyArchived = useCallback((strategyName: string, isArchived: boolean) => {
+    setData(prevData =>
+      prevData.map(item =>
+        item.strategy === strategyName
+          ? { ...item, is_archived: isArchived }
+          : item
+      )
+    );
+  }, []);
+
   return {
     data,
     isLoading,
     error,
     refetch: fetchAllKPIs,
+    updateStrategyArchived,
   };
 }

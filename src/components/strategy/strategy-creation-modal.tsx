@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo, useEffect } from 'react';
-import { Loader2, Plus, Info } from 'lucide-react';
+import { Loader2, Plus, Info, ChevronDown, Check } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   Dialog,
@@ -18,6 +18,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -48,40 +53,53 @@ interface StrategyCreationModalProps {
   onCreated?: () => void;
 }
 
+// All indicators in a single list
 const INDICATORS = [
-  { value: 'none', label: 'None' },
-  { value: 'bollinger', label: 'Bollinger' },
-  { value: 'macd-cross', label: 'MACD Cross' },
-  { value: 'macd-zero', label: 'MACD Zero' },
-  { value: 'macd-histogram', label: 'MACD Hist' },
-  { value: 'ichimoku-kumo', label: 'Ichi Kumo' },
-  { value: 'ichimoku-tk', label: 'Ichi TK' },
+  { value: 'none', label: 'None', short: 'None', description: 'No indicator - use other constraints only' },
+  { value: 'bollinger', label: 'Bollinger Bands', short: 'Boll', description: 'Buy when price touches lower band (oversold), sell when touches upper band (overbought).' },
+  { value: 'macd-cross', label: 'MACD Cross', short: 'MACD-X', description: 'Buy when MACD line crosses above signal line, sell when crosses below.' },
+  { value: 'macd-zero', label: 'MACD Zero', short: 'MACD-0', description: 'Buy when MACD crosses above zero, sell when crosses below. Fewer false signals.' },
+  { value: 'macd-histogram', label: 'MACD Histogram', short: 'MACD-H', description: 'Buy when histogram starts rising, sell when starts falling. Faster signals.' },
+  { value: 'ichimoku-kumo', label: 'Ichimoku Kumo', short: 'Ichi-K', description: 'Buy when price breaks above cloud, sell when breaks below.' },
+  { value: 'ichimoku-tk', label: 'Ichimoku TK Cross', short: 'Ichi-TK', description: 'Buy when Tenkan crosses above Kijun, sell when crosses below.' },
+  { value: 'rsi-trend', label: 'RSI Trend', short: 'RSI-T', description: 'Buy when RSI rises while below 20, sell when falls while above 80.' },
+  { value: 'rsi-early', label: 'RSI Early', short: 'RSI-E', description: 'Buy when RSI enters <20 zone, sell when enters >80 zone. Anticipates reversal.' },
+  { value: 'rsi-late', label: 'RSI Late', short: 'RSI-L', description: 'Buy when RSI exits <20 zone, sell when exits >80 zone. Waits for confirmation.' },
+  { value: 'rsi-large', label: 'RSI Large', short: 'RSI-Lg', description: 'Buy on entry to <20, sell on exit from >80. Maximizes hold time.' },
+  { value: 'rsi-small', label: 'RSI Small', short: 'RSI-Sm', description: 'Buy on exit from <20, sell on entry to >80. Minimizes hold time.' },
 ];
-
 
 const STOP_LOSSES = [
-  { value: 'none', label: 'None' },
-  { value: '0.5', label: '0.5%' },
-  { value: '0.8', label: '0.8%' },
-  { value: '1', label: '1%' },
-  { value: '1.5', label: '1.5%' },
-  { value: '2', label: '2%' },
-  { value: '2.5', label: '2.5%' },
-  { value: '5', label: '5%' },
+  { value: 'none', label: 'None', description: 'No stop loss protection' },
+  { value: '0.5', label: '0.5%', description: 'SELL if price drops 0.5% from entry' },
+  { value: '0.8', label: '0.8%', description: 'SELL if price drops 0.8% from entry' },
+  { value: '1', label: '1%', description: 'SELL if price drops 1% from entry' },
+  { value: '1.5', label: '1.5%', description: 'SELL if price drops 1.5% from entry' },
+  { value: '2', label: '2%', description: 'SELL if price drops 2% from entry' },
+  { value: '2.5', label: '2.5%', description: 'SELL if price drops 2.5% from entry' },
+  { value: '5', label: '5%', description: 'SELL if price drops 5% from entry' },
 ];
 
-const MA_OPTIONS = [
-  { value: 'none', label: 'None' },
-  { value: '50', label: '50' },
-  { value: '100', label: '100' },
-  { value: '150', label: '150' },
-  { value: '200', label: '200' },
+const MA_TREND_OPTIONS = [
+  { value: 'none', label: 'None', description: 'No MA trend filter' },
+  { value: '50', label: 'MA 50', description: 'BUY: MA50 rising. SELL: MA50 falling' },
+  { value: '100', label: 'MA 100', description: 'BUY: MA100 rising. SELL: MA100 falling' },
+  { value: '150', label: 'MA 150', description: 'BUY: MA150 rising. SELL: MA150 falling' },
+  { value: '200', label: 'MA 200', description: 'BUY: MA200 rising. SELL: MA200 falling' },
+];
+
+const MA_ABOVE_OPTIONS = [
+  { value: 'none', label: 'None', description: 'No price/MA filter' },
+  { value: '50', label: 'MA 50', description: 'BUY: price > MA50. SELL: price < MA50' },
+  { value: '100', label: 'MA 100', description: 'BUY: price > MA100. SELL: price < MA100' },
+  { value: '150', label: 'MA 150', description: 'BUY: price > MA150. SELL: price < MA150' },
+  { value: '200', label: 'MA 200', description: 'BUY: price > MA200. SELL: price < MA200' },
 ];
 
 const INTRADAY_OPTIONS = [
-  { value: 'none', label: 'None' },
-  { value: 'daily', label: 'Daily' },
-  { value: 'multi-daily', label: 'Multi-D' },
+  { value: 'none', label: 'None', description: 'No intraday constraint' },
+  { value: 'daily', label: 'Single', description: 'BUY: max 1 per day. SELL: at end of day' },
+  { value: 'multi-daily', label: 'Multi', description: 'BUY: unlimited per day. SELL: at end of day' },
 ];
 
 function generateStrategyName(config: StrategyConfig): string {
@@ -117,9 +135,9 @@ function generateStrategyName(config: StrategyConfig): string {
 
   // Intraday
   if (config.intraday === 'daily') {
-    parts.push('daily');
+    parts.push('intrad-single');
   } else if (config.intraday === 'multi-daily') {
-    parts.push('multid');
+    parts.push('intrad-multi');
   }
 
   // Time constraint
@@ -136,63 +154,6 @@ function generateStrategyName(config: StrategyConfig): string {
   return parts.join('-').toLowerCase();
 }
 
-function generateDisplayName(config: StrategyConfig): string {
-  const parts: string[] = [];
-
-  // Indicator - keep hyphens, capitalize each word
-  if (config.indicator) {
-    let indType = config.indicator.type
-      .split('-')
-      .map(w => w.charAt(0).toUpperCase() + w.slice(1))
-      .join('-');
-    const mode = config.indicator.mode;
-    if (mode === 'buy') {
-      indType += '(B)';
-    } else if (mode === 'sell') {
-      indType += '(S)';
-    }
-    parts.push(indType);
-  }
-
-  // Stop loss
-  if (config.stop_loss) {
-    parts.push(`SL-${config.stop_loss}%`);
-  }
-
-  // MA Trend
-  if (config.ma_trend) {
-    parts.push(`Trend-${config.ma_trend}`);
-  }
-
-  // Value above MA
-  if (config.value_above_ma) {
-    parts.push(`Above-MA${config.value_above_ma}`);
-  }
-
-  // MA Cross
-  if (config.ma_cross) {
-    parts.push(`Cross-${config.ma_cross.fast}/${config.ma_cross.slow}`);
-  }
-
-  // Intraday
-  if (config.intraday === 'daily') {
-    parts.push('Daily');
-  } else if (config.intraday === 'multi-daily') {
-    parts.push('Multi-D');
-  }
-
-  // Time constraint
-  if (config.time_constraint) {
-    parts.push(`H${config.time_constraint.open.split(':')[0]}-${config.time_constraint.close.split(':')[0]}`);
-  }
-
-  if (!parts.length) {
-    return 'Default-Strategy';
-  }
-
-  return parts.join(' ');
-}
-
 export function StrategyCreationModal({
   open,
   onOpenChange,
@@ -200,6 +161,7 @@ export function StrategyCreationModal({
 }: StrategyCreationModalProps) {
   // Form state
   const [indicator, setIndicator] = useState('none');
+  const [indicatorOpen, setIndicatorOpen] = useState(false);
   const [indicatorBuy, setIndicatorBuy] = useState(true);
   const [indicatorSell, setIndicatorSell] = useState(true);
   const [stopLoss, setStopLoss] = useState('none');
@@ -221,6 +183,7 @@ export function StrategyCreationModal({
   useEffect(() => {
     if (open) {
       setIndicator('none');
+      setIndicatorOpen(false);
       setIndicatorBuy(true);
       setIndicatorSell(true);
       setStopLoss('none');
@@ -260,7 +223,27 @@ export function StrategyCreationModal({
   }, [indicator, indicatorBuy, indicatorSell, indicatorMode, stopLoss, maTrend, valueAboveMa, maCrossEnabled, maCrossFast, maCrossSlow, intraday, timeConstraintEnabled, timeOpen, timeClose]);
 
   const generatedName = useMemo(() => generateStrategyName(config), [config]);
-  const generatedDisplayName = useMemo(() => generateDisplayName(config), [config]);
+  const selectedIndicator = INDICATORS.find(i => i.value === indicator);
+  const generatedDisplayName = useMemo(() => {
+    const parts: string[] = [];
+    if (config.indicator) {
+      const ind = INDICATORS.find(i => i.value === config.indicator?.type);
+      let indName = ind?.short || config.indicator.type;
+      if (config.indicator.mode === 'buy') indName += '(B)';
+      else if (config.indicator.mode === 'sell') indName += '(S)';
+      parts.push(indName);
+    }
+    if (config.stop_loss) parts.push(`SL-${config.stop_loss}%`);
+    if (config.ma_trend) parts.push(`Trend-${config.ma_trend}`);
+    if (config.value_above_ma) parts.push(`Above-MA${config.value_above_ma}`);
+    if (config.ma_cross) parts.push(`Cross-${config.ma_cross.fast}/${config.ma_cross.slow}`);
+    if (config.intraday === 'daily') parts.push('IntraD-Single');
+    else if (config.intraday === 'multi-daily') parts.push('IntraD-Multi');
+    if (config.time_constraint) {
+      parts.push(`H${config.time_constraint.open.split(':')[0]}-${config.time_constraint.close.split(':')[0]}`);
+    }
+    return parts.length ? parts.join(' ') : 'Default-Strategy';
+  }, [config]);
 
   // Validate MA cross
   const maCrossError = useMemo(() => {
@@ -281,18 +264,27 @@ export function StrategyCreationModal({
     return null;
   }, [indicator, indicatorBuy, indicatorSell]);
 
-  // Check if strategy has at least one meaningful config
+  // Check if strategy has at least one meaningful entry/exit condition
+  // Stop loss alone is NOT sufficient - it only defines exit on loss
   const isValidConfig = useMemo(() => {
-    return (
+    const hasEntryExitCondition = (
       config.indicator !== null ||
-      config.stop_loss !== null ||
       config.ma_trend !== null ||
       config.value_above_ma !== null ||
       config.ma_cross !== null ||
       config.intraday !== 'none' ||
       config.time_constraint !== null
     );
+    return hasEntryExitCondition;
   }, [config]);
+
+  // Error message for invalid config
+  const configError = useMemo(() => {
+    if (!isValidConfig && config.stop_loss !== null) {
+      return 'Stop loss alone is not sufficient. Add an indicator, MA condition, intraday, or time constraint.';
+    }
+    return null;
+  }, [isValidConfig, config.stop_loss]);
 
   const handleCreate = async () => {
     if (!isValidConfig || maCrossError) return;
@@ -367,18 +359,40 @@ export function StrategyCreationModal({
 
           {/* Indicator */}
           <div>
-            <div className="flex items-center gap-1.5 mb-1.5">
-              <label className="text-xs text-muted-foreground">Indicator</label>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Info size={12} className="text-muted-foreground/50 cursor-help" />
-                </TooltipTrigger>
-                <TooltipContent side="right" className="max-w-[250px]">
-                  Technical indicator used to generate buy/sell signals based on market conditions
-                </TooltipContent>
-              </Tooltip>
-            </div>
-            <GroupButton options={INDICATORS} value={indicator} onChange={setIndicator} />
+            <label className="text-xs text-muted-foreground mb-1.5 block">Indicator</label>
+            <Popover open={indicatorOpen} onOpenChange={setIndicatorOpen}>
+              <PopoverTrigger asChild>
+                <button className="flex w-full items-center justify-between border border-input bg-background px-3 py-2 text-left text-sm shadow-xs hover:bg-accent/50 transition-colors">
+                  <div>
+                    <div className="font-medium text-xs">{selectedIndicator?.label || 'None'}</div>
+                    {selectedIndicator && (
+                      <div className="text-[10px] text-muted-foreground mt-0.5">{selectedIndicator.description}</div>
+                    )}
+                  </div>
+                  <ChevronDown className="size-4 opacity-50 shrink-0" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-1 max-h-[300px] overflow-y-auto" align="start">
+                {INDICATORS.map((ind) => (
+                  <button
+                    key={ind.value}
+                    onClick={() => {
+                      setIndicator(ind.value);
+                      setIndicatorOpen(false);
+                    }}
+                    className={`flex w-full items-start gap-2 px-2 py-2 text-left hover:bg-accent transition-colors ${
+                      indicator === ind.value ? 'bg-accent' : ''
+                    }`}
+                  >
+                    <Check className={`size-4 mt-0.5 shrink-0 ${indicator === ind.value ? 'opacity-100' : 'opacity-0'}`} />
+                    <div>
+                      <div className="text-xs font-medium">{ind.label}</div>
+                      <div className="text-[10px] text-muted-foreground">{ind.description}</div>
+                    </div>
+                  </button>
+                ))}
+              </PopoverContent>
+            </Popover>
           </div>
 
           {/* Indicator Mode */}
@@ -388,7 +402,7 @@ export function StrategyCreationModal({
                 <label className="text-xs text-muted-foreground">Mode</label>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Info size={12} className="text-muted-foreground/50 cursor-help" />
+                    <Info size={12} className="text-muted-foreground/50" />
                   </TooltipTrigger>
                   <TooltipContent side="right" className="max-w-[250px]">
                     Use indicator for Buy signals, Sell signals, or both
@@ -421,50 +435,20 @@ export function StrategyCreationModal({
 
           {/* Stop Loss */}
           <div>
-            <div className="flex items-center gap-1.5 mb-1.5">
-              <label className="text-xs text-muted-foreground">Stop Loss</label>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Info size={12} className="text-muted-foreground/50 cursor-help" />
-                </TooltipTrigger>
-                <TooltipContent side="right" className="max-w-[250px]">
-                  Automatically sell if price drops by this percentage from entry price
-                </TooltipContent>
-              </Tooltip>
-            </div>
+            <label className="text-xs text-muted-foreground mb-1.5 block">Stop Loss</label>
             <GroupButton options={STOP_LOSSES} value={stopLoss} onChange={setStopLoss} />
           </div>
 
           {/* MA Trend */}
           <div>
-            <div className="flex items-center gap-1.5 mb-1.5">
-              <label className="text-xs text-muted-foreground">MA Trend</label>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Info size={12} className="text-muted-foreground/50 cursor-help" />
-                </TooltipTrigger>
-                <TooltipContent side="right" className="max-w-[250px]">
-                  Only buy when MA is trending up, only sell when MA is trending down
-                </TooltipContent>
-              </Tooltip>
-            </div>
-            <GroupButton options={MA_OPTIONS} value={maTrend} onChange={setMaTrend} />
+            <label className="text-xs text-muted-foreground mb-1.5 block">MA Trend</label>
+            <GroupButton options={MA_TREND_OPTIONS} value={maTrend} onChange={setMaTrend} />
           </div>
 
           {/* Value Above MA */}
           <div>
-            <div className="flex items-center gap-1.5 mb-1.5">
-              <label className="text-xs text-muted-foreground">Price Above MA</label>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Info size={12} className="text-muted-foreground/50 cursor-help" />
-                </TooltipTrigger>
-                <TooltipContent side="right" className="max-w-[250px]">
-                  Only buy when price is above MA, only sell when price is below MA
-                </TooltipContent>
-              </Tooltip>
-            </div>
-            <GroupButton options={MA_OPTIONS} value={valueAboveMa} onChange={setValueAboveMa} />
+            <label className="text-xs text-muted-foreground mb-1.5 block">Price Above MA</label>
+            <GroupButton options={MA_ABOVE_OPTIONS} value={valueAboveMa} onChange={setValueAboveMa} />
           </div>
 
           {/* MA Cross */}
@@ -480,7 +464,7 @@ export function StrategyCreationModal({
               </label>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Info size={12} className="text-muted-foreground/50 cursor-help" />
+                  <Info size={12} className="text-muted-foreground/50" />
                 </TooltipTrigger>
                 <TooltipContent side="right" className="max-w-[250px]">
                   Buy when fast MA crosses above slow MA, sell when fast MA crosses below
@@ -516,17 +500,7 @@ export function StrategyCreationModal({
 
           {/* Intraday */}
           <div>
-            <div className="flex items-center gap-1.5 mb-1.5">
-              <label className="text-xs text-muted-foreground">Intraday</label>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Info size={12} className="text-muted-foreground/50 cursor-help" />
-                </TooltipTrigger>
-                <TooltipContent side="right" className="max-w-[250px]">
-                  Daily: close all positions at end of day. Multi-D: hold positions overnight
-                </TooltipContent>
-              </Tooltip>
-            </div>
+            <label className="text-xs text-muted-foreground mb-1.5 block">Intraday</label>
             <GroupButton options={INTRADAY_OPTIONS} value={intraday} onChange={setIntraday} />
           </div>
 
@@ -543,7 +517,7 @@ export function StrategyCreationModal({
               </label>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Info size={12} className="text-muted-foreground/50 cursor-help" />
+                  <Info size={12} className="text-muted-foreground/50" />
                 </TooltipTrigger>
                 <TooltipContent side="right" className="max-w-[250px]">
                   Only trade during specific hours (Paris time)
@@ -586,7 +560,14 @@ export function StrategyCreationModal({
             )}
           </div>
 
-          {/* Error */}
+          {/* Validation Error */}
+          {configError && (
+            <div className="p-2 bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-sm">
+              {configError}
+            </div>
+          )}
+
+          {/* API Error */}
           {error && (
             <div className="p-2 bg-destructive/10 border border-destructive/30 text-destructive text-sm">
               {error}

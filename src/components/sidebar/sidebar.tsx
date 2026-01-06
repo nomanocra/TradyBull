@@ -4,11 +4,25 @@ import { useState, useEffect, useTransition, useMemo, useRef, useCallback } from
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { ChevronDown, ChevronRight, Compass, Play, History, Sun, Moon, Archive, ArchiveRestore, Search, X, Bell, Table, Plus } from 'lucide-react';
+import { ChevronDown, ChevronRight, Compass, Play, History, Sun, Moon, Archive, ArchiveRestore, Search, X, Bell, Table, Plus, MoreHorizontal, Trash2, RefreshCw } from 'lucide-react';
 import { ModeSelector, ModeOption } from '@/components/ui/mode-selector';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { useStrategies, StrategyConfig } from '@/hooks/useStrategies';
 import { useNotifications } from '@/hooks/useNotifications';
 import { NotificationModal } from '@/components/notifications/notification-modal';
@@ -155,7 +169,12 @@ export function Sidebar() {
   const [theme, setTheme] = useState<Theme>('dark');
   const [isHydrated, setIsHydrated] = useState(false);
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
+  const [openDropdownItem, setOpenDropdownItem] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Delete confirmation modal state
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [deleteStrategySlug, setDeleteStrategySlug] = useState<string | null>(null);
   const [width, setWidth] = useState(MIN_WIDTH);
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
@@ -172,6 +191,9 @@ export function Sidebar() {
 
   // Strategy creation modal state
   const [strategyCreationModalOpen, setStrategyCreationModalOpen] = useState(false);
+
+  // Global refresh state
+  const [isRefreshingAll, setIsRefreshingAll] = useState(false);
 
 
   // Generate backtesting navigation dynamically
@@ -331,6 +353,51 @@ export function Sidebar() {
     e.stopPropagation();
     await unarchiveStrategy(strategySlug);
   };
+
+  // Handle delete strategy - open confirmation modal
+  const handleDeleteClick = (strategySlug: string) => {
+    setDeleteStrategySlug(strategySlug);
+    setDeleteModalOpen(true);
+  };
+
+  // Confirm delete strategy
+  const confirmDeleteStrategy = async () => {
+    if (!deleteStrategySlug) return;
+    try {
+      // Use dynamic endpoint for dynamic strategies (full cleanup)
+      const response = await fetch(`http://localhost:8000/api/strategies/dynamic/${encodeURIComponent(deleteStrategySlug)}`, {
+        method: 'DELETE',
+      });
+      if (response.ok) {
+        refetchStrategies();
+      }
+    } catch (error) {
+      console.error('Failed to delete strategy:', error);
+    } finally {
+      setDeleteModalOpen(false);
+      setDeleteStrategySlug(null);
+    }
+  };
+
+  // Handle global refresh of all strategies (excluding archived)
+  const handleRefreshAllStrategies = useCallback(async () => {
+    setIsRefreshingAll(true);
+    try {
+      // Recalculate all non-archived strategies
+      const response = await fetch('http://localhost:8000/api/signals/recalculate', {
+        method: 'POST',
+      });
+      if (!response.ok) {
+        throw new Error('Failed to recalculate signals');
+      }
+      // Optionally refresh strategies list
+      refetchStrategies();
+    } catch (error) {
+      console.error('Error refreshing all strategies:', error);
+    } finally {
+      setIsRefreshingAll(false);
+    }
+  }, [refetchStrategies]);
 
   // Check if strategy has notifications configured
   const hasNotifications = useCallback((strategySlug: string) => {
@@ -508,22 +575,39 @@ export function Sidebar() {
                       {section.items.length}
                     </span>
                   )}
-                  {/* Add Strategy button (Backtesting mode only) */}
+                  {/* Refresh + Add Strategy buttons (Backtesting mode only) */}
                   {section.title === 'Strategies' && mode === 'backtesting' && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setStrategyCreationModalOpen(true);
-                          }}
-                          className="ml-auto p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted-foreground/20 transition-colors"
-                        >
-                          <Plus size={14} />
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent side="right">Add Strategy</TooltipContent>
-                    </Tooltip>
+                    <div className="ml-auto flex items-center gap-0.5">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRefreshAllStrategies();
+                            }}
+                            disabled={isRefreshingAll}
+                            className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted-foreground/20 transition-colors disabled:opacity-50"
+                          >
+                            <RefreshCw size={14} className={isRefreshingAll ? 'animate-spin' : ''} />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="right">Recalculate all signals</TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setStrategyCreationModalOpen(true);
+                            }}
+                            className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted-foreground/20 transition-colors"
+                          >
+                            <Plus size={14} />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="right">Add Strategy</TooltipContent>
+                      </Tooltip>
+                    </div>
                   )}
                 </div>
 
@@ -535,8 +619,9 @@ export function Sidebar() {
                         const isActive = isPathActive(item.href);
                         const isLoading = pendingPath === item.href && isPending;
                         const isHovered = hoveredItem === item.href;
+                        const isDropdownOpen = openDropdownItem === item.href;
                         const showArchiveIcon = item.strategySlug && isHovered && !section.isArchive && mode === 'backtesting';
-                        const showRestoreIcon = item.strategySlug && section.isArchive && isHovered;
+                        const showRestoreIcon = item.strategySlug && section.isArchive && (isHovered || isDropdownOpen);
                         const strategyHasNotifications = item.strategySlug && hasNotifications(item.strategySlug);
                         const showNotificationIcon = item.strategySlug && mode === 'realtime' && (isHovered || strategyHasNotifications);
 
@@ -575,19 +660,37 @@ export function Sidebar() {
                               </Tooltip>
                             )}
 
-                            {/* Restore button */}
+                            {/* Archive menu (Restore / Delete) */}
                             {showRestoreIcon && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
+                              <DropdownMenu
+                                open={isDropdownOpen}
+                                onOpenChange={(open) => setOpenDropdownItem(open ? item.href : null)}
+                              >
+                                <DropdownMenuTrigger asChild>
                                   <button
-                                    onClick={(e) => handleUnarchiveClick(e, item.strategySlug!)}
+                                    onClick={(e) => e.stopPropagation()}
                                     className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted-foreground/20 transition-colors"
                                   >
-                                    <ArchiveRestore size={12} />
+                                    <MoreHorizontal size={12} />
                                   </button>
-                                </TooltipTrigger>
-                                <TooltipContent side="right">Restore</TooltipContent>
-                              </Tooltip>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="w-36">
+                                  <DropdownMenuItem
+                                    onClick={(e) => handleUnarchiveClick(e as unknown as React.MouseEvent, item.strategySlug!)}
+                                    className="text-xs"
+                                  >
+                                    <ArchiveRestore size={12} />
+                                    Restore
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    onClick={() => handleDeleteClick(item.strategySlug!)}
+                                    className="text-xs text-red-500 focus:text-red-500"
+                                  >
+                                    <Trash2 size={12} className="text-red-500" />
+                                    Delete
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
                             )}
 
                             {/* Notification button (Real Time only) */}
@@ -686,6 +789,27 @@ export function Sidebar() {
           refetchStrategies();
         }}
       />
+
+      {/* Delete Confirmation Modal */}
+      <Dialog open={deleteModalOpen} onOpenChange={setDeleteModalOpen}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>Delete Strategy</DialogTitle>
+            <DialogDescription>
+              This will permanently delete the strategy and all its signals. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDeleteStrategy}>
+              <Trash2 size={14} />
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
     </div>
   );

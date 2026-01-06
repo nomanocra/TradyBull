@@ -27,9 +27,16 @@ from notification_service import (
 
 # Import signal calculator (lazy import to avoid circular deps)
 def get_signal_calculator():
-    from signal_calculator import calculate_signals_incremental, get_signals_from_db, calculate_all_strategies, recalculate_strategy, recalculate_all_strategies
+    from signal_calculator import (
+        calculate_signals_incremental,
+        get_signals_from_db,
+        calculate_all_strategies,
+        recalculate_strategy,
+        recalculate_all_strategies,
+        check_all_strategies_latest_candle
+    )
     from strategies import STRATEGIES
-    return calculate_signals_incremental, get_signals_from_db, calculate_all_strategies, recalculate_strategy, recalculate_all_strategies, STRATEGIES
+    return calculate_signals_incremental, get_signals_from_db, calculate_all_strategies, recalculate_strategy, recalculate_all_strategies, check_all_strategies_latest_candle, STRATEGIES
 
 app = FastAPI(title="TradyBull API")
 
@@ -131,18 +138,41 @@ def init_db():
         conn.execute("CREATE INDEX IF NOT EXISTS idx_signals_strategy_timestamp ON signals(strategy_name, signal_timestamp)")
 
         # Signal processing state (for incremental updates)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS signal_processing_state (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                strategy_name TEXT NOT NULL,
-                symbol TEXT NOT NULL DEFAULT 'NQ=F',
-                data_source TEXT NOT NULL CHECK(data_source IN ('backtest', 'realtime')),
-                last_processed_timestamp INTEGER NOT NULL,
-                last_signal_state TEXT,
-                updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-                UNIQUE(strategy_name, symbol, data_source)
-            )
-        """)
+        # Migration: recreate table to allow 'unified' data_source
+        # Check if old table exists with incompatible CHECK constraint
+        cursor = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='signal_processing_state'")
+        existing_schema = cursor.fetchone()
+        if existing_schema and "'unified'" not in existing_schema[0]:
+            # Migrate: create new table, copy data, swap
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS signal_processing_state_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    strategy_name TEXT NOT NULL,
+                    symbol TEXT NOT NULL DEFAULT 'NQ=F',
+                    data_source TEXT NOT NULL,
+                    last_processed_timestamp INTEGER NOT NULL,
+                    last_signal_state TEXT,
+                    updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+                    UNIQUE(strategy_name, symbol, data_source)
+                )
+            """)
+            conn.execute("INSERT OR IGNORE INTO signal_processing_state_new SELECT * FROM signal_processing_state")
+            conn.execute("DROP TABLE signal_processing_state")
+            conn.execute("ALTER TABLE signal_processing_state_new RENAME TO signal_processing_state")
+            print("[DB] Migrated signal_processing_state table to support 'unified' data_source")
+        else:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS signal_processing_state (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    strategy_name TEXT NOT NULL,
+                    symbol TEXT NOT NULL DEFAULT 'NQ=F',
+                    data_source TEXT NOT NULL,
+                    last_processed_timestamp INTEGER NOT NULL,
+                    last_signal_state TEXT,
+                    updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+                    UNIQUE(strategy_name, symbol, data_source)
+                )
+            """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_signal_state_strategy ON signal_processing_state(strategy_name, symbol, data_source)")
 
         # Archived strategies table
@@ -411,11 +441,19 @@ def get_all_data_payload() -> dict:
         "signals": {}
     }
 
-    # Add signals for all strategies
+    # Add signals for all strategies (hardcoded + dynamic)
     try:
-        _, get_signals_from_db, _, _, _, STRATEGIES = get_signal_calculator()
+        _, get_signals_from_db, _, _, _, _, STRATEGIES = get_signal_calculator()
         with get_db() as conn:
+            # Hardcoded strategies
             for strategy_name in STRATEGIES:
+                signals = get_signals_from_db(conn, strategy_name, SYMBOL)
+                payload["signals"][strategy_name] = signals
+
+            # Dynamic strategies from database
+            dynamic_rows = conn.execute("SELECT name FROM dynamic_strategies").fetchall()
+            for row in dynamic_rows:
+                strategy_name = row['name']
                 signals = get_signals_from_db(conn, strategy_name, SYMBOL)
                 payload["signals"][strategy_name] = signals
     except Exception as e:
@@ -468,42 +506,48 @@ def fetch_all_intervals():
         last_fetch_time = datetime.now(PARIS_TZ)
         print(f"[{last_fetch_time.strftime('%H:%M:%S')}] Data fetched and stored successfully")
 
-        # Calculate signals for all strategies (real-time data)
+        # Check signals on latest candle for all strategies (using backtest_candles as single source)
         try:
-            _, _, calculate_all_strategies, _, _, STRATEGIES = get_signal_calculator()
+            _, _, _, _, _, check_all_strategies_latest_candle, STRATEGIES = get_signal_calculator()
             with get_db() as conn:
-                results = calculate_all_strategies(conn, SYMBOL, 'realtime', 'candles')
-                for strategy_name, (count, signals) in results.items():
-                    if count > 0:
-                        print(f"  [{strategy_name}] {count} new signal(s)")
+                results = check_all_strategies_latest_candle(conn, SYMBOL)
+                for strategy_name, signal in results.items():
+                    if signal is not None:
+                        print(f"  [{strategy_name}] New {signal.type} signal at {signal.price}")
 
-                        # Send notifications for new signals
+                        # Send notification for the new signal
                         try:
+                            # Only send notifications for recent signals (< 15 minutes old)
+                            signal_age = int(time.time()) - signal.signal_timestamp
+                            if signal_age > 900:  # 15 minutes in seconds
+                                print(f"    Skipping notification for old signal ({signal_age//60}min old)")
+                                continue
+
+                            # Check if notification was already sent for this signal
+                            if was_notification_already_sent(strategy_name, signal.signal_timestamp, signal.type):
+                                print(f"    Skipping notification already sent for {signal.type} signal")
+                                continue
+
+                            # Get display name for the strategy
                             strategy_class = STRATEGIES.get(strategy_name)
                             if strategy_class:
                                 strategy_instance = strategy_class()
                                 display_name = strategy_instance.display_config.display_name
+                            else:
+                                # For dynamic strategies, get display name from DB
+                                row = conn.execute(
+                                    "SELECT display_name FROM dynamic_strategies WHERE name = ?",
+                                    (strategy_name,)
+                                ).fetchone()
+                                display_name = row[0] if row else strategy_name
 
-                                for signal in signals:
-                                    # Only send notifications for recent signals (< 15 minutes old)
-                                    # This prevents spam when recalculating historical signals
-                                    signal_age = int(time.time()) - signal.signal_timestamp
-                                    if signal_age > 900:  # 15 minutes in seconds
-                                        print(f"    Skipping notification for old signal ({signal_age//60}min old)")
-                                        continue
-
-                                    # Check if notification was already sent for this signal
-                                    if was_notification_already_sent(strategy_name, signal.signal_timestamp, signal.type):
-                                        print(f"    Skipping notification already sent for {signal.type} signal")
-                                        continue
-
-                                    asyncio.run(send_signal_notification(
-                                        strategy_name=strategy_name,
-                                        strategy_display_name=display_name,
-                                        signal_type=signal.type,
-                                        price=signal.price,
-                                        timestamp=signal.signal_timestamp
-                                    ))
+                            asyncio.run(send_signal_notification(
+                                strategy_name=strategy_name,
+                                strategy_display_name=display_name,
+                                signal_type=signal.type,
+                                price=signal.price,
+                                timestamp=signal.signal_timestamp
+                            ))
                         except Exception as notif_err:
                             print(f"  Warning: Could not send notification: {notif_err}")
         except Exception as e:
@@ -770,10 +814,16 @@ def get_signals(
 ):
     """Get signals for a strategy within optional date range"""
     try:
-        _, get_signals_from_db, _, _, _, STRATEGIES = get_signal_calculator()
+        _, get_signals_from_db, _, _, _, _, STRATEGIES = get_signal_calculator()
 
         if strategy not in STRATEGIES:
-            raise HTTPException(status_code=400, detail=f"Unknown strategy: {strategy}. Available: {list(STRATEGIES.keys())}")
+            # Check if it's a dynamic strategy
+            with get_db() as conn:
+                dynamic_row = conn.execute(
+                    "SELECT name FROM dynamic_strategies WHERE name = ?", (strategy,)
+                ).fetchone()
+                if not dynamic_row:
+                    raise HTTPException(status_code=400, detail=f"Unknown strategy: {strategy}")
 
         with get_db() as conn:
             signals = get_signals_from_db(conn, strategy, SYMBOL, start, end, limit)
@@ -796,10 +846,16 @@ def get_signals_info(
 ):
     """Get information about signals for a strategy"""
     try:
-        _, _, _, _, _, STRATEGIES = get_signal_calculator()
+        _, _, _, _, _, _, STRATEGIES = get_signal_calculator()
 
         if strategy not in STRATEGIES:
-            raise HTTPException(status_code=400, detail=f"Unknown strategy: {strategy}")
+            # Check if it's a dynamic strategy
+            with get_db() as conn:
+                dynamic_row = conn.execute(
+                    "SELECT name FROM dynamic_strategies WHERE name = ?", (strategy,)
+                ).fetchone()
+                if not dynamic_row:
+                    raise HTTPException(status_code=400, detail=f"Unknown strategy: {strategy}")
 
         with get_db() as conn:
             # Get signal counts
@@ -841,27 +897,25 @@ def get_signals_info(
 
 @app.post("/api/signals/calculate")
 def calculate_signals_endpoint(
-    strategy: str = Query(..., description="Strategy name"),
-    source: str = Query("realtime", description="Data source: 'backtest' or 'realtime'")
+    strategy: str = Query(..., description="Strategy name")
 ):
-    """Trigger incremental signal calculation for new candles"""
+    """Trigger incremental signal calculation for new candles (uses backtest_candles as single source)"""
     try:
-        calculate_signals_incremental, _, _, _, _, STRATEGIES = get_signal_calculator()
-
-        if strategy not in STRATEGIES:
-            raise HTTPException(status_code=400, detail=f"Unknown strategy: {strategy}")
-
-        if source not in ('backtest', 'realtime'):
-            raise HTTPException(status_code=400, detail="Source must be 'backtest' or 'realtime'")
-
-        table = "backtest_candles" if source == "backtest" else "candles"
+        calculate_signals_incremental, _, _, _, _, _, STRATEGIES = get_signal_calculator()
 
         with get_db() as conn:
-            new_count, _ = calculate_signals_incremental(conn, strategy, SYMBOL, source, table)
+            # Check if strategy exists (hardcoded or dynamic)
+            if strategy not in STRATEGIES:
+                dynamic_row = conn.execute(
+                    "SELECT name FROM dynamic_strategies WHERE name = ?", (strategy,)
+                ).fetchone()
+                if not dynamic_row:
+                    raise HTTPException(status_code=400, detail=f"Unknown strategy: {strategy}")
+
+            new_count, _ = calculate_signals_incremental(conn, strategy, SYMBOL, 'unified', 'backtest_candles')
 
             return {
                 "strategy": strategy,
-                "source": source,
                 "new_signals": new_count,
                 "message": f"Generated {new_count} new signal(s)"
             }
@@ -875,7 +929,7 @@ def calculate_signals_endpoint(
 def list_strategies():
     """List all available strategies with their display metadata (Python + dynamic)"""
     try:
-        _, _, _, _, _, STRATEGIES = get_signal_calculator()
+        _, _, _, _, _, _, STRATEGIES = get_signal_calculator()
         from strategies.dynamic import create_dynamic_strategy
 
         with get_db() as conn:
@@ -921,26 +975,29 @@ def list_strategies():
 
 @app.post("/api/signals/recalculate")
 def recalculate_signals(
-    strategy: Optional[str] = Query(default=None, description="Strategy name to recalculate (all if not specified)"),
-    data_source: str = Query(default="realtime", description="'realtime' or 'backtest'")
+    strategy: Optional[str] = Query(default=None, description="Strategy name to recalculate (all if not specified)")
 ):
     """
-    Force full recalculation of signals. Use after strategy code changes.
+    Force full recalculation of signals from backtest_candles (single source of truth).
+    Use in backtesting to catch missed signals when backend wasn't running.
     Does NOT send notifications (safe to use anytime).
     """
     try:
-        _, _, _, recalculate_strategy_fn, recalculate_all_strategies_fn, STRATEGIES = get_signal_calculator()
-
-        candles_table = 'candles' if data_source == 'realtime' else 'backtest_candles'
+        _, _, _, recalculate_strategy_fn, recalculate_all_strategies_fn, _, STRATEGIES = get_signal_calculator()
 
         with get_db() as conn:
             if strategy:
                 if strategy not in STRATEGIES:
-                    raise HTTPException(status_code=404, detail=f"Strategy not found: {strategy}")
-                count = recalculate_strategy_fn(conn, strategy, SYMBOL, data_source, candles_table)
+                    # Check if it's a dynamic strategy
+                    dynamic_row = conn.execute(
+                        "SELECT name FROM dynamic_strategies WHERE name = ?", (strategy,)
+                    ).fetchone()
+                    if not dynamic_row:
+                        raise HTTPException(status_code=404, detail=f"Strategy not found: {strategy}")
+                count = recalculate_strategy_fn(conn, strategy, SYMBOL)
                 return {"strategy": strategy, "signals_count": count, "message": "Recalculation complete (no notifications sent)"}
             else:
-                results = recalculate_all_strategies_fn(conn, SYMBOL, data_source, candles_table)
+                results = recalculate_all_strategies_fn(conn, SYMBOL)
                 total = sum(results.values())
                 return {"strategies": results, "total_signals": total, "message": "Recalculation complete (no notifications sent)"}
     except HTTPException:
@@ -981,7 +1038,7 @@ def create_dynamic_strategy_endpoint(body: DynamicStrategyCreate):
         display_name = generate_display_name(config)
 
         # Check if name already exists
-        _, _, _, _, _, STRATEGIES = get_signal_calculator()
+        _, _, _, _, _, _, STRATEGIES = get_signal_calculator()
         with get_db() as conn:
             existing = conn.execute(
                 "SELECT name FROM dynamic_strategies WHERE name = ?", (name,)
@@ -1007,11 +1064,11 @@ def create_dynamic_strategy_endpoint(body: DynamicStrategyCreate):
             )
             conn.commit()
 
-        # Run backtest calculation
-        calculate_signals_incremental, _, _, _, _, _ = get_signal_calculator()
+        # Run initial signal calculation from full history
+        calculate_signals_incremental, _, _, _, _, _, _ = get_signal_calculator()
         with get_db() as conn:
             new_signals, _ = calculate_signals_incremental(
-                conn, name, SYMBOL, 'backtest', 'backtest_candles',
+                conn, name, SYMBOL, 'unified', 'backtest_candles',
                 strategy_instance=strategy
             )
 
@@ -1115,10 +1172,16 @@ def delete_dynamic_strategy(name: str):
 def archive_strategy(strategy_name: str):
     """Archive a strategy (hide from Real Time and Backtesting)"""
     try:
-        _, _, _, _, _, STRATEGIES = get_signal_calculator()
+        _, _, _, _, _, _, STRATEGIES = get_signal_calculator()
 
         if strategy_name not in STRATEGIES:
-            raise HTTPException(status_code=404, detail=f"Strategy not found: {strategy_name}")
+            # Check if it's a dynamic strategy
+            with get_db() as conn:
+                dynamic_row = conn.execute(
+                    "SELECT name FROM dynamic_strategies WHERE name = ?", (strategy_name,)
+                ).fetchone()
+                if not dynamic_row:
+                    raise HTTPException(status_code=404, detail=f"Strategy not found: {strategy_name}")
 
         with get_db() as conn:
             conn.execute(
@@ -1138,10 +1201,16 @@ def archive_strategy(strategy_name: str):
 def unarchive_strategy(strategy_name: str):
     """Unarchive a strategy (restore to Real Time and Backtesting)"""
     try:
-        _, _, _, _, _, STRATEGIES = get_signal_calculator()
+        _, _, _, _, _, _, STRATEGIES = get_signal_calculator()
 
         if strategy_name not in STRATEGIES:
-            raise HTTPException(status_code=404, detail=f"Strategy not found: {strategy_name}")
+            # Check if it's a dynamic strategy
+            with get_db() as conn:
+                dynamic_row = conn.execute(
+                    "SELECT name FROM dynamic_strategies WHERE name = ?", (strategy_name,)
+                ).fetchone()
+                if not dynamic_row:
+                    raise HTTPException(status_code=404, detail=f"Strategy not found: {strategy_name}")
 
         with get_db() as conn:
             conn.execute(
@@ -1185,7 +1254,7 @@ def get_kpis(
     try:
         from kpi_calculator import calculate_kpis
 
-        _, get_signals_from_db, _, _, _, STRATEGIES = get_signal_calculator()
+        _, get_signals_from_db, _, _, _, _, STRATEGIES = get_signal_calculator()
 
         # Check if strategy exists (Python or dynamic)
         with get_db() as conn:
@@ -1223,7 +1292,7 @@ def get_all_kpis(
         from kpi_calculator import calculate_kpis
         from strategies.dynamic import create_dynamic_strategy
 
-        _, get_signals_from_db, _, _, _, STRATEGIES = get_signal_calculator()
+        _, get_signals_from_db, _, _, _, _, STRATEGIES = get_signal_calculator()
 
         results = []
         with get_db() as conn:
@@ -1368,7 +1437,7 @@ async def test_strategy_notification(strategy_name: str):
     """Send a test notification for a strategy"""
     try:
         # Get strategy display name
-        _, _, _, _, _, STRATEGIES = get_signal_calculator()
+        _, _, _, _, _, _, STRATEGIES = get_signal_calculator()
         strategy_class = STRATEGIES.get(strategy_name)
         if not strategy_class:
             raise HTTPException(status_code=404, detail=f"Strategy {strategy_name} not found")

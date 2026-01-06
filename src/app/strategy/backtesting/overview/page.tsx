@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { Search, Plus } from 'lucide-react';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Switch } from '@/components/ui/switch';
@@ -10,6 +10,7 @@ import { KPIOverviewTable } from '@/components/kpi/kpi-overview-table';
 import { StrategyCreationModal } from '@/components/strategy/strategy-creation-modal';
 import { useHistoricalData } from '@/app/exploration/historical/historical-context';
 import { useAllKPIs } from '@/hooks/useKPIs';
+import { useStrategies } from '@/hooks/useStrategies';
 import { strategyEvents } from '@/lib/strategy-events';
 
 export default function BacktestingOverviewPage() {
@@ -33,18 +34,28 @@ export default function BacktestingOverviewPage() {
   const endTs = endDate ? Math.floor(new Date(endDate).setHours(23, 59, 59, 999) / 1000) : undefined;
 
   // Fetch KPIs for all strategies
-  const { data: kpisData, isLoading: kpisLoading, refetch } = useAllKPIs({
+  const { data: kpisData, isLoading: kpisLoading, refetch, updateStrategyArchived } = useAllKPIs({
     startTs,
     endTs,
     enabled: !dataLoading,
   });
 
-  // Listen for strategy archive/unarchive events
-  useEffect(() => {
-    return strategyEvents.subscribe(() => {
-      refetch();
-    });
-  }, [refetch]);
+  // Get archive/unarchive functions from useStrategies
+  const { archiveStrategy, unarchiveStrategy } = useStrategies();
+
+  const handleArchive = useCallback(async (strategyName: string) => {
+    // Optimistic update - immediately update UI
+    updateStrategyArchived(strategyName, true);
+    // Then call API in background
+    await archiveStrategy(strategyName);
+  }, [archiveStrategy, updateStrategyArchived]);
+
+  const handleUnarchive = useCallback(async (strategyName: string) => {
+    // Optimistic update - immediately update UI
+    updateStrategyArchived(strategyName, false);
+    // Then call API in background
+    await unarchiveStrategy(strategyName);
+  }, [unarchiveStrategy, updateStrategyArchived]);
 
   // Handle year range selection (year=0 means "All")
   const handleYearRangeSelect = useCallback((year: number) => {
@@ -178,10 +189,12 @@ export default function BacktestingOverviewPage() {
         <div className="flex-1 min-h-0 overflow-auto">
           <KPIOverviewTable
             data={kpisData}
-            isLoading={kpisLoading}
+            isLoading={kpisLoading || dataLoading}
             showArchived={showArchived}
             searchQuery={searchQuery}
             onAddStrategy={() => setStrategyModalOpen(true)}
+            onArchive={handleArchive}
+            onUnarchive={handleUnarchive}
           />
         </div>
       </div>

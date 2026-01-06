@@ -271,49 +271,226 @@ def calculate_signals_incremental(
 
 def calculate_all_strategies(conn: sqlite3.Connection, symbol: str, data_source: str, candles_table: str) -> Dict[str, tuple[int, List[Signal]]]:
     """
-    Calculate signals for all registered strategies.
+    Calculate signals for all registered strategies (hardcoded + dynamic).
 
     Returns:
         Dict mapping strategy name to tuple of (count, new signals list)
     """
     results = {}
+
+    # Hardcoded strategies
     for strategy_name in STRATEGIES:
         count, signals = calculate_signals_incremental(conn, strategy_name, symbol, data_source, candles_table)
         results[strategy_name] = (count, signals)
+
+    # Dynamic strategies from database
+    dynamic_rows = conn.execute("SELECT name FROM dynamic_strategies").fetchall()
+    for row in dynamic_rows:
+        strategy_name = row['name'] if isinstance(row, dict) else row[0]
+        count, signals = calculate_signals_incremental(conn, strategy_name, symbol, data_source, candles_table)
+        results[strategy_name] = (count, signals)
+
     return results
 
 
-def recalculate_strategy(conn: sqlite3.Connection, strategy_name: str, symbol: str, data_source: str, candles_table: str) -> int:
+def recalculate_strategy(conn: sqlite3.Connection, strategy_name: str, symbol: str, data_source: str = 'unified', candles_table: str = 'backtest_candles') -> int:
     """
     Force full recalculation of a strategy by clearing its state first.
-    Used when strategy code changes or for manual recalculation.
+    Used for manual recalculation in backtesting to catch missed signals.
     Does NOT return signals to prevent notification spam.
+
+    Uses backtest_candles as the single source of truth.
 
     Returns:
         Number of signals calculated
     """
-    # Clear existing state and signals for this strategy
-    conn.execute("DELETE FROM signal_processing_state WHERE strategy_name = ? AND symbol = ? AND data_source = ?",
-                 (strategy_name, symbol, data_source))
+    # Clear existing state (unified) and signals for this strategy
+    conn.execute("DELETE FROM signal_processing_state WHERE strategy_name = ? AND symbol = ?",
+                 (strategy_name, symbol))
     conn.execute("DELETE FROM signals WHERE strategy_name = ? AND symbol = ?", (strategy_name, symbol))
     conn.commit()
 
-    # Recalculate (will do full calculation since state was cleared)
-    count, _ = calculate_signals_incremental(conn, strategy_name, symbol, data_source, candles_table)
+    # Recalculate from full history using backtest_candles
+    count, _ = calculate_signals_incremental(conn, strategy_name, symbol, 'unified', 'backtest_candles')
     return count
 
 
-def recalculate_all_strategies(conn: sqlite3.Connection, symbol: str, data_source: str, candles_table: str) -> Dict[str, int]:
+def recalculate_all_strategies(conn: sqlite3.Connection, symbol: str) -> Dict[str, int]:
     """
-    Force full recalculation of ALL strategies.
+    Force full recalculation of ALL strategies (hardcoded + dynamic).
     Used on startup or after strategy code changes.
     Does NOT return signals to prevent notification spam.
+
+    Uses backtest_candles as the single source of truth.
 
     Returns:
         Dict mapping strategy name to signal count
     """
     results = {}
+
+    # Hardcoded strategies
     for strategy_name in STRATEGIES:
-        count = recalculate_strategy(conn, strategy_name, symbol, data_source, candles_table)
+        count = recalculate_strategy(conn, strategy_name, symbol)
         results[strategy_name] = count
+
+    # Dynamic strategies from database
+    dynamic_rows = conn.execute("SELECT name FROM dynamic_strategies").fetchall()
+    for row in dynamic_rows:
+        strategy_name = row[0]
+        count = recalculate_strategy(conn, strategy_name, symbol)
+        results[strategy_name] = count
+
+    return results
+
+
+# ==================== NEW: Optimized signal check on latest candle ====================
+
+def get_strategy_state(conn: sqlite3.Connection, strategy_name: str, symbol: str) -> Optional[Dict]:
+    """Get the current state for a strategy (unified, no data_source distinction)"""
+    cursor = conn.execute("""
+        SELECT last_processed_timestamp, last_signal_state
+        FROM signal_processing_state
+        WHERE strategy_name = ? AND symbol = ? AND data_source = 'unified'
+    """, (strategy_name, symbol))
+    row = cursor.fetchone()
+    if row:
+        return {
+            'last_processed_timestamp': row[0],
+            'state': json.loads(row[1]) if row[1] else {}
+        }
+    return None
+
+
+def save_strategy_state(conn: sqlite3.Connection, strategy_name: str, symbol: str,
+                        last_timestamp: int, state: Dict):
+    """Save the strategy state (unified)"""
+    conn.execute("""
+        INSERT OR REPLACE INTO signal_processing_state
+        (strategy_name, symbol, data_source, last_processed_timestamp, last_signal_state, updated_at)
+        VALUES (?, ?, 'unified', ?, ?, strftime('%s', 'now'))
+    """, (strategy_name, symbol, last_timestamp, json.dumps(state)))
+    conn.commit()
+
+
+def check_signal_on_latest_candle(
+    conn: sqlite3.Connection,
+    strategy_name: str,
+    symbol: str
+) -> Optional[Signal]:
+    """
+    Check if a signal should be generated on the latest candle.
+
+    Optimized: Only checks what's needed based on current state:
+    - If no position open → only check buy conditions
+    - If position open → only check sell conditions
+
+    Uses backtest_candles as the single source of truth.
+
+    Returns:
+        Signal if one should be generated, None otherwise
+    """
+    # Get strategy instance
+    strategy = get_strategy(strategy_name, conn)
+
+    # Get current state
+    proc_state = get_strategy_state(conn, strategy_name, symbol)
+
+    if proc_state:
+        last_timestamp = proc_state['last_processed_timestamp']
+        current_state = proc_state['state']
+    else:
+        last_timestamp = 0
+        current_state = None
+
+    # Check if we have an open position
+    has_position = current_state and current_state.get('position') is not None
+
+    # Fetch lookback candles + new candles from backtest_candles
+    lookback_start = last_timestamp - (strategy.required_lookback * 3600 * 2) if last_timestamp > 0 else 0
+
+    query = """
+        SELECT timestamp, open, high, low, close, volume
+        FROM backtest_candles
+        WHERE symbol = ? AND timestamp >= ?
+        ORDER BY timestamp ASC
+    """
+    rows = conn.execute(query, (symbol, lookback_start)).fetchall()
+
+    if not rows:
+        return None
+
+    candles = [
+        {
+            'time': row[0],
+            'open': row[1],
+            'high': row[2],
+            'low': row[3],
+            'close': row[4],
+            'volume': row[5]
+        }
+        for row in rows
+    ]
+
+    latest_candle = candles[-1]
+
+    # Skip if we've already processed this candle
+    if latest_candle['time'] <= last_timestamp:
+        return None
+
+    # Calculate signals using the strategy
+    signals, final_state = strategy.calculate_signals(candles, current_state)
+
+    # Filter to only get signals for the latest candle (or after last processed)
+    new_signals = [s for s in signals if s.signal_timestamp > last_timestamp]
+
+    # Save updated state
+    save_strategy_state(conn, strategy_name, symbol, latest_candle['time'], final_state)
+
+    # Return the first new signal (if any) and save it
+    if new_signals:
+        signal = new_signals[0]  # Should typically be just one for latest candle
+        # Save to signals table
+        cursor = conn.execute("""
+            INSERT OR IGNORE INTO signals
+            (strategy_name, symbol, signal_timestamp, trigger_timestamp, type, price, label, metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            strategy_name,
+            symbol,
+            signal.signal_timestamp,
+            signal.trigger_timestamp,
+            signal.type,
+            signal.price,
+            signal.label,
+            json.dumps(signal.metadata) if signal.metadata else None
+        ))
+        conn.commit()
+
+        if cursor.rowcount > 0:
+            return signal
+
+    return None
+
+
+def check_all_strategies_latest_candle(conn: sqlite3.Connection, symbol: str) -> Dict[str, Optional[Signal]]:
+    """
+    Check all strategies (hardcoded + dynamic) for signals on the latest candle.
+
+    Returns:
+        Dict mapping strategy name to Signal (or None if no signal)
+    """
+    results = {}
+
+    # Hardcoded strategies
+    for strategy_name in STRATEGIES:
+        signal = check_signal_on_latest_candle(conn, strategy_name, symbol)
+        results[strategy_name] = signal
+
+    # Dynamic strategies from database
+    dynamic_rows = conn.execute("SELECT name FROM dynamic_strategies").fetchall()
+    for row in dynamic_rows:
+        strategy_name = row[0]
+        signal = check_signal_on_latest_candle(conn, strategy_name, symbol)
+        results[strategy_name] = signal
+
     return results

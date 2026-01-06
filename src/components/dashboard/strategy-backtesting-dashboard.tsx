@@ -1,42 +1,70 @@
 'use client';
 
-import { useMemo, useCallback } from 'react';
-import { Info } from 'lucide-react';
+import { useMemo, useCallback, useState } from 'react';
+import { Info, RefreshCw } from 'lucide-react';
 import { MemoizedCandlestickChart } from '@/components/chart/candlestick-chart';
 import { DatePicker } from '@/components/ui/date-picker';
 import { KPITiles } from '@/components/kpi/kpi-tiles';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Button } from '@/components/ui/button';
 import { useHistoricalData } from '@/app/exploration/historical/historical-context';
 import { Signal } from '@/types/market';
 import { KPIs } from '@/hooks/useKPIs';
 
 interface StrategyBacktestingDashboardProps {
   strategyName: string;
+  strategySlug: string;
   strategyDescription?: string;
   showBollinger?: boolean;
   showMACD?: boolean;
   showIchimoku?: boolean;
   showMovingAverages?: boolean;
   showRSI?: boolean;
+  maPeriods?: number[];
   signals: Signal[];
   signalsLoading?: boolean;
   kpis?: KPIs | null;
   kpisLoading?: boolean;
+  onRefresh?: () => void;
 }
 
 export function StrategyBacktestingDashboard({
   strategyName,
+  strategySlug,
   strategyDescription,
   showBollinger = false,
   showMACD = false,
   showIchimoku = false,
   showMovingAverages = false,
   showRSI = false,
+  maPeriods = [],
   signals,
   signalsLoading = false,
   kpis,
   kpisLoading = false,
+  onRefresh,
 }: StrategyBacktestingDashboardProps) {
+  const [isUpdating, setIsUpdating] = useState(false);
+
+  const handleUpdate = useCallback(async () => {
+    setIsUpdating(true);
+    try {
+      const response = await fetch(
+        `http://localhost:8000/api/signals/recalculate?strategy=${encodeURIComponent(strategySlug)}`,
+        { method: 'POST' }
+      );
+      if (!response.ok) {
+        throw new Error('Failed to recalculate signals');
+      }
+      // Refresh signals and KPIs
+      onRefresh?.();
+    } catch (error) {
+      console.error('Error updating signals:', error);
+    } finally {
+      setIsUpdating(false);
+    }
+  }, [strategySlug, onRefresh]);
+
   const {
     data,
     isLoading,
@@ -158,14 +186,25 @@ export function StrategyBacktestingDashboard({
               {dataInfo.count.toLocaleString()} candles
             </span>
           )}
-          <div
-            className={`w-1.5 h-1.5 rounded-full ${
-              error ? 'bg-red-500' :
-              isLoading ? 'bg-yellow-500 animate-pulse' :
-              'bg-emerald-500'
-            }`}
-            title={error ? 'Error' : isLoading ? 'Loading...' : 'Data loaded'}
-          />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleUpdate}
+                disabled={isUpdating || isLoading}
+                className="h-6 w-6 p-0"
+              >
+                <RefreshCw
+                  size={12}
+                  className={isUpdating ? 'animate-spin' : ''}
+                />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              Recalculate signals with latest data
+            </TooltipContent>
+          </Tooltip>
         </div>
       </header>
 
@@ -186,6 +225,7 @@ export function StrategyBacktestingDashboard({
           showIchimoku={showIchimoku}
           showMovingAverages={showMovingAverages}
           showRSI={showRSI}
+          maPeriods={maPeriods}
           showNavigator={true}
           signals={signals}
           initialZoom={zoomState}

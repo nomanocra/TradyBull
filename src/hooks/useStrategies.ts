@@ -13,6 +13,7 @@ export interface StrategyConfig {
   show_moving_averages: boolean;
   show_rsi: boolean;
   is_archived: boolean;
+  ma_periods: number[];   // Specific MA periods to display (e.g., [50, 200])
 }
 
 interface UseStrategiesResult {
@@ -121,14 +122,17 @@ export function useStrategies(): UseStrategiesResult {
     }
   }, [fetchStrategies]);
 
-  // Separate active and archived strategies
-  const strategies = allStrategies.filter(s => !s.is_archived);
-  const archivedStrategies = allStrategies.filter(s => s.is_archived);
+  // Separate active and archived strategies, sorted alphabetically by display_name
+  const sortByDisplayName = (a: StrategyConfig, b: StrategyConfig) =>
+    a.display_name.localeCompare(b.display_name);
+
+  const strategies = allStrategies.filter(s => !s.is_archived).sort(sortByDisplayName);
+  const archivedStrategies = allStrategies.filter(s => s.is_archived).sort(sortByDisplayName);
 
   return {
     strategies,
     archivedStrategies,
-    allStrategies,
+    allStrategies: [...allStrategies].sort(sortByDisplayName),
     isLoading,
     error,
     archiveStrategy,

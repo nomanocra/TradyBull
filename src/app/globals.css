@@ -45,7 +45,7 @@
 }
 
 :root {
-  --radius: 4px;
+  --radius: 6px;
   --brand: #996633;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
@@ -133,4 +133,21 @@
   [role="option"] {
     cursor: pointer;
   }
+  /* Time input styling for dark mode */
+  input[type="time"]::-webkit-calendar-picker-indicator {
+    filter: invert(0);
+    cursor: pointer;
+  }
+  .dark input[type="time"]::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+  }
+}
+
+/* Time picker popup (webkit browsers) */
+input[type="time"]::-webkit-datetime-edit {
+  color: var(--foreground);
+}
+
+::-webkit-datetime-edit-fields-wrapper {
+  background-color: transparent;
 }

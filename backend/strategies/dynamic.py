@@ -5,7 +5,7 @@ Allows users to create strategies without writing Python code.
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from .base import BaseStrategy, Signal, StrategyDisplayConfig
-from market_hours import is_last_candle_of_day, is_too_close_to_close, get_paris_hour
+from market_hours import is_last_candle_of_day, is_too_close_to_close, is_first_candle_of_session, get_paris_hour
 
 
 @dataclass
@@ -51,6 +51,9 @@ class DynamicStrategy(BaseStrategy):
     ICHIMOKU_TENKAN = 9
     ICHIMOKU_KIJUN = 26
     ICHIMOKU_SENKOU_B = 52
+    RSI_PERIOD = 14
+    RSI_OVERSOLD = 20
+    RSI_OVERBOUGHT = 80
 
     def __init__(self, config: DynamicStrategyConfig):
         self.config = config
@@ -66,14 +69,26 @@ class DynamicStrategy(BaseStrategy):
         indicator = self.config.indicator
         indicator_type = indicator.get('type') if indicator else None
 
+        # Collect specific MA periods used by this strategy
+        ma_periods_set = set()
+        if self.config.ma_trend:
+            ma_periods_set.add(self.config.ma_trend)
+        if self.config.value_above_ma:
+            ma_periods_set.add(self.config.value_above_ma)
+        if self.config.ma_cross:
+            ma_periods_set.add(self.config.ma_cross['fast'])
+            ma_periods_set.add(self.config.ma_cross['slow'])
+        ma_periods = sorted(ma_periods_set)
+
         return StrategyDisplayConfig(
             display_name=self._display_name,
             description=self._generate_description(),
             show_bollinger=indicator_type == 'bollinger',
             show_macd=indicator_type in ('macd-cross', 'macd-zero', 'macd-histogram'),
             show_ichimoku=indicator_type in ('ichimoku-kumo', 'ichimoku-tk'),
-            show_moving_averages=bool(self.config.ma_trend or self.config.value_above_ma or self.config.ma_cross),
-            show_rsi=False,
+            show_moving_averages=len(ma_periods) > 0,
+            show_rsi=indicator_type in ('rsi-trend', 'rsi-early', 'rsi-late', 'rsi-large', 'rsi-small'),
+            ma_periods=ma_periods,
         )
 
     @property
@@ -98,6 +113,8 @@ class DynamicStrategy(BaseStrategy):
                 lookback = max(lookback, self.MACD_SLOW + self.MACD_SIGNAL + 10)
             elif ind_type in ('ichimoku-kumo', 'ichimoku-tk'):
                 lookback = max(lookback, self.ICHIMOKU_SENKOU_B + 30)
+            elif ind_type in ('rsi-trend', 'rsi-early', 'rsi-late', 'rsi-large', 'rsi-small'):
+                lookback = max(lookback, self.RSI_PERIOD + 10)
 
         return lookback
 
@@ -284,6 +301,46 @@ class DynamicStrategy(BaseStrategy):
             'senkou_b': senkou_b,
         }
 
+    def _calculate_rsi(self, closes: List[float]) -> List[Optional[float]]:
+        """Relative Strength Index"""
+        n = len(closes)
+        rsi: List[Optional[float]] = [None] * n
+
+        if n < self.RSI_PERIOD + 1:
+            return rsi
+
+        # Calculate price changes
+        changes = [0.0] * n
+        for i in range(1, n):
+            changes[i] = closes[i] - closes[i - 1]
+
+        # Initial average gain/loss
+        gains = [max(0, c) for c in changes]
+        losses = [abs(min(0, c)) for c in changes]
+
+        avg_gain = sum(gains[1:self.RSI_PERIOD + 1]) / self.RSI_PERIOD
+        avg_loss = sum(losses[1:self.RSI_PERIOD + 1]) / self.RSI_PERIOD
+
+        # First RSI value
+        if avg_loss == 0:
+            rsi[self.RSI_PERIOD] = 100.0
+        else:
+            rs = avg_gain / avg_loss
+            rsi[self.RSI_PERIOD] = 100 - (100 / (1 + rs))
+
+        # Subsequent values using smoothed averages
+        for i in range(self.RSI_PERIOD + 1, n):
+            avg_gain = (avg_gain * (self.RSI_PERIOD - 1) + gains[i]) / self.RSI_PERIOD
+            avg_loss = (avg_loss * (self.RSI_PERIOD - 1) + losses[i]) / self.RSI_PERIOD
+
+            if avg_loss == 0:
+                rsi[i] = 100.0
+            else:
+                rs = avg_gain / avg_loss
+                rsi[i] = 100 - (100 / (1 + rs))
+
+        return rsi
+
     # ==================== Condition Checks ====================
 
     def _check_indicator_buy(self, candles: List[Dict], i: int, indicators: Dict) -> bool:
@@ -331,8 +388,8 @@ class DynamicStrategy(BaseStrategy):
             histogram = macd.get('histogram', [None] * len(candles))
             if i < 1 or histogram[i] is None or histogram[i - 1] is None:
                 return False
-            # Histogram turning up
-            return histogram[i] > histogram[i - 1] and histogram[i - 1] < 0
+            # Histogram turning up (direction change)
+            return histogram[i] > histogram[i - 1]
 
         elif ind_type == 'ichimoku-kumo':
             ich = indicators.get('ichimoku', {})
@@ -353,6 +410,41 @@ class DynamicStrategy(BaseStrategy):
                 return False
             # Bullish TK cross
             return tenkan[i - 1] <= kijun[i - 1] and tenkan[i] > kijun[i]
+
+        elif ind_type == 'rsi-trend':
+            # Buy when RSI starts rising while below oversold (20)
+            rsi = indicators.get('rsi', [None] * len(candles))
+            if i < 1 or rsi[i] is None or rsi[i - 1] is None:
+                return False
+            return rsi[i] < self.RSI_OVERSOLD and rsi[i] > rsi[i - 1]
+
+        elif ind_type == 'rsi-early':
+            # Buy when entering oversold zone (crosses down into <20)
+            rsi = indicators.get('rsi', [None] * len(candles))
+            if i < 1 or rsi[i] is None or rsi[i - 1] is None:
+                return False
+            return rsi[i - 1] >= self.RSI_OVERSOLD and rsi[i] < self.RSI_OVERSOLD
+
+        elif ind_type == 'rsi-late':
+            # Buy when exiting oversold zone (crosses up out of <20)
+            rsi = indicators.get('rsi', [None] * len(candles))
+            if i < 1 or rsi[i] is None or rsi[i - 1] is None:
+                return False
+            return rsi[i - 1] < self.RSI_OVERSOLD and rsi[i] >= self.RSI_OVERSOLD
+
+        elif ind_type == 'rsi-large':
+            # Buy when entering oversold zone (same as early)
+            rsi = indicators.get('rsi', [None] * len(candles))
+            if i < 1 or rsi[i] is None or rsi[i - 1] is None:
+                return False
+            return rsi[i - 1] >= self.RSI_OVERSOLD and rsi[i] < self.RSI_OVERSOLD
+
+        elif ind_type == 'rsi-small':
+            # Buy when exiting oversold zone (same as late)
+            rsi = indicators.get('rsi', [None] * len(candles))
+            if i < 1 or rsi[i] is None or rsi[i - 1] is None:
+                return False
+            return rsi[i - 1] < self.RSI_OVERSOLD and rsi[i] >= self.RSI_OVERSOLD
 
         return True
 
@@ -401,8 +493,8 @@ class DynamicStrategy(BaseStrategy):
             histogram = macd.get('histogram', [None] * len(candles))
             if i < 1 or histogram[i] is None or histogram[i - 1] is None:
                 return False
-            # Histogram turning down
-            return histogram[i] < histogram[i - 1] and histogram[i - 1] > 0
+            # Histogram turning down (direction change)
+            return histogram[i] < histogram[i - 1]
 
         elif ind_type == 'ichimoku-kumo':
             ich = indicators.get('ichimoku', {})
@@ -423,6 +515,41 @@ class DynamicStrategy(BaseStrategy):
                 return False
             # Bearish TK cross
             return tenkan[i - 1] >= kijun[i - 1] and tenkan[i] < kijun[i]
+
+        elif ind_type == 'rsi-trend':
+            # Sell when RSI starts falling while above overbought (80)
+            rsi = indicators.get('rsi', [None] * len(candles))
+            if i < 1 or rsi[i] is None or rsi[i - 1] is None:
+                return False
+            return rsi[i] > self.RSI_OVERBOUGHT and rsi[i] < rsi[i - 1]
+
+        elif ind_type == 'rsi-early':
+            # Sell when entering overbought zone (crosses up into >80)
+            rsi = indicators.get('rsi', [None] * len(candles))
+            if i < 1 or rsi[i] is None or rsi[i - 1] is None:
+                return False
+            return rsi[i - 1] <= self.RSI_OVERBOUGHT and rsi[i] > self.RSI_OVERBOUGHT
+
+        elif ind_type == 'rsi-late':
+            # Sell when exiting overbought zone (crosses down out of >80)
+            rsi = indicators.get('rsi', [None] * len(candles))
+            if i < 1 or rsi[i] is None or rsi[i - 1] is None:
+                return False
+            return rsi[i - 1] > self.RSI_OVERBOUGHT and rsi[i] <= self.RSI_OVERBOUGHT
+
+        elif ind_type == 'rsi-large':
+            # Sell when exiting overbought zone (crosses down out of >80)
+            rsi = indicators.get('rsi', [None] * len(candles))
+            if i < 1 or rsi[i] is None or rsi[i - 1] is None:
+                return False
+            return rsi[i - 1] > self.RSI_OVERBOUGHT and rsi[i] <= self.RSI_OVERBOUGHT
+
+        elif ind_type == 'rsi-small':
+            # Sell when entering overbought zone (crosses up into >80)
+            rsi = indicators.get('rsi', [None] * len(candles))
+            if i < 1 or rsi[i] is None or rsi[i - 1] is None:
+                return False
+            return rsi[i - 1] <= self.RSI_OVERBOUGHT and rsi[i] > self.RSI_OVERBOUGHT
 
         return False
 
@@ -560,6 +687,8 @@ class DynamicStrategy(BaseStrategy):
                 indicators['macd'] = self._calculate_macd(closes)
             elif ind_type in ('ichimoku-kumo', 'ichimoku-tk'):
                 indicators['ichimoku'] = self._calculate_ichimoku(candles)
+            elif ind_type in ('rsi-trend', 'rsi-early', 'rsi-late', 'rsi-large', 'rsi-small'):
+                indicators['rsi'] = self._calculate_rsi(closes)
 
         signals: List[Signal] = []
         start_index = self.required_lookback
@@ -598,6 +727,7 @@ class DynamicStrategy(BaseStrategy):
                 elif self.config.intraday in ('daily', 'multi-daily'):
                     if is_last_candle_of_day(timestamp):
                         should_sell = True
+                        sell_on_current = True  # Show marker on close candle, not next session
                         sell_label = 'EOD'
 
                 # 3. MA conditions (symmetric sell)
@@ -662,9 +792,20 @@ class DynamicStrategy(BaseStrategy):
                     can_buy = False
 
                 if can_buy:
-                    buy_price = next_candle['open']
+                    # For intraday strategies on first candle of session (00:00 Paris),
+                    # enter on current candle's open (market just opened)
+                    is_first = is_first_candle_of_session(timestamp)
+                    is_intraday = self.config.intraday in ('daily', 'multi-daily')
+                    if is_intraday and is_first:
+                        print(f"[DEBUG] First candle buy at ts={timestamp}, intraday={self.config.intraday}")
+                        buy_price = candle['open']
+                        signal_ts = timestamp
+                    else:
+                        buy_price = next_candle['open']
+                        signal_ts = next_candle['time']
+
                     signals.append(Signal(
-                        signal_timestamp=next_candle['time'],
+                        signal_timestamp=signal_ts,
                         trigger_timestamp=timestamp,
                         type='buy',
                         price=buy_price,
@@ -673,7 +814,7 @@ class DynamicStrategy(BaseStrategy):
                     ))
                     position = {
                         'buy_price': buy_price,
-                        'buy_time': next_candle['time'],
+                        'buy_time': signal_ts,
                     }
                     traded_dates.add(date_str)
 
@@ -728,9 +869,9 @@ def generate_strategy_name(config: Dict[str, Any]) -> str:
     # Intraday
     intraday = config.get('intraday', 'none')
     if intraday == 'daily':
-        parts.append('daily')
+        parts.append('intrad-single')
     elif intraday == 'multi-daily':
-        parts.append('multid')
+        parts.append('intrad-multi')
 
     # Time constraint
     tc = config.get('time_constraint')
@@ -786,9 +927,9 @@ def generate_display_name(config: Dict[str, Any]) -> str:
     # Intraday
     intraday = config.get('intraday', 'none')
     if intraday == 'daily':
-        parts.append('Daily')
+        parts.append('IntraD-Single')
     elif intraday == 'multi-daily':
-        parts.append('MultiD')
+        parts.append('IntraD-Multi')
 
     # Time constraint
     tc = config.get('time_constraint')

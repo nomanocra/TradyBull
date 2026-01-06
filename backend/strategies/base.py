@@ -31,6 +31,7 @@ class StrategyDisplayConfig:
     show_ichimoku: bool = False
     show_moving_averages: bool = False
     show_rsi: bool = False
+    ma_periods: List[int] = field(default_factory=list)  # Specific MA periods to display (e.g., [50, 200])
 
 
 class BaseStrategy(ABC):
@@ -84,4 +85,5 @@ class BaseStrategy(ABC):
             'show_ichimoku': config.show_ichimoku,
             'show_moving_averages': config.show_moving_averages,
             'show_rsi': config.show_rsi,
+            'ma_periods': config.ma_periods,
         }

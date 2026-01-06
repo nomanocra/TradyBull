@@ -1,11 +1,13 @@
 'use client';
 
 import { ReactNode } from 'react';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 interface GroupButtonOption {
   value: string;
   label: string;
   icon?: ReactNode;
+  description?: string;
 }
 
 interface GroupButtonProps {
@@ -18,16 +20,16 @@ interface GroupButtonProps {
 export function GroupButton({ options, value, onChange, className = '' }: GroupButtonProps) {
   return (
     <div
-      className={`inline-flex h-7 bg-gray-100 dark:bg-[#252525] rounded-[2px] p-0.5 ${className}`}
+      className={`inline-flex flex-wrap gap-0.5 bg-gray-100 dark:bg-[#252525] rounded-md p-0.5 ${className}`}
     >
       {options.map((option) => {
         const isActive = option.value === value;
-        return (
+        const button = (
           <button
             key={option.value}
             onClick={() => onChange(option.value)}
             className={`
-              flex items-center justify-center gap-1.5 px-2.5 text-[10px] font-medium rounded-[2px]
+              flex items-center justify-center gap-1.5 px-2.5 h-6 text-[10px] font-medium rounded-md
               transition-all duration-200 cursor-pointer whitespace-nowrap
               ${isActive
                 ? 'bg-brand text-white dark:text-[#0d0d0d] shadow-sm'
@@ -39,6 +41,19 @@ export function GroupButton({ options, value, onChange, className = '' }: GroupB
             {option.label}
           </button>
         );
+
+        if (option.description) {
+          return (
+            <Tooltip key={option.value}>
+              <TooltipTrigger asChild>{button}</TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-[250px]">
+                {option.description}
+              </TooltipContent>
+            </Tooltip>
+          );
+        }
+
+        return button;
       })}
     </div>
   );

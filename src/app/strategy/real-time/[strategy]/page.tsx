@@ -37,6 +37,7 @@ export default function StrategyRealtimePage() {
       showIchimoku={strategyConfig.show_ichimoku}
       showMovingAverages={strategyConfig.show_moving_averages}
       showRSI={strategyConfig.show_rsi}
+      maPeriods={strategyConfig.ma_periods}
       signals={strategySignals}
     />
   );

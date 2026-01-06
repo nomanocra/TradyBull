@@ -2,10 +2,11 @@
 
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
-import { ArrowUpDown, ArrowUp, ArrowDown, Plus, LineChart } from 'lucide-react';
+import { ArrowUpDown, ArrowUp, ArrowDown, Plus, LineChart, Archive, ArchiveRestore } from 'lucide-react';
 import { StrategyKPIData } from '@/hooks/useKPIs';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 type SortKey =
   | 'display_name'
@@ -27,6 +28,8 @@ interface KPIOverviewTableProps {
   showArchived?: boolean;
   searchQuery?: string;
   onAddStrategy?: () => void;
+  onArchive?: (strategyName: string) => void;
+  onUnarchive?: (strategyName: string) => void;
 }
 
 function formatDuration(hours: number): string {
@@ -103,7 +106,7 @@ const columns: { key: SortKey; label: string; numeric: boolean }[] = [
   { key: 'avg_trade_duration_hours', label: 'Avg Duration', numeric: true },
 ];
 
-export function KPIOverviewTable({ data, isLoading, showArchived = false, searchQuery = '', onAddStrategy }: KPIOverviewTableProps) {
+export function KPIOverviewTable({ data, isLoading, showArchived = false, searchQuery = '', onAddStrategy, onArchive, onUnarchive }: KPIOverviewTableProps) {
   const [sortKey, setSortKey] = useState<SortKey>('score');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
@@ -222,7 +225,8 @@ export function KPIOverviewTable({ data, isLoading, showArchived = false, search
     );
   }
 
-  if (!sortedData.length) {
+  // Only show empty state if we have no data at all (not just filtered out)
+  if (!sortedData.length && data.length === 0) {
     return (
       <div className="h-full flex items-center justify-center">
         <div className="text-center flex flex-col items-center">
@@ -243,14 +247,14 @@ export function KPIOverviewTable({ data, isLoading, showArchived = false, search
   return (
     <div className="border border-border overflow-auto h-full">
       <table className="w-full text-sm">
-          <thead className="sticky top-0 z-10">
+          <thead className="sticky top-0 z-20">
             <tr className="bg-neutral-100 dark:bg-neutral-900">
-              {columns.map((col) => (
+              {columns.map((col, colIndex) => (
                 <th
                   key={col.key}
                   className={`px-3 py-2.5 font-medium text-muted-foreground cursor-pointer hover:text-foreground transition-colors bg-neutral-100 dark:bg-neutral-900 ${
                     col.numeric ? 'text-right' : 'text-left'
-                  }`}
+                  } ${colIndex === 0 ? 'sticky left-0 z-30 min-w-[280px]' : ''}`}
                   onClick={() => handleSort(col.key)}
                 >
                   <div
@@ -265,20 +269,23 @@ export function KPIOverviewTable({ data, isLoading, showArchived = false, search
                   </div>
                 </th>
               ))}
+              <th className="px-3 py-2.5 bg-neutral-100 dark:bg-neutral-900 w-10 sticky right-0 z-30" />
             </tr>
-            <tr className="sticky top-[37px] z-10">
-              <td colSpan={columns.length} className="h-px bg-border p-0" />
+            <tr className="sticky top-[37px] z-20">
+              <td colSpan={columns.length + 1} className="h-px bg-border p-0" />
             </tr>
           </thead>
           <tbody>
             {sortedData.map((item, index) => (
               <tr
                 key={item.strategy}
-                className={`border-b border-border last:border-b-0 hover:bg-muted/30 transition-colors ${
-                  index % 2 === 0 ? 'bg-card' : 'bg-card/50'
-                }`}
+                className="group transition-colors"
               >
-                <td className="px-3 py-2.5">
+                <td className={`px-3 py-2.5 sticky left-0 z-10 transition-colors min-w-[280px] border-b border-[#e5e5e5] dark:border-[#1a1a1a] ${
+                  index % 2 === 0
+                    ? 'bg-white dark:bg-[#0a0a0a] group-hover:bg-neutral-100 dark:group-hover:bg-neutral-800'
+                    : 'bg-[#fafafa] dark:bg-[#0d0d0d] group-hover:bg-neutral-100 dark:group-hover:bg-neutral-800'
+                }`}>
                   <Link
                     href={`/strategy/backtesting/${item.strategy}`}
                     className={`hover:text-brand transition-colors font-medium ${
@@ -293,15 +300,50 @@ export function KPIOverviewTable({ data, isLoading, showArchived = false, search
                   return (
                     <td
                       key={col.key}
-                      className={`px-3 py-2.5 text-right font-mono ${getColorClass(
+                      className={`px-3 py-2.5 text-right font-mono transition-colors border-b border-[#e5e5e5] dark:border-[#1a1a1a] ${getColorClass(
                         value,
                         col.key
-                      )}`}
+                      )} ${
+                        index % 2 === 0
+                          ? 'bg-white dark:bg-[#0a0a0a] group-hover:bg-neutral-100 dark:group-hover:bg-neutral-800'
+                          : 'bg-[#fafafa] dark:bg-[#0d0d0d] group-hover:bg-neutral-100 dark:group-hover:bg-neutral-800'
+                      }`}
                     >
                       {formatValue(value, col.key)}
                     </td>
                   );
                 })}
+                <td className={`px-2 py-2.5 text-center sticky right-0 z-10 transition-colors border-b border-[#e5e5e5] dark:border-[#1a1a1a] ${
+                  index % 2 === 0
+                    ? 'bg-white dark:bg-[#0a0a0a] group-hover:bg-neutral-100 dark:group-hover:bg-neutral-800'
+                    : 'bg-[#fafafa] dark:bg-[#0d0d0d] group-hover:bg-neutral-100 dark:group-hover:bg-neutral-800'
+                }`}>
+                  {item.is_archived ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={() => onUnarchive?.(item.strategy)}
+                          className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-all opacity-0 group-hover:opacity-100"
+                        >
+                          <ArchiveRestore size={14} />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom">Unarchive</TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={() => onArchive?.(item.strategy)}
+                          className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-all opacity-0 group-hover:opacity-100"
+                        >
+                          <Archive size={14} />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom">Archive</TooltipContent>
+                    </Tooltip>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

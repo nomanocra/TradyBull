@@ -6,7 +6,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
 import { StrategyConfig } from '@/hooks/useStrategies';
 import { NotificationSettings, NotificationSettingsInput } from '@/hooks/useNotifications';
 import { Send } from 'lucide-react';
@@ -37,8 +36,6 @@ export function NotificationModal({
   const [telegramEnabled, setTelegramEnabled] = useState(false);
   const [botToken, setBotToken] = useState('');
   const [chatId, setChatId] = useState('');
-  const [notifyBuy, setNotifyBuy] = useState(true);
-  const [notifySell, setNotifySell] = useState(true);
   const [useTimeWindow, setUseTimeWindow] = useState(false);
   const [timeStart, setTimeStart] = useState('09:00');
   const [timeEnd, setTimeEnd] = useState('22:00');
@@ -57,8 +54,6 @@ export function NotificationModal({
         setTelegramEnabled(existingSettings.telegram_enabled);
         setBotToken(existingSettings.telegram_bot_token || '');
         setChatId(existingSettings.telegram_chat_id || '');
-        setNotifyBuy(existingSettings.notify_buy);
-        setNotifySell(existingSettings.notify_sell);
         setUseTimeWindow(existingSettings.time_start !== '00:00' || existingSettings.time_end !== '23:59');
         setTimeStart(existingSettings.time_start);
         setTimeEnd(existingSettings.time_end);
@@ -68,8 +63,6 @@ export function NotificationModal({
         setTelegramEnabled(false);
         setBotToken('');
         setChatId('');
-        setNotifyBuy(true);
-        setNotifySell(true);
         setUseTimeWindow(false);
         setTimeStart('09:00');
         setTimeEnd('22:00');
@@ -89,8 +82,8 @@ export function NotificationModal({
       telegram_enabled: telegramEnabled,
       telegram_bot_token: telegramEnabled ? botToken : null,
       telegram_chat_id: telegramEnabled ? chatId : null,
-      notify_buy: notifyBuy,
-      notify_sell: notifySell,
+      notify_buy: true,
+      notify_sell: true,
       time_start: useTimeWindow ? timeStart : '00:00',
       time_end: useTimeWindow ? timeEnd : '23:59',
     });
@@ -119,7 +112,7 @@ export function NotificationModal({
     setIsTestingDesktop(false);
   };
 
-  const isValid = selectedStrategy && (desktopEnabled || telegramEnabled) && (notifyBuy || notifySell);
+  const isValid = selectedStrategy && (desktopEnabled || telegramEnabled);
   const telegramConfigValid = !telegramEnabled || (botToken && chatId);
 
   // Filter out strategies that already have notifications (unless editing)
@@ -158,104 +151,80 @@ export function NotificationModal({
             </Select>
           </div>
 
-          {/* Notification Types */}
-          <div className="space-y-1.5">
-            <label className="text-xs text-muted-foreground">Notification Type</label>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs">Desktop</span>
-                <Switch checked={desktopEnabled} onCheckedChange={setDesktopEnabled} />
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs">Telegram</span>
-                <Switch checked={telegramEnabled} onCheckedChange={setTelegramEnabled} />
-              </div>
+          {/* Desktop Notification */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs">Desktop</span>
+              <Switch checked={desktopEnabled} onCheckedChange={setDesktopEnabled} />
             </div>
+            {desktopEnabled && (
+              <div className="space-y-2 p-3 bg-muted/50">
+                <p className="text-xs text-muted-foreground">
+                  Desktop notifications require browser permission.
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleTestDesktop}
+                  disabled={isTestingDesktop}
+                  className="w-full h-7 text-xs"
+                >
+                  <Send size={12} />
+                  {isTestingDesktop ? 'Testing...' : 'Test Notification'}
+                </Button>
+                {desktopTestResult && (
+                  <p className={`text-xs ${desktopTestResult.success ? 'text-emerald-500' : 'text-red-500'}`}>
+                    {desktopTestResult.message}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
-          {/* Desktop Config */}
-          {desktopEnabled && (
-            <div className="space-y-2 p-3 bg-muted/50 rounded">
-              <p className="text-xs text-muted-foreground">
-                Desktop notifications require browser permission.
-              </p>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleTestDesktop}
-                disabled={isTestingDesktop}
-                className="w-full h-7 text-xs"
-              >
-                <Send size={12} />
-                {isTestingDesktop ? 'Testing...' : 'Test Notification'}
-              </Button>
-              {desktopTestResult && (
-                <p className={`text-xs ${desktopTestResult.success ? 'text-emerald-500' : 'text-red-500'}`}>
-                  {desktopTestResult.message}
-                </p>
-              )}
+          {/* Telegram Notification */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs">Telegram</span>
+              <Switch checked={telegramEnabled} onCheckedChange={setTelegramEnabled} />
             </div>
-          )}
-
-          {/* Telegram Config */}
-          {telegramEnabled && (
-            <div className="space-y-2 p-3 bg-muted/50 rounded">
-              <div className="space-y-1.5">
-                <label className="text-xs text-muted-foreground">Bot Token</label>
-                <Input
-                  type="password"
-                  value={botToken}
-                  onChange={(e) => setBotToken(e.target.value)}
-                  placeholder="123456:ABC-DEF..."
-                  className="h-8 text-xs font-mono"
-                />
+            {telegramEnabled && (
+              <div className="space-y-2 p-3 bg-muted/50">
+                <div className="space-y-1.5">
+                  <label className="text-xs text-muted-foreground">Bot Token</label>
+                  <Input
+                    type="password"
+                    value={botToken}
+                    onChange={(e) => setBotToken(e.target.value)}
+                    placeholder="123456:ABC-DEF..."
+                    className="h-8 text-xs font-mono"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs text-muted-foreground">Chat ID</label>
+                  <Input
+                    value={chatId}
+                    onChange={(e) => setChatId(e.target.value)}
+                    placeholder="-1001234567890"
+                    className="h-8 text-xs font-mono"
+                  />
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleTestTelegram}
+                  disabled={!botToken || !chatId || isTesting}
+                  className="w-full h-7 text-xs"
+                >
+                  <Send size={12} />
+                  {isTesting ? 'Testing...' : 'Test Connection'}
+                </Button>
+                {testResult && (
+                  <p className={`text-xs ${testResult.success ? 'text-emerald-500' : 'text-red-500'}`}>
+                    {testResult.message}
+                  </p>
+                )}
               </div>
-              <div className="space-y-1.5">
-                <label className="text-xs text-muted-foreground">Chat ID</label>
-                <Input
-                  value={chatId}
-                  onChange={(e) => setChatId(e.target.value)}
-                  placeholder="-1001234567890"
-                  className="h-8 text-xs font-mono"
-                />
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleTestTelegram}
-                disabled={!botToken || !chatId || isTesting}
-                className="w-full h-7 text-xs"
-              >
-                <Send size={12} />
-                {isTesting ? 'Testing...' : 'Test Connection'}
-              </Button>
-              {testResult && (
-                <p className={`text-xs ${testResult.success ? 'text-emerald-500' : 'text-red-500'}`}>
-                  {testResult.message}
-                </p>
-              )}
-            </div>
-          )}
-
-          {/* Signal Types */}
-          <div className="space-y-1.5">
-            <label className="text-xs text-muted-foreground">Signal Types</label>
-            <div className="flex gap-4">
-              <label className="flex items-center gap-2 text-xs cursor-pointer">
-                <Checkbox
-                  checked={notifyBuy}
-                  onCheckedChange={(checked) => setNotifyBuy(checked === true)}
-                />
-                Buy
-              </label>
-              <label className="flex items-center gap-2 text-xs cursor-pointer">
-                <Checkbox
-                  checked={notifySell}
-                  onCheckedChange={(checked) => setNotifySell(checked === true)}
-                />
-                Sell
-              </label>
-            </div>
+            )}
           </div>
 
           {/* Time Window */}
