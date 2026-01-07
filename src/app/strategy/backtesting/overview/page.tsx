@@ -203,9 +203,9 @@ export default function BacktestingOverviewPage() {
       <StrategyCreationModal
         open={strategyModalOpen}
         onOpenChange={setStrategyModalOpen}
-        onCreated={() => {
+        onCreated={(strategyName?: string) => {
           refetch();
-          strategyEvents.emit();
+          strategyEvents.emit({ type: 'create', strategyName: strategyName || '' });
         }}
       />
     </div>

@@ -18,6 +18,7 @@ class StrategyKPIs:
     num_trades: int                  # Number of completed trades
     avg_return_per_trade_pct: float  # Average return per trade (%)
     avg_trade_duration_hours: float  # Average trade duration in hours
+    max_trade_duration_hours: float  # Maximum trade duration in hours
     score: float                     # Normalized score (0-10) based on Calmar ratio
 
     def to_dict(self) -> Dict[str, Any]:
@@ -44,6 +45,7 @@ def calculate_kpis(signals: List[Dict[str, Any]]) -> StrategyKPIs:
             num_trades=0,
             avg_return_per_trade_pct=0.0,
             avg_trade_duration_hours=0.0,
+            max_trade_duration_hours=0.0,
             score=0.0,
         )
 
@@ -95,6 +97,7 @@ def calculate_kpis(signals: List[Dict[str, Any]]) -> StrategyKPIs:
             num_trades=0,
             avg_return_per_trade_pct=0.0,
             avg_trade_duration_hours=0.0,
+            max_trade_duration_hours=0.0,
             score=0.0,
         )
 
@@ -155,6 +158,7 @@ def calculate_kpis(signals: List[Dict[str, Any]]) -> StrategyKPIs:
         num_trades=num_trades,
         avg_return_per_trade_pct=round(avg_return_per_trade_pct, 2),
         avg_trade_duration_hours=round(avg_trade_duration_hours, 1),
+        max_trade_duration_hours=round(max(durations), 1),
         score=round(score, 1),
     )
 

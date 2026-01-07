@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { strategyEvents, StrategyEvent } from '@/lib/strategy-events';
 
 const API_URL = 'http://localhost:8000/api';
 
@@ -11,6 +12,7 @@ export interface KPIs {
   num_trades: number;
   avg_return_per_trade_pct: number;
   avg_trade_duration_hours: number;
+  max_trade_duration_hours: number;
   score: number;
 }
 
@@ -146,6 +148,25 @@ export function useAllKPIs({
 
   useEffect(() => {
     fetchAllKPIs();
+  }, [fetchAllKPIs]);
+
+  // Subscribe to strategy events to stay in sync with sidebar
+  useEffect(() => {
+    const unsubscribe = strategyEvents.subscribe((event: StrategyEvent) => {
+      if (event.type === 'archive') {
+        setData(prev =>
+          prev.map(item => item.strategy === event.strategyName ? { ...item, is_archived: true } : item)
+        );
+      } else if (event.type === 'unarchive') {
+        setData(prev =>
+          prev.map(item => item.strategy === event.strategyName ? { ...item, is_archived: false } : item)
+        );
+      } else if (event.type === 'create' || event.type === 'delete') {
+        // For create/delete, we need to refetch
+        fetchAllKPIs();
+      }
+    });
+    return unsubscribe;
   }, [fetchAllKPIs]);
 
   // Optimistically update a strategy's archived status without refetching

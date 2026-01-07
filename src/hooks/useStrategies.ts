@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { strategyEvents } from '@/lib/strategy-events';
+import { strategyEvents, StrategyEvent } from '@/lib/strategy-events';
 
 const API_URL = 'http://localhost:8000/api';
 
@@ -61,6 +61,25 @@ export function useStrategies(): UseStrategiesResult {
     fetchStrategies();
   }, [fetchStrategies]);
 
+  // Subscribe to strategy events to stay in sync with other components
+  useEffect(() => {
+    const unsubscribe = strategyEvents.subscribe((event: StrategyEvent) => {
+      if (event.type === 'archive') {
+        setAllStrategies(prev =>
+          prev.map(s => s.name === event.strategyName ? { ...s, is_archived: true } : s)
+        );
+      } else if (event.type === 'unarchive') {
+        setAllStrategies(prev =>
+          prev.map(s => s.name === event.strategyName ? { ...s, is_archived: false } : s)
+        );
+      } else if (event.type === 'create' || event.type === 'delete') {
+        // For create/delete, we need to refetch
+        fetchStrategies();
+      }
+    });
+    return unsubscribe;
+  }, [fetchStrategies]);
+
   const archiveStrategy = useCallback(async (name: string) => {
     try {
       const response = await fetch(`${API_URL}/strategies/${name}/archive`, {
@@ -69,12 +88,8 @@ export function useStrategies(): UseStrategiesResult {
       if (!response.ok) {
         throw new Error(`Failed to archive strategy: ${response.status}`);
       }
-      // Optimistic update
-      setAllStrategies(prev =>
-        prev.map(s => s.name === name ? { ...s, is_archived: true } : s)
-      );
-      // Notify other components
-      strategyEvents.emit();
+      // Notify other components (they will do optimistic update)
+      strategyEvents.emit({ type: 'archive', strategyName: name });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to archive strategy');
       // Refetch to get correct state
@@ -90,12 +105,8 @@ export function useStrategies(): UseStrategiesResult {
       if (!response.ok) {
         throw new Error(`Failed to unarchive strategy: ${response.status}`);
       }
-      // Optimistic update
-      setAllStrategies(prev =>
-        prev.map(s => s.name === name ? { ...s, is_archived: false } : s)
-      );
-      // Notify other components
-      strategyEvents.emit();
+      // Notify other components (they will do optimistic update)
+      strategyEvents.emit({ type: 'unarchive', strategyName: name });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to unarchive strategy');
       // Refetch to get correct state
@@ -111,10 +122,8 @@ export function useStrategies(): UseStrategiesResult {
       if (!response.ok) {
         throw new Error(`Failed to delete strategy: ${response.status}`);
       }
-      // Remove from local state
-      setAllStrategies(prev => prev.filter(s => s.name !== name));
       // Notify other components
-      strategyEvents.emit();
+      strategyEvents.emit({ type: 'delete', strategyName: name });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete strategy');
       // Refetch to get correct state

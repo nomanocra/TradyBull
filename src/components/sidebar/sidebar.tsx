@@ -24,6 +24,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useStrategies, StrategyConfig } from '@/hooks/useStrategies';
+import { strategyEvents } from '@/lib/strategy-events';
 import { useNotifications } from '@/hooks/useNotifications';
 import { NotificationModal } from '@/components/notifications/notification-modal';
 import { StrategyCreationModal } from '@/components/strategy/strategy-creation-modal';
@@ -784,9 +785,9 @@ export function Sidebar() {
       <StrategyCreationModal
         open={strategyCreationModalOpen}
         onOpenChange={setStrategyCreationModalOpen}
-        onCreated={() => {
-          // Refresh strategies list
+        onCreated={(strategyName?: string) => {
           refetchStrategies();
+          strategyEvents.emit({ type: 'create', strategyName: strategyName || '' });
         }}
       />
 

@@ -18,7 +18,8 @@ type SortKey =
   | 'max_drawdown_pct'
   | 'num_trades'
   | 'avg_return_per_trade_pct'
-  | 'avg_trade_duration_hours';
+  | 'avg_trade_duration_hours'
+  | 'max_trade_duration_hours';
 
 type SortDirection = 'asc' | 'desc';
 
@@ -61,6 +62,7 @@ function formatValue(value: number | undefined, type: SortKey): string {
     case 'num_trades':
       return value.toString();
     case 'avg_trade_duration_hours':
+    case 'max_trade_duration_hours':
       return formatDuration(value);
     default:
       return value.toString();
@@ -104,6 +106,7 @@ const columns: { key: SortKey; label: string; numeric: boolean }[] = [
   { key: 'num_trades', label: 'Trades', numeric: true },
   { key: 'avg_return_per_trade_pct', label: 'Avg Return', numeric: true },
   { key: 'avg_trade_duration_hours', label: 'Avg Duration', numeric: true },
+  { key: 'max_trade_duration_hours', label: 'Max Duration', numeric: true },
 ];
 
 export function KPIOverviewTable({ data, isLoading, showArchived = false, searchQuery = '', onAddStrategy, onArchive, onUnarchive }: KPIOverviewTableProps) {
