@@ -28,36 +28,12 @@ _calendar = None
 # Default close hour in Paris (17:00 ET = 23:00 Paris)
 DEFAULT_CLOSE_HOUR_PARIS = 23
 
-# US Federal Holidays (only overnight session in YFinance)
-# These are observed dates - actual dates may shift for weekends
-US_HOLIDAYS_OVERNIGHT_ONLY = {
-    # 2023
-    (2023, 9, 4),   # Labor Day
-    # 2024
-    (2024, 1, 15),  # MLK Day
-    (2024, 2, 19),  # Presidents Day
-    (2024, 5, 27),  # Memorial Day
-    (2024, 6, 19),  # Juneteenth
-    (2024, 9, 2),   # Labor Day
-    (2024, 11, 28), # Thanksgiving
-    # 2025
-    (2025, 1, 20),  # MLK Day
-    (2025, 2, 17),  # Presidents Day
-    (2025, 5, 26),  # Memorial Day
-    (2025, 6, 19),  # Juneteenth
-    (2025, 9, 1),   # Labor Day
-    (2025, 11, 27), # Thanksgiving
-    # 2026
-    (2026, 1, 19),  # MLK Day
-    (2026, 2, 16),  # Presidents Day
-    (2026, 5, 25),  # Memorial Day
-    (2026, 6, 19),  # Juneteenth
-    (2026, 9, 7),   # Labor Day
-    (2026, 11, 26), # Thanksgiving
-}
-
 # Overnight session end hour (Paris time)
 OVERNIGHT_SESSION_END_HOUR = 5
+
+# Early close threshold - if CME closes before this hour (Paris), it's a holiday
+# Normal close is 23:00 Paris (shown as 00:00 next day in calendar)
+EARLY_CLOSE_THRESHOLD_PARIS = 20
 
 # Witching day close hour (Paris time) - 3rd Friday of Mar/Jun/Sep/Dec
 WITCHING_CLOSE_HOUR = 15
@@ -66,9 +42,73 @@ WITCHING_CLOSE_HOUR = 15
 BLACK_FRIDAY_CLOSE_HOUR = 18
 
 
+def is_early_close_day(d: date) -> bool:
+    """
+    Check if this date is an early close day (holiday or special day).
+
+    Uses CME calendar to detect early close days (close before 20:00 Paris).
+    Returns True for holidays like MLK Day, Labor Day, Thanksgiving, etc.
+    """
+    calendar = get_calendar()
+
+    # Check if market is open
+    if not calendar.is_session(d):
+        return False
+
+    try:
+        close_time = calendar.session_close(d)
+        close_paris = close_time.astimezone(PARIS_TZ)
+        close_hour = close_paris.hour
+
+        # If close is at midnight (0), it's a normal day
+        if close_hour == 0:
+            return False
+
+        # If close is before threshold, it's an early close day
+        return close_hour < EARLY_CLOSE_THRESHOLD_PARIS
+    except Exception:
+        return False
+
+
 def is_us_holiday_overnight_only(d: date) -> bool:
-    """Check if this date is a US holiday with only overnight session in YFinance"""
-    return (d.year, d.month, d.day) in US_HOLIDAYS_OVERNIGHT_ONLY
+    """
+    Check if this date is a US holiday with ONLY overnight session in YFinance.
+
+    These are specific holidays where YFinance only has data until ~05:00:
+    - MLK Day (3rd Monday of January)
+    - Presidents Day (3rd Monday of February)
+    - Memorial Day (last Monday of May)
+    - Juneteenth (June 19)
+    - Labor Day (1st Monday of September)
+    - Thanksgiving (4th Thursday of November)
+
+    Other early close days (Black Friday, Christmas Eve) have data until 18:00.
+    """
+    # MLK Day: 3rd Monday of January
+    if d.weekday() == 0 and d.month == 1 and 15 <= d.day <= 21:
+        return True
+
+    # Presidents Day: 3rd Monday of February
+    if d.weekday() == 0 and d.month == 2 and 15 <= d.day <= 21:
+        return True
+
+    # Memorial Day: last Monday of May (day 25-31)
+    if d.weekday() == 0 and d.month == 5 and d.day >= 25:
+        return True
+
+    # Juneteenth: June 19 (or observed Monday if weekend)
+    if d.month == 6 and d.day == 19:
+        return True
+
+    # Labor Day: 1st Monday of September (day 1-7)
+    if d.weekday() == 0 and d.month == 9 and d.day <= 7:
+        return True
+
+    # Thanksgiving: 4th Thursday of November (day 22-28)
+    if d.weekday() == 3 and d.month == 11 and 22 <= d.day <= 28:
+        return True
+
+    return False
 
 
 def is_witching_day(d: date) -> bool:
@@ -247,9 +287,13 @@ def get_yfinance_last_candle_hour(timestamp: int) -> int:
     dt = datetime.fromtimestamp(timestamp, tz=PARIS_TZ)
     d = dt.date()
 
-    # US Holiday - only overnight session available
+    # US Holiday - only overnight session available (MLK, Presidents, Memorial, Labor Day)
     if is_us_holiday_overnight_only(d):
         return OVERNIGHT_SESSION_END_HOUR
+
+    # Other early close days (Thanksgiving, Black Friday, Christmas Eve) have data until 18:00
+    if is_early_close_day(d):
+        return BLACK_FRIDAY_CLOSE_HOUR
 
     # Witching day (3rd Friday of Mar/Jun/Sep/Dec)
     if is_witching_day(d):
