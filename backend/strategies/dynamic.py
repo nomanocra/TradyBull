@@ -658,6 +658,19 @@ class DynamicStrategy(BaseStrategy):
             position = None
             traded_dates = set()
 
+        # Pre-compute last candle of each day from actual data
+        # This handles incomplete data (e.g., early close days with missing candles)
+        from datetime import datetime
+        import pytz
+        paris_tz = pytz.timezone('Europe/Paris')
+
+        last_candle_of_day: Dict[str, int] = {}  # date_str -> timestamp
+        for candle in candles:
+            dt = datetime.fromtimestamp(candle['time'], tz=paris_tz)
+            date_str = dt.strftime('%Y-%m-%d')
+            # Keep updating - last one wins
+            last_candle_of_day[date_str] = candle['time']
+
         # Pre-calculate all indicators
         closes = [c['close'] for c in candles]
         indicators = {}
@@ -698,10 +711,7 @@ class DynamicStrategy(BaseStrategy):
             next_candle = candles[i + 1]
             timestamp = candle['time']
 
-            # Get date string for daily tracking
-            from datetime import datetime
-            import pytz
-            paris_tz = pytz.timezone('Europe/Paris')
+            # Get date for daily tracking (paris_tz already defined above)
             dt = datetime.fromtimestamp(timestamp, tz=paris_tz)
             date_str = dt.strftime('%Y-%m-%d')
 
@@ -724,8 +734,14 @@ class DynamicStrategy(BaseStrategy):
                     sell_label = 'SL'
 
                 # 2. Intraday close (sell only constraint)
+                # Use actual data to find last candle of day (handles incomplete data)
                 elif self.config.intraday in ('daily', 'multi-daily'):
-                    if is_last_candle_of_day(timestamp):
+                    # Check if this is the last candle of the day in our data
+                    is_last_of_day = last_candle_of_day.get(date_str) == timestamp
+                    # Also check calendar-based EOD (normal case with complete data)
+                    is_calendar_eod = is_last_candle_of_day(timestamp)
+
+                    if is_last_of_day or is_calendar_eod:
                         should_sell = True
                         sell_on_current = True  # Show marker on close candle, not next session
                         sell_label = 'EOD'
@@ -797,7 +813,6 @@ class DynamicStrategy(BaseStrategy):
                     is_first = is_first_candle_of_session(timestamp)
                     is_intraday = self.config.intraday in ('daily', 'multi-daily')
                     if is_intraday and is_first:
-                        print(f"[DEBUG] First candle buy at ts={timestamp}, intraday={self.config.intraday}")
                         buy_price = candle['open']
                         signal_ts = timestamp
                     else:

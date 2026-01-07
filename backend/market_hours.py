@@ -117,8 +117,9 @@ def is_last_candle_of_day(timestamp: int) -> bool:
 
     last_candle_hour = get_last_candle_hour_paris(timestamp)
 
+    # If market is closed (holiday), still close at default last candle hour
     if last_candle_hour == -1:
-        return False
+        return candle_hour == DEFAULT_CLOSE_HOUR_PARIS - 1
 
     return candle_hour == last_candle_hour
 

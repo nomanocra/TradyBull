@@ -85,6 +85,19 @@ def get_backtest_info(conn: sqlite3.Connection) -> dict:
     }
 
 
+def get_all_strategy_names(conn: sqlite3.Connection) -> list:
+    """Get all strategy names from both registry and dynamic strategies"""
+    names = list(STRATEGIES.keys())
+
+    # Add dynamic strategies from database
+    cursor = conn.execute("SELECT name FROM dynamic_strategies")
+    for row in cursor:
+        if row[0] not in names:
+            names.append(row[0])
+
+    return names
+
+
 def bootstrap_signals(strategy_name: str = None, force: bool = False):
     """Bootstrap signals calculation for backtest data"""
     print(f"\n{'=' * 60}")
@@ -105,13 +118,14 @@ def bootstrap_signals(strategy_name: str = None, force: bool = False):
     print(f"Date range: {info['start_date']} to {info['end_date']} ({info['days']} days)")
     print()
 
-    # Determine which strategies to run
-    strategies_to_run = [strategy_name] if strategy_name else list(STRATEGIES.keys())
+    # Determine which strategies to run (including dynamic strategies)
+    all_strategies = get_all_strategy_names(conn)
+    strategies_to_run = [strategy_name] if strategy_name else all_strategies
 
     # Validate strategy name
-    if strategy_name and strategy_name not in STRATEGIES:
+    if strategy_name and strategy_name not in all_strategies:
         print(f"ERROR: Unknown strategy '{strategy_name}'")
-        print(f"Available strategies: {', '.join(STRATEGIES.keys())}")
+        print(f"Available strategies: {', '.join(all_strategies)}")
         conn.close()
         return
 
