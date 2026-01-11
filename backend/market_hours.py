@@ -136,6 +136,33 @@ def is_day_before_july_4th(d: date) -> bool:
     return d.month == 7 and d.day == 3
 
 
+def get_good_friday(year: int) -> date:
+    """Calculate Good Friday date using the Anonymous Gregorian algorithm"""
+    a = year % 19
+    b = year // 100
+    c = year % 100
+    d = b // 4
+    e = b % 4
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i = c // 4
+    k = c % 4
+    l = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * l) // 451
+    month = (h + l - 7 * m + 114) // 31
+    day = ((h + l - 7 * m + 114) % 31) + 1
+    easter_sunday = date(year, month, day)
+    good_friday = easter_sunday - timedelta(days=2)
+    return good_friday
+
+
+def is_day_before_good_friday(d: date) -> bool:
+    """Check if this is the Thursday before Good Friday (early close)"""
+    good_friday = get_good_friday(d.year)
+    return d == good_friday - timedelta(days=1)
+
+
 def get_dst_offset(d: date) -> int:
     """
     Get DST offset adjustment for YFinance data.
@@ -309,6 +336,15 @@ def get_yfinance_last_candle_hour(timestamp: int) -> int:
     if is_day_before_july_4th(d):
         return BLACK_FRIDAY_CLOSE_HOUR  # Same early close
 
+    # Day before Good Friday (Thursday before Easter) - closes at 21:00 Paris
+    if is_day_before_good_friday(d):
+        return 21
+
+    # Special one-time events (hardcoded)
+    # January 9, 2025 - National Day of Mourning for President Carter (early close at 15:00)
+    if d == date(2025, 1, 9):
+        return 15
+
     # Normal day - use calendar with DST adjustment
     last_hour = get_last_candle_hour_paris(timestamp)
     if last_hour == -1:
@@ -375,6 +411,9 @@ def is_too_close_to_close(timestamp: int, min_hours_before_close: int = 2) -> bo
     """
     Check if we're too close to market close to open a new position.
 
+    Uses YFinance-adjusted last candle hour to handle special days
+    (witching, holidays, etc.) where data ends earlier than normal.
+
     Args:
         timestamp: Unix timestamp of the candle
         min_hours_before_close: Minimum hours required before close (default 2)
@@ -382,16 +421,16 @@ def is_too_close_to_close(timestamp: int, min_hours_before_close: int = 2) -> bo
     Returns:
         True if we're within min_hours_before_close of market close
     """
-    close_hour = get_market_close_hour_paris(timestamp)
-
-    if close_hour == -1:
-        return True  # Market closed, don't open
+    # Use YFinance-adjusted close hour (last_candle_hour + 1)
+    # This handles witching days, holidays, etc.
+    last_candle_hour = get_yfinance_last_candle_hour(timestamp)
+    effective_close_hour = last_candle_hour + 1
 
     dt = datetime.fromtimestamp(timestamp, tz=PARIS_TZ)
     candle_hour = dt.hour
 
     # Hours remaining until close
-    hours_until_close = close_hour - candle_hour
+    hours_until_close = effective_close_hour - candle_hour
 
     return hours_until_close < min_hours_before_close
 

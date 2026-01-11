@@ -698,72 +698,64 @@ class DynamicStrategy(BaseStrategy):
         signals: List[Signal] = []
         start_index = self.required_lookback
 
-        for i in range(start_index, len(candles) - 1):
-            candle = candles[i]
-            next_candle = candles[i + 1]
+        # Loop through all candles - check PREVIOUS candle for conditions, execute on CURRENT
+        for i in range(start_index, len(candles)):
+            candle = candles[i]  # Current candle - where we execute
+            prev_candle = candles[i - 1]  # Previous candle - where we check conditions
             timestamp = candle['time']
+            prev_timestamp = prev_candle['time']
 
-            # Get date for daily tracking (paris_tz already defined above)
+            # Get date for daily tracking
             dt = datetime.fromtimestamp(timestamp, tz=paris_tz)
             date_str = dt.strftime('%Y-%m-%d')
+            prev_dt = datetime.fromtimestamp(prev_timestamp, tz=paris_tz)
+            prev_date_str = prev_dt.strftime('%Y-%m-%d')
 
-            # Check time constraint (applies to both buy and sell)
-            in_time_window = self._check_time_constraint(timestamp)
+            # Check time constraint on previous candle
+            in_time_window = self._check_time_constraint(prev_timestamp)
 
-            # ===== SELL LOGIC (check first if we have a position) =====
+            # ===== SELL LOGIC =====
             if position is not None:
                 buy_price = position['buy_price']
                 should_sell = False
                 sell_label = 'Exit'
-                sell_price = next_candle['open']
-                sell_on_current = False  # For SL, we sell on current candle
+                sell_price = candle['open']
+                sell_signal_ts = timestamp
 
-                # 1. Stop Loss (immediate, on current candle)
-                if self._check_stop_loss(candle, buy_price):
+                # 1. Intraday EOD - check CURRENT candle via registry (we know close hour ahead of time)
+                if self.config.intraday in ('daily', 'multi-daily'):
+                    if is_last_candle_of_day(timestamp):
+                        should_sell = True
+                        sell_price = candle['close']  # Close at this candle's close
+                        sell_signal_ts = timestamp
+                        sell_label = 'EOD'
+
+                # 2. Stop Loss (check if previous candle hit SL)
+                if not should_sell and self._check_stop_loss(prev_candle, buy_price):
                     should_sell = True
-                    sell_on_current = True
                     sell_price = buy_price * (1 - self.config.stop_loss / 100)
                     sell_label = 'SL'
 
-                # 2. Intraday close (sell only constraint)
-                elif self.config.intraday in ('daily', 'multi-daily'):
-                    # Check calendar-based EOD (normal case)
-                    is_calendar_eod = is_last_candle_of_day(timestamp)
-                    # Check if next candle is on a different day (handles incomplete data)
-                    next_dt = datetime.fromtimestamp(next_candle['time'], tz=paris_tz)
-                    next_date_str = next_dt.strftime('%Y-%m-%d')
-                    is_last_of_day = (next_date_str != date_str)
-
-                    if is_last_of_day or is_calendar_eod:
-                        should_sell = True
-                        sell_on_current = True  # Show marker on close candle, not next session
-                        sell_label = 'EOD'
-
                 # 3. MA conditions (symmetric sell)
-                elif self._check_ma_conditions_sell(candles, i, mas):
+                elif not should_sell and self._check_ma_conditions_sell(candles, i - 1, mas):
                     should_sell = True
                     sell_label = 'MA'
 
                 # 4. Indicator sell signal
-                elif self._check_indicator_sell(candles, i, indicators):
+                elif not should_sell and self._check_indicator_sell(candles, i - 1, indicators):
                     should_sell = True
                     ind_type = ind_config.get('type', '') if ind_config else ''
                     sell_label = ind_type.upper().split('-')[0]
 
                 # 5. Time constraint exit
-                elif not in_time_window:
+                elif not should_sell and not in_time_window:
                     should_sell = True
                     sell_label = 'Time'
 
                 if should_sell:
-                    if sell_on_current:
-                        signal_ts = timestamp
-                    else:
-                        signal_ts = next_candle['time']
-
                     signals.append(Signal(
-                        signal_timestamp=signal_ts,
-                        trigger_timestamp=timestamp,
+                        signal_timestamp=sell_signal_ts,
+                        trigger_timestamp=timestamp if sell_label == 'EOD' else prev_timestamp,
                         type='sell',
                         price=sell_price,
                         label=sell_label,
@@ -773,48 +765,44 @@ class DynamicStrategy(BaseStrategy):
                         }
                     ))
                     position = None
-                    continue  # Don't buy on same candle
+                    continue  # After any sell, don't buy on same candle
 
-            # ===== BUY LOGIC =====
+            # ===== BUY LOGIC (check previous candle conditions) =====
             if position is None:
-                # Check if we can open a position
                 can_buy = True
+                is_intraday = self.config.intraday in ('daily', 'multi-daily')
 
-                # Time constraint
-                if not in_time_window:
+                # Always check PREVIOUS candle for conditions (no look-ahead bias)
+                check_index = i - 1
+                check_timestamp = prev_timestamp
+
+                # Time constraint - check at EXECUTION time (current candle)
+                if not self._check_time_constraint(timestamp):
                     can_buy = False
 
-                # Intraday: check if too close to close
-                if can_buy and self.config.intraday in ('daily', 'multi-daily'):
+                # Intraday: check if too close to close at EXECUTION time
+                if can_buy and is_intraday:
                     if is_too_close_to_close(timestamp, min_hours_before_close=2):
                         can_buy = False
-                    # Daily mode: only one position per day
+                    # Daily mode: only one position per day (use execution date)
                     if self.config.intraday == 'daily' and date_str in traded_dates:
                         can_buy = False
 
-                # MA conditions (all must pass for buy)
-                if can_buy and not self._check_ma_conditions_buy(candles, i, mas):
+                # MA conditions
+                if can_buy and not self._check_ma_conditions_buy(candles, check_index, mas):
                     can_buy = False
 
                 # Indicator buy signal
-                if can_buy and not self._check_indicator_buy(candles, i, indicators):
+                if can_buy and not self._check_indicator_buy(candles, check_index, indicators):
                     can_buy = False
 
                 if can_buy:
-                    # For intraday strategies on first candle of session (00:00 Paris),
-                    # enter on current candle's open (market just opened)
-                    is_first = is_first_candle_of_session(timestamp)
-                    is_intraday = self.config.intraday in ('daily', 'multi-daily')
-                    if is_intraday and is_first:
-                        buy_price = candle['open']
-                        signal_ts = timestamp
-                    else:
-                        buy_price = next_candle['open']
-                        signal_ts = next_candle['time']
+                    buy_price = candle['open']  # Execute at current candle's open
+                    signal_ts = timestamp
 
                     signals.append(Signal(
                         signal_timestamp=signal_ts,
-                        trigger_timestamp=timestamp,
+                        trigger_timestamp=check_timestamp,
                         type='buy',
                         price=buy_price,
                         label='Buy',
@@ -824,7 +812,7 @@ class DynamicStrategy(BaseStrategy):
                         'buy_price': buy_price,
                         'buy_time': signal_ts,
                     }
-                    traded_dates.add(date_str)
+                    traded_dates.add(date_str)  # Track by execution date
 
         final_state = {
             'position': position,

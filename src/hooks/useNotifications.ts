@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 
 const API_URL = 'http://localhost:8000/api';
+const NOTIFICATION_SETTINGS_CHANGED_EVENT = 'notification-settings-changed';
 
 export interface NotificationSettings {
   strategy_name: string;
@@ -87,6 +88,8 @@ export function useNotifications(): UseNotificationsResult {
       }
 
       await fetchSettings();
+      // Notify other instances of the hook
+      window.dispatchEvent(new Event(NOTIFICATION_SETTINGS_CHANGED_EVENT));
       return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save settings');
@@ -105,6 +108,8 @@ export function useNotifications(): UseNotificationsResult {
       }
 
       await fetchSettings();
+      // Notify other instances of the hook
+      window.dispatchEvent(new Event(NOTIFICATION_SETTINGS_CHANGED_EVENT));
       return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete settings');
@@ -167,6 +172,15 @@ export function useNotifications(): UseNotificationsResult {
 
   useEffect(() => {
     fetchSettings();
+
+    // Listen for changes from other instances of the hook
+    const handleSettingsChanged = () => {
+      fetchSettings();
+    };
+    window.addEventListener(NOTIFICATION_SETTINGS_CHANGED_EVENT, handleSettingsChanged);
+    return () => {
+      window.removeEventListener(NOTIFICATION_SETTINGS_CHANGED_EVENT, handleSettingsChanged);
+    };
   }, [fetchSettings]);
 
   return {

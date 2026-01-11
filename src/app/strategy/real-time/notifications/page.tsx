@@ -3,6 +3,17 @@
 import { useState } from 'react';
 import { Plus, Bell, Trash2, Edit2, Monitor, MessageCircle, List } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { NotificationModal } from '@/components/notifications/notification-modal';
 import { NotificationHistoryModal } from '@/components/notifications/notification-history-modal';
 import { useNotifications, NotificationSettings } from '@/hooks/useNotifications';
@@ -13,12 +24,15 @@ export default function NotificationsPage() {
   const [editingSettings, setEditingSettings] = useState<NotificationSettings | null>(null);
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
   const [historyStrategyName, setHistoryStrategyName] = useState<string | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deletingStrategyName, setDeletingStrategyName] = useState<string | null>(null);
 
   const { settings, isLoading, saveSettings, deleteSettings, testTelegram, testDesktop } = useNotifications();
   const { strategies, archivedStrategies } = useStrategies();
 
-  // Only use non-archived strategies for the dropdown
-  const availableStrategies = strategies;
+  // Only use non-archived strategies that don't already have notifications
+  const configuredStrategyNames = new Set(settings.map((s) => s.strategy_name));
+  const availableStrategies = strategies.filter((s) => !configuredStrategyNames.has(s.name));
   // All strategies for displaying names of existing notifications
   const allStrategies = [...strategies, ...archivedStrategies];
 
@@ -32,15 +46,26 @@ export default function NotificationsPage() {
     setIsModalOpen(true);
   };
 
-  const handleDeleteClick = async (strategyName: string) => {
-    if (confirm('Delete this notification configuration?')) {
-      await deleteSettings(strategyName);
+  const handleDeleteClick = (strategyName: string) => {
+    setDeletingStrategyName(strategyName);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (deletingStrategyName) {
+      await deleteSettings(deletingStrategyName);
     }
+    setDeleteDialogOpen(false);
+    setDeletingStrategyName(null);
   };
 
   const handleHistoryClick = (strategyName: string) => {
     setHistoryStrategyName(strategyName);
     setHistoryModalOpen(true);
+  };
+
+  const handleToggleEnabled = async (setting: NotificationSettings) => {
+    await saveSettings(setting.strategy_name, { enabled: !setting.enabled });
   };
 
   const getStrategyDisplayName = (strategyName: string) => {
@@ -88,18 +113,24 @@ export default function NotificationsPage() {
             {settings.map((setting) => (
               <div
                 key={setting.strategy_name}
-                className="flex items-center justify-between p-3 bg-card border border-border rounded-lg hover:border-muted-foreground/30 transition-colors"
+                className="flex items-center justify-between p-3 bg-card border border-border hover:border-muted-foreground/30 transition-colors"
               >
+                {/* Toggle */}
+                <div className="flex flex-col items-center gap-1 mr-4">
+                  <span className="text-[10px] text-muted-foreground">Active</span>
+                  <Switch
+                    checked={setting.enabled}
+                    onCheckedChange={() => handleToggleEnabled(setting)}
+                    className="scale-75"
+                  />
+                </div>
+
+                {/* Content */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium truncate">
                       {getStrategyDisplayName(setting.strategy_name)}
                     </span>
-                    {!setting.enabled && (
-                      <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                        Disabled
-                      </span>
-                    )}
                   </div>
                   <div className="flex items-center gap-3 mt-1">
                     {/* Notification types */}
@@ -169,7 +200,7 @@ export default function NotificationsPage() {
       <NotificationModal
         open={isModalOpen}
         onOpenChange={setIsModalOpen}
-        strategies={availableStrategies}
+        strategies={editingSettings ? strategies : availableStrategies}
         existingSettings={editingSettings}
         onSave={saveSettings}
         onTestTelegram={testTelegram}
@@ -183,6 +214,31 @@ export default function NotificationsPage() {
         strategyName={historyStrategyName}
         strategyDisplayName={historyStrategyName ? getStrategyDisplayName(historyStrategyName) : ''}
       />
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-sm">Delete Notification</AlertDialogTitle>
+            <AlertDialogDescription className="text-xs">
+              Are you sure you want to delete the notification for{' '}
+              <span className="font-medium text-foreground">
+                {deletingStrategyName ? getStrategyDisplayName(deletingStrategyName) : ''}
+              </span>
+              ? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="h-8 text-xs">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              className="h-8 text-xs bg-red-500 hover:bg-red-600"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
