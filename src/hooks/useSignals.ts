@@ -36,11 +36,11 @@ export function useSignals({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchSignals = useCallback(async () => {
+  const fetchSignals = useCallback(async (showLoading = true) => {
     if (!enabled || !strategy) return;
 
     try {
-      setIsLoading(true);
+      if (showLoading) setIsLoading(true);
       setError(null);
 
       let url = `${API_URL}/signals?strategy=${encodeURIComponent(strategy)}`;
@@ -73,12 +73,19 @@ export function useSignals({
       setError(err instanceof Error ? err.message : 'Failed to load signals');
       setSignals([]);
     } finally {
-      setIsLoading(false);
+      if (showLoading) setIsLoading(false);
     }
   }, [strategy, startTs, endTs, enabled]);
 
+  // Initial fetch and polling every 10 seconds
   useEffect(() => {
-    fetchSignals();
+    fetchSignals(true); // Initial fetch with loading state
+
+    const intervalId = setInterval(() => {
+      fetchSignals(false); // Polling without loading state
+    }, 10000);
+
+    return () => clearInterval(intervalId);
   }, [fetchSignals]);
 
   return {

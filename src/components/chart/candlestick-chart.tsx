@@ -698,6 +698,9 @@ export function CandlestickChart({
     return result;
   }, [data, effectiveMaPeriods]);
 
+  // Stable color reference for buy signals (avoids object identity changes)
+  const signalBuyColor = isDark ? '#facc15' : '#eab308';
+
   // Prepare markers from signals (triangles only, PnL shown as HTML overlay)
   const markersData = useMemo((): SeriesMarker<Time>[] => {
     if (signals.length === 0 || data.length === 0 || chartTimes.length === 0) return [];
@@ -708,19 +711,16 @@ export function CandlestickChart({
       timeMap.set(candle.time, chartTimes[i]);
     });
 
-    // Track last buy price for color determination
-    let lastBuyPrice: number | null = null;
     const sortedSignals = [...signals].sort((a, b) => a.time - b.time);
 
     return sortedSignals
       .filter(signal => timeMap.has(signal.time))
       .map(signal => {
         if (signal.type === 'buy') {
-          lastBuyPrice = signal.price;
           return {
             time: timeMap.get(signal.time)!,
             position: 'belowBar' as const,
-            color: colors.signalBuy,
+            color: signalBuyColor,
             shape: 'circle' as const,
             text: '▲',
             size: 0,
@@ -737,7 +737,7 @@ export function CandlestickChart({
           };
         }
       });
-  }, [signals, data, chartTimes, colors.signalBuy]);
+  }, [signals, data, chartTimes, signalBuyColor]);
 
   // Prepare PnL labels data for HTML overlay
   const pnlLabelsData = useMemo(() => {
@@ -1654,23 +1654,16 @@ export function CandlestickChart({
       });
     }
 
-  }, [chartDataArrays, showBollinger, showMACD, showIchimoku, effectiveMaPeriods, showRSI, bollingerData, ichimokuData, movingAveragesData, macdData, stochRsiData, data.length, timeframe]);
-
-  // Update markers when signals change
-  useEffect(() => {
-    if (!candlestickSeriesRef.current || !mainChartRef.current || isChartDisposedRef.current) return;
-
-    // Remove existing markers
+    // Recreate markers after data update (setData clears markers in lightweight-charts)
     if (markersRef.current) {
       markersRef.current.detach();
       markersRef.current = null;
     }
-
-    // Create new markers if we have signals
     if (markersData.length > 0) {
       markersRef.current = createSeriesMarkers(candlestickSeriesRef.current, markersData);
     }
-  }, [markersData]);
+
+  }, [chartDataArrays, showBollinger, showMACD, showIchimoku, effectiveMaPeriods, showRSI, bollingerData, ichimokuData, movingAveragesData, macdData, stochRsiData, data.length, timeframe, markersData]);
 
   // Update PnL label positions when signals, data, or visible range changes
   useEffect(() => {

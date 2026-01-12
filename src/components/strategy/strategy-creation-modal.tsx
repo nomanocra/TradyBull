@@ -360,7 +360,7 @@ export function StrategyCreationModal({
           {/* Indicator */}
           <div>
             <label className="text-xs text-muted-foreground mb-1.5 block">Indicator</label>
-            <Popover open={indicatorOpen} onOpenChange={setIndicatorOpen}>
+            <Popover open={indicatorOpen} onOpenChange={setIndicatorOpen} modal={false}>
               <PopoverTrigger asChild>
                 <button className="flex w-full items-center justify-between border border-input bg-background px-3 py-2 text-left text-sm shadow-xs hover:bg-accent/50 transition-colors">
                   <div>
@@ -372,25 +372,30 @@ export function StrategyCreationModal({
                   <ChevronDown className="size-4 opacity-50 shrink-0" />
                 </button>
               </PopoverTrigger>
-              <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-1 max-h-[300px] overflow-y-auto" align="start">
-                {INDICATORS.map((ind) => (
-                  <button
-                    key={ind.value}
-                    onClick={() => {
-                      setIndicator(ind.value);
-                      setIndicatorOpen(false);
-                    }}
-                    className={`flex w-full items-start gap-2 px-2 py-2 text-left hover:bg-accent transition-colors ${
-                      indicator === ind.value ? 'bg-accent' : ''
-                    }`}
-                  >
-                    <Check className={`size-4 mt-0.5 shrink-0 ${indicator === ind.value ? 'opacity-100' : 'opacity-0'}`} />
-                    <div>
-                      <div className="text-xs font-medium">{ind.label}</div>
-                      <div className="text-[10px] text-muted-foreground">{ind.description}</div>
-                    </div>
-                  </button>
-                ))}
+              <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                <div
+                  className="max-h-[300px] overflow-y-auto p-1"
+                  onWheel={(e) => e.stopPropagation()}
+                >
+                  {INDICATORS.map((ind) => (
+                    <button
+                      key={ind.value}
+                      onClick={() => {
+                        setIndicator(ind.value);
+                        setIndicatorOpen(false);
+                      }}
+                      className={`flex w-full items-start gap-2 px-2 py-2 text-left hover:bg-accent transition-colors ${
+                        indicator === ind.value ? 'bg-accent' : ''
+                      }`}
+                    >
+                      <Check className={`size-4 mt-0.5 shrink-0 ${indicator === ind.value ? 'opacity-100' : 'opacity-0'}`} />
+                      <div>
+                        <div className="text-xs font-medium">{ind.label}</div>
+                        <div className="text-[10px] text-muted-foreground">{ind.description}</div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
               </PopoverContent>
             </Popover>
           </div>

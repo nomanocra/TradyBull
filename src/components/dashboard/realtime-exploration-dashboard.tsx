@@ -1,10 +1,25 @@
 'use client';
 
 import { useMemo } from 'react';
+import { Loader2 } from 'lucide-react';
 import { MemoizedCandlestickChart } from '@/components/chart/candlestick-chart';
 import { useRealtimeData } from '@/app/exploration/real-time/realtime-context';
 
 const FETCH_INTERVAL = 10;
+
+// Skeleton component for chart loading
+function ChartSkeleton({ title }: { title: string }) {
+  return (
+    <div className="h-full w-full bg-card flex flex-col">
+      <div className="flex items-center justify-between px-2 py-1 border-b border-border">
+        <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{title}</span>
+      </div>
+      <div className="flex-1 flex items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    </div>
+  );
+}
 
 interface RealtimeExplorationDashboardProps {
   pageName?: string;
@@ -162,50 +177,69 @@ export function RealtimeExplorationDashboard({
 
       {/* Charts Grid */}
       <div className="flex-1 flex flex-col gap-2 p-2 bg-background min-h-0">
-        {/* Main Chart - 1 Hour */}
-        <div className="flex-[1.2] min-h-0">
-          <MemoizedCandlestickChart
-            title="1H"
-            timeframe="1h"
-            data={data['1h']}
-            isLoading={isLoading}
-            showBollinger={showBollinger}
-            showMACD={showMACD}
-            showIchimoku={showIchimoku}
-            showMovingAverages={showMovingAverages}
-            showRSI={showRSI}
-          />
-        </div>
+        {/* Show skeleton while initial data is loading */}
+        {data['1h'].length === 0 ? (
+          <>
+            <div className="flex-[1.2] min-h-0">
+              <ChartSkeleton title="1H" />
+            </div>
+            <div className="flex-1 flex gap-2 min-h-0">
+              <div className="flex-1 min-w-0">
+                <ChartSkeleton title="1D" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <ChartSkeleton title="15M" />
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Main Chart - 1 Hour */}
+            <div className="flex-[1.2] min-h-0">
+              <MemoizedCandlestickChart
+                title="1H"
+                timeframe="1h"
+                data={data['1h']}
+                isLoading={false}
+                showBollinger={showBollinger}
+                showMACD={showMACD}
+                showIchimoku={showIchimoku}
+                showMovingAverages={showMovingAverages}
+                showRSI={showRSI}
+              />
+            </div>
 
-        {/* Bottom Row */}
-        <div className="flex-1 flex gap-2 min-h-0">
-          <div className="flex-1 min-w-0">
-            <MemoizedCandlestickChart
-              title="1D"
-              timeframe="1day"
-              data={data['1day']}
-              isLoading={isLoading}
-              showBollinger={showBollinger}
-              showMACD={showMACD}
-              showIchimoku={showIchimoku}
-              showMovingAverages={showMovingAverages}
-              showRSI={showRSI}
-            />
-          </div>
-          <div className="flex-1 min-w-0">
-            <MemoizedCandlestickChart
-              title="15M"
-              timeframe="15min"
-              data={data['15min']}
-              isLoading={isLoading}
-              showBollinger={showBollinger}
-              showMACD={showMACD}
-              showIchimoku={showIchimoku}
-              showMovingAverages={showMovingAverages}
-              showRSI={showRSI}
-            />
-          </div>
-        </div>
+            {/* Bottom Row */}
+            <div className="flex-1 flex gap-2 min-h-0">
+              <div className="flex-1 min-w-0">
+                <MemoizedCandlestickChart
+                  title="1D"
+                  timeframe="1day"
+                  data={data['1day']}
+                  isLoading={false}
+                  showBollinger={showBollinger}
+                  showMACD={showMACD}
+                  showIchimoku={showIchimoku}
+                  showMovingAverages={showMovingAverages}
+                  showRSI={showRSI}
+                />
+              </div>
+              <div className="flex-1 min-w-0">
+                <MemoizedCandlestickChart
+                  title="15M"
+                  timeframe="15min"
+                  data={data['15min']}
+                  isLoading={false}
+                  showBollinger={showBollinger}
+                  showMACD={showMACD}
+                  showIchimoku={showIchimoku}
+                  showMovingAverages={showMovingAverages}
+                  showRSI={showRSI}
+                />
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

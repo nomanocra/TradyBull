@@ -1,9 +1,12 @@
 'use client';
 
+import { useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import { StrategyRealtimeDashboard } from '@/components/dashboard/strategy-realtime-dashboard';
 import { useRealtimeData } from '@/app/exploration/real-time/realtime-context';
 import { useStrategies } from '@/hooks/useStrategies';
+
+const EMPTY_SIGNALS: never[] = [];
 
 export default function StrategyRealtimePage() {
   const params = useParams();
@@ -14,8 +17,11 @@ export default function StrategyRealtimePage() {
   // Find the strategy config
   const strategyConfig = strategies.find((s) => s.name === strategySlug);
 
-  // Get signals for this strategy from WebSocket
-  const strategySignals = signals[strategySlug] || [];
+  // Get signals for this strategy from WebSocket - memoized to avoid new array reference
+  const strategySignals = useMemo(
+    () => signals[strategySlug] || EMPTY_SIGNALS,
+    [signals, strategySlug]
+  );
 
   // Loading state
   if (strategiesLoading || !strategyConfig) {

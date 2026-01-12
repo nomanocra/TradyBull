@@ -81,11 +81,11 @@ export function HistoricalProvider({ children }: HistoricalProviderProps) {
   }, []);
 
   // Fetch historical data when dates change
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (showLoading = true) => {
     if (!startDate || !endDate) return;
 
     try {
-      setIsLoading(true);
+      if (showLoading) setIsLoading(true);
       const startTs = Math.floor(startDate.getTime() / 1000);
       const endDateEod = new Date(endDate);
       endDateEod.setHours(23, 59, 59, 999);
@@ -102,12 +102,19 @@ export function HistoricalProvider({ children }: HistoricalProviderProps) {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data');
     } finally {
-      setIsLoading(false);
+      if (showLoading) setIsLoading(false);
     }
   }, [startDate, endDate]);
 
+  // Initial fetch and polling every 10 seconds
   useEffect(() => {
-    fetchData();
+    fetchData(true); // Initial fetch with loading state
+
+    const intervalId = setInterval(() => {
+      fetchData(false); // Polling without loading state
+    }, 10000);
+
+    return () => clearInterval(intervalId);
   }, [fetchData]);
 
   const value: HistoricalContextValue = {
