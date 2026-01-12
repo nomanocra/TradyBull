@@ -20,6 +20,7 @@ from notification_service import (
     save_notification_settings,
     delete_notification_settings,
     send_signal_notification,
+    send_signal_notification_sync,
     test_telegram_notification,
     get_notification_history,
     was_notification_already_sent
@@ -510,7 +511,10 @@ def fetch_all_intervals():
         try:
             _, _, _, _, _, check_all_strategies_latest_candle, STRATEGIES = get_signal_calculator()
             with get_db() as conn:
+                print(f"  Checking signals for {len(STRATEGIES)} strategies + dynamic...")
                 results = check_all_strategies_latest_candle(conn, SYMBOL)
+                new_signals_count = sum(1 for s in results.values() if s is not None)
+                print(f"  Signal check complete: {new_signals_count} new signals found")
                 for strategy_name, signal in results.items():
                     if signal is not None:
                         print(f"  [{strategy_name}] New {signal.type} signal at {signal.price}")
@@ -541,13 +545,13 @@ def fetch_all_intervals():
                                 ).fetchone()
                                 display_name = row[0] if row else strategy_name
 
-                            asyncio.run(send_signal_notification(
+                            send_signal_notification_sync(
                                 strategy_name=strategy_name,
                                 strategy_display_name=display_name,
                                 signal_type=signal.type,
                                 price=signal.price,
                                 timestamp=signal.signal_timestamp
-                            ))
+                            )
                         except Exception as notif_err:
                             print(f"  Warning: Could not send notification: {notif_err}")
         except Exception as e:

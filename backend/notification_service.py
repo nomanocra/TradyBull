@@ -190,15 +190,32 @@ def is_within_time_window(time_start: str, time_end: str) -> bool:
         return current_time >= time_start or current_time <= time_end
 
 
+def send_telegram_message_sync(
+    bot_token: str,
+    chat_id: str,
+    message: str
+) -> Dict[str, Any]:
+    """Send a message via Telegram Bot API (synchronous version)"""
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+
+    with httpx.Client(timeout=10.0) as client:
+        response = client.post(url, json={
+            "chat_id": chat_id,
+            "text": message,
+            "parse_mode": "HTML"
+        })
+        return response.json()
+
+
 async def send_telegram_message(
     bot_token: str,
     chat_id: str,
     message: str
 ) -> Dict[str, Any]:
-    """Send a message via Telegram Bot API"""
+    """Send a message via Telegram Bot API (async version)"""
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=10.0) as client:
         response = await client.post(url, json={
             "chat_id": chat_id,
             "text": message,
@@ -229,6 +246,121 @@ def format_signal_message(
     )
 
 
+def send_signal_notification_sync(
+    strategy_name: str,
+    strategy_display_name: str,
+    signal_type: str,
+    price: float,
+    timestamp: int
+) -> Dict[str, Any]:
+    """
+    Send notification for a new signal (synchronous version for background threads).
+    Returns dict with status of each notification channel.
+    """
+    result = {
+        "strategy": strategy_name,
+        "signal_type": signal_type,
+        "notifications_sent": [],
+        "errors": []
+    }
+
+    # Get notification settings
+    settings = get_notification_settings(strategy_name)
+    if not settings:
+        result["errors"].append("No notification settings found")
+        return result
+
+    if not settings["enabled"]:
+        result["errors"].append("Notifications disabled for this strategy")
+        return result
+
+    # Check signal type filter
+    if signal_type == "buy" and not settings["notify_buy"]:
+        result["errors"].append("Buy notifications disabled")
+        return result
+    if signal_type == "sell" and not settings["notify_sell"]:
+        result["errors"].append("Sell notifications disabled")
+        return result
+
+    # Check time window
+    if not is_within_time_window(settings["time_start"], settings["time_end"]):
+        result["errors"].append(f"Outside notification window ({settings['time_start']}-{settings['time_end']})")
+        return result
+
+    # Format message
+    message = format_signal_message(
+        strategy_name,
+        strategy_display_name,
+        signal_type,
+        price,
+        timestamp
+    )
+
+    # Send Telegram notification
+    if settings["telegram_enabled"] and settings["telegram_bot_token"] and settings["telegram_chat_id"]:
+        try:
+            telegram_result = send_telegram_message_sync(
+                settings["telegram_bot_token"],
+                settings["telegram_chat_id"],
+                message
+            )
+            if telegram_result.get("ok"):
+                result["notifications_sent"].append("telegram")
+                log_notification(
+                    strategy_name=strategy_name,
+                    signal_type=signal_type,
+                    price=price,
+                    channel="telegram",
+                    message=message,
+                    signal_timestamp=timestamp,
+                    success=True
+                )
+                print(f"    [Telegram] Notification sent for {signal_type} signal")
+            else:
+                error_msg = telegram_result.get('description', 'Unknown error')
+                result["errors"].append(f"Telegram error: {error_msg}")
+                log_notification(
+                    strategy_name=strategy_name,
+                    signal_type=signal_type,
+                    price=price,
+                    channel="telegram",
+                    message=message,
+                    signal_timestamp=timestamp,
+                    success=False,
+                    error_message=error_msg
+                )
+                print(f"    [Telegram] Error: {error_msg}")
+        except Exception as e:
+            error_msg = str(e)
+            result["errors"].append(f"Telegram exception: {error_msg}")
+            log_notification(
+                strategy_name=strategy_name,
+                signal_type=signal_type,
+                price=price,
+                channel="telegram",
+                message=message,
+                signal_timestamp=timestamp,
+                success=False,
+                error_message=error_msg
+            )
+            print(f"    [Telegram] Exception: {error_msg}")
+
+    # Desktop notifications are handled by the frontend via WebSocket
+    if settings["desktop_enabled"]:
+        result["notifications_sent"].append("desktop_pending")
+        log_notification(
+            strategy_name=strategy_name,
+            signal_type=signal_type,
+            price=price,
+            channel="desktop",
+            message=message,
+            signal_timestamp=timestamp,
+            success=True
+        )
+
+    return result
+
+
 async def send_signal_notification(
     strategy_name: str,
     strategy_display_name: str,
@@ -237,7 +369,7 @@ async def send_signal_notification(
     timestamp: int
 ) -> Dict[str, Any]:
     """
-    Send notification for a new signal.
+    Send notification for a new signal (async version).
     Returns dict with status of each notification channel.
     """
     result = {

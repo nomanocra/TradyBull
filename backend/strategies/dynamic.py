@@ -83,11 +83,11 @@ class DynamicStrategy(BaseStrategy):
         return StrategyDisplayConfig(
             display_name=self._display_name,
             description=self._generate_description(),
-            show_bollinger=indicator_type == 'bollinger',
+            show_bollinger=indicator_type in ('bollinger', 'bollinger-rsi'),
             show_macd=indicator_type in ('macd-cross', 'macd-zero', 'macd-histogram'),
             show_ichimoku=indicator_type in ('ichimoku-kumo', 'ichimoku-tk'),
             show_moving_averages=len(ma_periods) > 0,
-            show_rsi=indicator_type in ('rsi-trend', 'rsi-early', 'rsi-late', 'rsi-large', 'rsi-small'),
+            show_rsi=indicator_type in ('rsi-trend', 'rsi-early', 'rsi-late', 'rsi-large', 'rsi-small', 'bollinger-rsi'),
             ma_periods=ma_periods,
         )
 
@@ -115,6 +115,9 @@ class DynamicStrategy(BaseStrategy):
                 lookback = max(lookback, self.ICHIMOKU_SENKOU_B + 30)
             elif ind_type in ('rsi-trend', 'rsi-early', 'rsi-late', 'rsi-large', 'rsi-small'):
                 lookback = max(lookback, self.RSI_PERIOD + 10)
+            elif ind_type == 'bollinger-rsi':
+                # Combined: need both BB and RSI lookbacks
+                lookback = max(lookback, self.BB_PERIOD + 10, self.RSI_PERIOD + 10)
 
         return lookback
 
@@ -164,7 +167,7 @@ class DynamicStrategy(BaseStrategy):
         buy_str = " + ".join(parts_buy) if parts_buy else "any"
         sell_str = " + ".join(parts_sell) if parts_sell else "any"
 
-        return f"BUY: {buy_str}. SELL: {sell_str}."
+        return f"BUY: {buy_str}.\nSELL: {sell_str}."
 
     # ==================== Indicator Calculations ====================
 
@@ -446,6 +449,16 @@ class DynamicStrategy(BaseStrategy):
                 return False
             return rsi[i - 1] < self.RSI_OVERSOLD and rsi[i] >= self.RSI_OVERSOLD
 
+        elif ind_type == 'bollinger-rsi':
+            # Combined: price touches lower band AND RSI < 20 (double oversold confirmation)
+            bb = indicators.get('bollinger', {})
+            rsi = indicators.get('rsi', [None] * len(candles))
+            lower = bb.get('lower', [None] * len(candles))[i]
+            rsi_val = rsi[i] if rsi else None
+            if lower is None or rsi_val is None:
+                return False
+            return candle['low'] < lower and rsi_val < self.RSI_OVERSOLD
+
         return True
 
     def _check_indicator_sell(self, candles: List[Dict], i: int, indicators: Dict) -> bool:
@@ -550,6 +563,14 @@ class DynamicStrategy(BaseStrategy):
             if i < 1 or rsi[i] is None or rsi[i - 1] is None:
                 return False
             return rsi[i - 1] <= self.RSI_OVERBOUGHT and rsi[i] > self.RSI_OVERBOUGHT
+
+        elif ind_type == 'bollinger-rsi':
+            # Sell when RSI > 80 (overbought exit)
+            rsi = indicators.get('rsi', [None] * len(candles))
+            rsi_val = rsi[i] if rsi else None
+            if rsi_val is None:
+                return False
+            return rsi_val > self.RSI_OVERBOUGHT
 
         return False
 
@@ -693,6 +714,10 @@ class DynamicStrategy(BaseStrategy):
             elif ind_type in ('ichimoku-kumo', 'ichimoku-tk'):
                 indicators['ichimoku'] = self._calculate_ichimoku(candles)
             elif ind_type in ('rsi-trend', 'rsi-early', 'rsi-late', 'rsi-large', 'rsi-small'):
+                indicators['rsi'] = self._calculate_rsi(closes)
+            elif ind_type == 'bollinger-rsi':
+                # Combined indicator: calculate both
+                indicators['bollinger'] = self._calculate_bollinger(closes)
                 indicators['rsi'] = self._calculate_rsi(closes)
 
         signals: List[Signal] = []
