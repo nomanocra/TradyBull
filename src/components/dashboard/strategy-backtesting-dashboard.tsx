@@ -4,6 +4,7 @@ import { useMemo, useCallback, useState } from 'react';
 import { Info, RefreshCw } from 'lucide-react';
 import { MemoizedCandlestickChart } from '@/components/chart/candlestick-chart';
 import { DatePicker } from '@/components/ui/date-picker';
+import { DataSourceSelector } from '@/components/ui/data-source-selector';
 import { KPITiles } from '@/components/kpi/kpi-tiles';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';
@@ -46,25 +47,6 @@ export function StrategyBacktestingDashboard({
 }: StrategyBacktestingDashboardProps) {
   const [isUpdating, setIsUpdating] = useState(false);
 
-  const handleUpdate = useCallback(async () => {
-    setIsUpdating(true);
-    try {
-      const response = await fetch(
-        `http://localhost:8000/api/signals/recalculate?strategy=${encodeURIComponent(strategySlug)}`,
-        { method: 'POST' }
-      );
-      if (!response.ok) {
-        throw new Error('Failed to recalculate signals');
-      }
-      // Refresh signals and KPIs
-      onRefresh?.();
-    } catch (error) {
-      console.error('Error updating signals:', error);
-    } finally {
-      setIsUpdating(false);
-    }
-  }, [strategySlug, onRefresh]);
-
   const {
     data,
     isLoading,
@@ -77,7 +59,28 @@ export function StrategyBacktestingDashboard({
     setEndDate,
     zoomState,
     setZoomState,
+    dataSource,
+    setDataSource,
   } = useHistoricalData();
+
+  const handleUpdate = useCallback(async () => {
+    setIsUpdating(true);
+    try {
+      const response = await fetch(
+        `http://localhost:8000/api/signals/recalculate?strategy=${encodeURIComponent(strategySlug)}&data_source=${encodeURIComponent(dataSource)}`,
+        { method: 'POST' }
+      );
+      if (!response.ok) {
+        throw new Error('Failed to recalculate signals');
+      }
+      // Refresh signals and KPIs
+      onRefresh?.();
+    } catch (error) {
+      console.error('Error updating signals:', error);
+    } finally {
+      setIsUpdating(false);
+    }
+  }, [strategySlug, onRefresh, dataSource]);
 
   // Price info - performance over entire period
   const { lastPrice, priceChange } = useMemo(() => {
@@ -132,8 +135,12 @@ export function StrategyBacktestingDashboard({
           )}
         </div>
 
-        {/* Symbol and price - Center */}
-        <div className="flex items-center gap-2">
+        {/* Data source + Symbol and price - Center */}
+        <div className="flex items-center gap-3">
+          <DataSourceSelector
+            value={dataSource}
+            onChange={setDataSource}
+          />
           <span className="text-xs font-medium text-muted-foreground">{dataInfo?.symbol || 'NQ=F'}</span>
           {lastPrice && (
             <>

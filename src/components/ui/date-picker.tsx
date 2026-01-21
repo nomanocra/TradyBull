@@ -118,16 +118,13 @@ export function DatePicker({
         {/* Year shortcuts */}
         {onYearRangeSelect && availableYears.length > 0 && (
           <div className="mt-3 pt-3 border-t border-gray-200 dark:border-[#2a2a2a]">
-            <div
-              className="grid h-7 bg-gray-100 dark:bg-[#252525] rounded-md p-0.5"
-              style={{ gridTemplateColumns: `repeat(${availableYears.length + 1}, 1fr)` }}
-            >
+            <div className="grid grid-cols-5 gap-0.5 bg-gray-100 dark:bg-[#252525] rounded-md p-0.5">
               <button
                 onClick={() => {
                   onYearRangeSelect(0);
                   setOpen(false);
                 }}
-                className="flex items-center justify-center text-[10px] font-medium rounded-md transition-all duration-200 cursor-pointer text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-[#303030]"
+                className="flex items-center justify-center h-6 text-[10px] font-medium rounded transition-all duration-200 cursor-pointer text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-[#303030]"
               >
                 All
               </button>
@@ -138,7 +135,7 @@ export function DatePicker({
                     onYearRangeSelect(year);
                     setOpen(false);
                   }}
-                  className="flex items-center justify-center text-[10px] font-medium rounded-md transition-all duration-200 cursor-pointer text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-[#303030]"
+                  className="flex items-center justify-center h-6 text-[10px] font-medium rounded transition-all duration-200 cursor-pointer text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-[#303030]"
                 >
                   {year}
                 </button>

@@ -3,6 +3,7 @@
 import { useState, useCallback } from 'react';
 import { Search, Plus } from 'lucide-react';
 import { DatePicker } from '@/components/ui/date-picker';
+import { DataSourceSelector } from '@/components/ui/data-source-selector';
 import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -27,6 +28,8 @@ export default function BacktestingOverviewPage() {
     endDate,
     setStartDate,
     setEndDate,
+    dataSource,
+    setDataSource,
   } = useHistoricalData();
 
   // Convert dates to timestamps for API call
@@ -38,6 +41,7 @@ export default function BacktestingOverviewPage() {
     startTs,
     endTs,
     enabled: !dataLoading,
+    dataSource,
   });
 
   // Get archive/unarchive functions from useStrategies
@@ -90,8 +94,12 @@ export default function BacktestingOverviewPage() {
           <span className="text-xs font-semibold text-brand">Strategies Overview</span>
         </div>
 
-        {/* Symbol - Center */}
-        <div className="flex items-center gap-2">
+        {/* Data source + Symbol - Center */}
+        <div className="flex items-center gap-3">
+          <DataSourceSelector
+            value={dataSource}
+            onChange={setDataSource}
+          />
           <span className="text-xs font-medium text-muted-foreground">{dataInfo?.symbol || 'NQ=F'}</span>
         </div>
 
