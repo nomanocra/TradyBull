@@ -461,13 +461,13 @@ def check_signal_on_latest_candle(
     # Check if we have an open position
     has_position = current_state and current_state.get('position') is not None
 
-    # Fetch lookback candles + new candles from backtest_candles
+    # Fetch lookback candles + new candles from backtest_candles (yfinance only for real-time)
     lookback_start = last_timestamp - (strategy.required_lookback * 3600 * 2) if last_timestamp > 0 else 0
 
     query = """
         SELECT timestamp, open, high, low, close, volume
         FROM backtest_candles
-        WHERE symbol = ? AND timestamp >= ?
+        WHERE symbol = ? AND source = 'yfinance' AND timestamp >= ?
         ORDER BY timestamp ASC
     """
     rows = conn.execute(query, (symbol, lookback_start)).fetchall()
@@ -507,8 +507,8 @@ def check_signal_on_latest_candle(
     for signal in new_signals:
         cursor = conn.execute("""
             INSERT OR IGNORE INTO signals
-            (strategy_name, symbol, signal_timestamp, trigger_timestamp, type, price, label, metadata)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (strategy_name, symbol, signal_timestamp, trigger_timestamp, type, price, label, metadata, data_source)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'yfinance')
         """, (
             strategy_name,
             symbol,

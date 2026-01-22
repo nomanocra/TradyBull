@@ -1163,7 +1163,6 @@ def create_dynamic_strategy_endpoint(body: DynamicStrategyCreate):
 
         # Run initial signal calculation for both data sources
         calculate_signals_incremental, _, _, _, _, _, _ = get_signal_calculator()
-        total_signals = 0
         with get_db() as conn:
             # Get available data sources
             sources = conn.execute(
@@ -1171,11 +1170,19 @@ def create_dynamic_strategy_endpoint(body: DynamicStrategyCreate):
             ).fetchall()
 
             for (source,) in sources:
-                count, _ = calculate_signals_incremental(
+                calculate_signals_incremental(
                     conn, name, SYMBOL, source, 'backtest_candles',
                     strategy_instance=strategy
                 )
-                total_signals += count
+
+            # Get actual counts from database
+            signals_by_source = {}
+            for (source,) in sources:
+                count = conn.execute(
+                    "SELECT COUNT(*) FROM signals WHERE strategy_name = ? AND data_source = ?",
+                    (name, source)
+                ).fetchone()[0]
+                signals_by_source[source] = count
 
         return {
             "status": "created",
@@ -1183,7 +1190,7 @@ def create_dynamic_strategy_endpoint(body: DynamicStrategyCreate):
                 "name": name,
                 "display_name": display_name,
                 "config": config,
-                "signals_count": total_signals
+                "signals_count": signals_by_source
             }
         }
     except Exception as e:
