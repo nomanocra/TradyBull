@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { CandleData } from '@/types/market';
 
 const API_URL = 'http://localhost:8000/api/backtest';
@@ -60,9 +60,10 @@ export function HistoricalProvider({ children, defaultDataSource = 'yfinance' }:
   const [endDate, setEndDate] = useState<Date | undefined>();
   const [zoomState, setZoomState] = useState<ZoomState>(DEFAULT_ZOOM);
   const [dataSource, setDataSource] = useState(defaultDataSource);
+  const isSourceChangeRef = useRef(false);
 
   // Fetch available date bounds and keep them updated
-  const fetchBounds = useCallback(async (isInitial = false) => {
+  const fetchBounds = useCallback(async (isInitial = false, preserveDates = false) => {
     try {
       const sourceParam = dataSource ? `?source=${dataSource}` : '';
       const response = await fetch(`${API_URL}/info${sourceParam}`);
@@ -74,18 +75,32 @@ export function HistoricalProvider({ children, defaultDataSource = 'yfinance' }:
         const maxDate = new Date(info.end_timestamp * 1000);
 
         setDateBounds(prev => {
-          // On initial load or if bounds changed, update dates
-          if (isInitial || !prev || prev.maxDate.getTime() !== maxDate.getTime()) {
-            // Only update endDate if it was previously at max (user didn't manually change it)
+          if (preserveDates) {
+            // When switching sources, clamp existing dates to new bounds
+            setStartDate(current => {
+              if (!current) return minDate;
+              if (current < minDate) return minDate;
+              if (current > maxDate) return maxDate;
+              return current;
+            });
             setEndDate(current => {
-              if (isInitial || !current || !prev || current.getTime() === prev.maxDate.getTime()) {
+              if (!current) return maxDate;
+              if (current < minDate) return minDate;
+              if (current > maxDate) return maxDate;
+              return current;
+            });
+          } else if (isInitial) {
+            // Initial load: set full range
+            setStartDate(minDate);
+            setEndDate(maxDate);
+          } else if (!prev || prev.maxDate.getTime() !== maxDate.getTime()) {
+            // Polling: only update endDate if it was at max
+            setEndDate(current => {
+              if (!current || !prev || current.getTime() === prev.maxDate.getTime()) {
                 return maxDate;
               }
               return current;
             });
-          }
-          if (isInitial) {
-            setStartDate(minDate);
           }
           return { minDate, maxDate };
         });
@@ -97,10 +112,13 @@ export function HistoricalProvider({ children, defaultDataSource = 'yfinance' }:
 
   // Initial fetch and polling for bounds every 30 seconds
   useEffect(() => {
-    fetchBounds(true); // Initial fetch
+    const isSourceChange = isSourceChangeRef.current;
+    isSourceChangeRef.current = false; // Reset flag
+
+    fetchBounds(!isSourceChange, isSourceChange); // isInitial=true only if not a source change
 
     const intervalId = setInterval(() => {
-      fetchBounds(false); // Poll to check for new data
+      fetchBounds(false, false); // Poll to check for new data
     }, 30000);
 
     return () => clearInterval(intervalId);
@@ -144,14 +162,13 @@ export function HistoricalProvider({ children, defaultDataSource = 'yfinance' }:
     return () => clearInterval(intervalId);
   }, [fetchData]);
 
-  // Reset dates when data source changes
+  // Handle data source change - preserve dates and clamp to new bounds
   const handleSetDataSource = useCallback((source: string) => {
     if (source !== dataSource) {
+      isSourceChangeRef.current = true; // Flag to preserve dates on next fetchBounds
       setDataSource(source);
-      setStartDate(undefined);
-      setEndDate(undefined);
-      setDateBounds(null);
-      setZoomState(DEFAULT_ZOOM);
+      setDateBounds(null); // Clear bounds, will be refetched
+      // Don't reset dates - they will be clamped to new bounds in fetchBounds
     }
   }, [dataSource]);
 
