@@ -1161,13 +1161,21 @@ def create_dynamic_strategy_endpoint(body: DynamicStrategyCreate):
             )
             conn.commit()
 
-        # Run initial signal calculation from full history
+        # Run initial signal calculation for both data sources
         calculate_signals_incremental, _, _, _, _, _, _ = get_signal_calculator()
+        total_signals = 0
         with get_db() as conn:
-            new_signals, _ = calculate_signals_incremental(
-                conn, name, SYMBOL, 'unified', 'backtest_candles',
-                strategy_instance=strategy
-            )
+            # Get available data sources
+            sources = conn.execute(
+                "SELECT DISTINCT source FROM backtest_candles WHERE symbol = ?", (SYMBOL,)
+            ).fetchall()
+
+            for (source,) in sources:
+                count, _ = calculate_signals_incremental(
+                    conn, name, SYMBOL, source, 'backtest_candles',
+                    strategy_instance=strategy
+                )
+                total_signals += count
 
         return {
             "status": "created",
@@ -1175,7 +1183,7 @@ def create_dynamic_strategy_endpoint(body: DynamicStrategyCreate):
                 "name": name,
                 "display_name": display_name,
                 "config": config,
-                "signals_count": new_signals
+                "signals_count": total_signals
             }
         }
     except Exception as e:
