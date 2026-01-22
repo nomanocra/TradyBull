@@ -27,6 +27,8 @@ interface HistoricalContextValue {
   setEndDate: (date: Date | undefined) => void;
   zoomState: ZoomState;
   setZoomState: (state: ZoomState) => void;
+  dataSource: string;
+  setDataSource: (source: string) => void;
 }
 
 const HistoricalContext = createContext<HistoricalContextValue | null>(null);
@@ -41,12 +43,13 @@ export function useHistoricalData() {
 
 interface HistoricalProviderProps {
   children: ReactNode;
+  defaultDataSource?: string;
 }
 
 // Default zoom: show last 20% of data (most recent)
 const DEFAULT_ZOOM: ZoomState = { fromPercent: 0.8, toPercent: 1 };
 
-export function HistoricalProvider({ children }: HistoricalProviderProps) {
+export function HistoricalProvider({ children, defaultDataSource = 'yfinance' }: HistoricalProviderProps) {
   const [data, setData] = useState<CandleData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -56,29 +59,52 @@ export function HistoricalProvider({ children }: HistoricalProviderProps) {
   const [startDate, setStartDate] = useState<Date | undefined>();
   const [endDate, setEndDate] = useState<Date | undefined>();
   const [zoomState, setZoomState] = useState<ZoomState>(DEFAULT_ZOOM);
+  const [dataSource, setDataSource] = useState(defaultDataSource);
 
-  // Fetch available date bounds
-  useEffect(() => {
-    const fetchBounds = async () => {
-      try {
-        const response = await fetch(`${API_URL}/info`);
-        if (!response.ok) throw new Error('Failed to fetch data info');
-        const info = await response.json();
+  // Fetch available date bounds and keep them updated
+  const fetchBounds = useCallback(async (isInitial = false) => {
+    try {
+      const sourceParam = dataSource ? `?source=${dataSource}` : '';
+      const response = await fetch(`${API_URL}/info${sourceParam}`);
+      if (!response.ok) throw new Error('Failed to fetch data info');
+      const info = await response.json();
 
-        if (info.count > 0) {
-          const minDate = new Date(info.start_timestamp * 1000);
-          const maxDate = new Date(info.end_timestamp * 1000);
-          setDateBounds({ minDate, maxDate });
-          setStartDate(minDate);
-          setEndDate(maxDate);
-        }
-      } catch (err) {
-        console.error('Failed to fetch date bounds:', err);
+      if (info.count > 0) {
+        const minDate = new Date(info.start_timestamp * 1000);
+        const maxDate = new Date(info.end_timestamp * 1000);
+
+        setDateBounds(prev => {
+          // On initial load or if bounds changed, update dates
+          if (isInitial || !prev || prev.maxDate.getTime() !== maxDate.getTime()) {
+            // Only update endDate if it was previously at max (user didn't manually change it)
+            setEndDate(current => {
+              if (isInitial || !current || !prev || current.getTime() === prev.maxDate.getTime()) {
+                return maxDate;
+              }
+              return current;
+            });
+          }
+          if (isInitial) {
+            setStartDate(minDate);
+          }
+          return { minDate, maxDate };
+        });
       }
-    };
+    } catch (err) {
+      console.error('Failed to fetch date bounds:', err);
+    }
+  }, [dataSource]);
 
-    fetchBounds();
-  }, []);
+  // Initial fetch and polling for bounds every 30 seconds
+  useEffect(() => {
+    fetchBounds(true); // Initial fetch
+
+    const intervalId = setInterval(() => {
+      fetchBounds(false); // Poll to check for new data
+    }, 30000);
+
+    return () => clearInterval(intervalId);
+  }, [fetchBounds]);
 
   // Fetch historical data when dates change
   const fetchData = useCallback(async (showLoading = true) => {
@@ -91,7 +117,8 @@ export function HistoricalProvider({ children }: HistoricalProviderProps) {
       endDateEod.setHours(23, 59, 59, 999);
       const endTs = Math.floor(endDateEod.getTime() / 1000);
 
-      const response = await fetch(`${API_URL}/data?start=${startTs}&end=${endTs}&limit=50000`);
+      const sourceParam = dataSource ? `&source=${dataSource}` : '';
+      const response = await fetch(`${API_URL}/data?start=${startTs}&end=${endTs}&limit=150000${sourceParam}`);
       if (!response.ok) {
         throw new Error('Failed to fetch backtest data');
       }
@@ -104,7 +131,7 @@ export function HistoricalProvider({ children }: HistoricalProviderProps) {
     } finally {
       if (showLoading) setIsLoading(false);
     }
-  }, [startDate, endDate]);
+  }, [startDate, endDate, dataSource]);
 
   // Initial fetch and polling every 10 seconds
   useEffect(() => {
@@ -116,6 +143,17 @@ export function HistoricalProvider({ children }: HistoricalProviderProps) {
 
     return () => clearInterval(intervalId);
   }, [fetchData]);
+
+  // Reset dates when data source changes
+  const handleSetDataSource = useCallback((source: string) => {
+    if (source !== dataSource) {
+      setDataSource(source);
+      setStartDate(undefined);
+      setEndDate(undefined);
+      setDateBounds(null);
+      setZoomState(DEFAULT_ZOOM);
+    }
+  }, [dataSource]);
 
   const value: HistoricalContextValue = {
     data,
@@ -129,6 +167,8 @@ export function HistoricalProvider({ children }: HistoricalProviderProps) {
     setEndDate,
     zoomState,
     setZoomState,
+    dataSource,
+    setDataSource: handleSetDataSource,
   };
 
   return (

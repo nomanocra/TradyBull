@@ -2,142 +2,111 @@
 Market Hours Utility for TradyBull
 Provides market close times for CME futures (NQ=F).
 
-CME Globex E-mini Nasdaq 100 (NQ) hours:
-- Normal close: 23:00 Paris (17:00 ET) - daily break
-- Early close days: varies based on CME calendar
-- Strategies close on the LAST candle before market close (e.g., 22h for 23h close)
-
-YFinance data quirks handled:
-- US Holidays: Only overnight session available (closes ~05:00-06:00 Paris)
-- Witching days (3rd Friday): Data ends at ~15:00 Paris
-- Black Friday: Data ends at ~18:00 Paris
-- DST transitions: +/- 1h offset during US/EU DST gap
+All special dates are PRE-COMPUTED at module load for fast O(1) lookups.
 """
 
 import exchange_calendars as xcals
 from datetime import datetime, date, timedelta
-from typing import Optional
+from typing import Optional, Dict, Set
 import pytz
 
 PARIS_TZ = pytz.timezone('Europe/Paris')
 NY_TZ = pytz.timezone('America/New_York')
 
-# CME calendar for futures
-_calendar = None
-
-# Default close hour in Paris (17:00 ET = 23:00 Paris)
+# Constants
 DEFAULT_CLOSE_HOUR_PARIS = 23
-
-# Overnight session end hour (Paris time)
+DEFAULT_LAST_CANDLE_HOUR = 22
 OVERNIGHT_SESSION_END_HOUR = 5
-
-# Early close threshold - if CME closes before this hour (Paris), it's a holiday
-# Normal close is 23:00 Paris (shown as 00:00 next day in calendar)
-EARLY_CLOSE_THRESHOLD_PARIS = 20
-
-# Witching day close hour (Paris time) - 3rd Friday of Mar/Jun/Sep/Dec
 WITCHING_CLOSE_HOUR = 15
-
-# Black Friday close hour (Paris time)
 BLACK_FRIDAY_CLOSE_HOUR = 18
 
-
-def is_early_close_day(d: date) -> bool:
-    """
-    Check if this date is an early close day (holiday or special day).
-
-    Uses CME calendar to detect early close days (close before 20:00 Paris).
-    Returns True for holidays like MLK Day, Labor Day, Thanksgiving, etc.
-    """
-    calendar = get_calendar()
-
-    # Check if market is open
-    if not calendar.is_session(d):
-        return False
-
-    try:
-        close_time = calendar.session_close(d)
-        close_paris = close_time.astimezone(PARIS_TZ)
-        close_hour = close_paris.hour
-
-        # If close is at midnight (0), it's a normal day
-        if close_hour == 0:
-            return False
-
-        # If close is before threshold, it's an early close day
-        return close_hour < EARLY_CLOSE_THRESHOLD_PARIS
-    except Exception:
-        return False
+# Pre-computed caches (filled at module load)
+_CLOSED_DATES: Set[date] = set()
+_EARLY_CLOSE_HOURS: Dict[date, int] = {}  # date -> close hour
+_LAST_CANDLE_HOURS: Dict[date, int] = {}  # date -> last candle hour (for yfinance quirks)
 
 
-def is_us_holiday_overnight_only(d: date) -> bool:
-    """
-    Check if this date is a US holiday with ONLY overnight session in YFinance.
+def _get_nth_weekday_of_month(year: int, month: int, weekday: int, n: int) -> date:
+    """Get the nth occurrence of a weekday in a month (1-indexed)."""
+    first_day = date(year, month, 1)
+    first_weekday = first_day + timedelta(days=(weekday - first_day.weekday()) % 7)
+    return first_weekday + timedelta(weeks=n - 1)
 
-    These are specific holidays where YFinance only has data until ~05:00:
-    - MLK Day (3rd Monday of January)
-    - Presidents Day (3rd Monday of February)
-    - Memorial Day (last Monday of May)
-    - Juneteenth (June 19)
-    - Labor Day (1st Monday of September)
-    - Thanksgiving (4th Thursday of November)
 
-    Other early close days (Black Friday, Christmas Eve) have data until 18:00.
-    """
+def _get_last_weekday_of_month(year: int, month: int, weekday: int) -> date:
+    """Get the last occurrence of a weekday in a month."""
+    if month == 12:
+        next_month = date(year + 1, 1, 1)
+    else:
+        next_month = date(year, month + 1, 1)
+    last_day = next_month - timedelta(days=1)
+    days_back = (last_day.weekday() - weekday) % 7
+    return last_day - timedelta(days=days_back)
+
+
+def _compute_us_holidays(year: int) -> Set[date]:
+    """Compute US holidays with overnight-only sessions for a given year."""
+    holidays = set()
+
     # MLK Day: 3rd Monday of January
-    if d.weekday() == 0 and d.month == 1 and 15 <= d.day <= 21:
-        return True
+    holidays.add(_get_nth_weekday_of_month(year, 1, 0, 3))
 
     # Presidents Day: 3rd Monday of February
-    if d.weekday() == 0 and d.month == 2 and 15 <= d.day <= 21:
-        return True
+    holidays.add(_get_nth_weekday_of_month(year, 2, 0, 3))
 
-    # Memorial Day: last Monday of May (day 25-31)
-    if d.weekday() == 0 and d.month == 5 and d.day >= 25:
-        return True
+    # Memorial Day: last Monday of May
+    holidays.add(_get_last_weekday_of_month(year, 5, 0))
 
-    # Juneteenth: June 19 (or observed Monday if weekend)
-    if d.month == 6 and d.day == 19:
-        return True
+    # Juneteenth: June 19 (observed on Monday if Sunday, Friday if Saturday)
+    juneteenth = date(year, 6, 19)
+    if juneteenth.weekday() == 6:  # Sunday
+        juneteenth = date(year, 6, 20)
+    elif juneteenth.weekday() == 5:  # Saturday
+        juneteenth = date(year, 6, 18)
+    holidays.add(juneteenth)
 
-    # Labor Day: 1st Monday of September (day 1-7)
-    if d.weekday() == 0 and d.month == 9 and d.day <= 7:
-        return True
+    # Labor Day: 1st Monday of September
+    holidays.add(_get_nth_weekday_of_month(year, 9, 0, 1))
 
-    # Thanksgiving: 4th Thursday of November (day 22-28)
-    if d.weekday() == 3 and d.month == 11 and 22 <= d.day <= 28:
-        return True
+    # Thanksgiving: 4th Thursday of November
+    holidays.add(_get_nth_weekday_of_month(year, 11, 3, 4))
 
-    return False
-
-
-def is_witching_day(d: date) -> bool:
-    """Check if this is a witching day (3rd Friday of Mar/Jun/Sep/Dec)"""
-    # Must be Friday
-    if d.weekday() != 4:
-        return False
-    # Must be witching month
-    if d.month not in (3, 6, 9, 12):
-        return False
-    # Must be 3rd Friday (day 15-21)
-    return 15 <= d.day <= 21
+    return holidays
 
 
-def is_black_friday(d: date) -> bool:
-    """Check if this is Black Friday (day after US Thanksgiving = 4th Thursday of November)"""
-    if d.month != 11 or d.weekday() != 4:  # Must be Friday in November
-        return False
-    # Thanksgiving is 4th Thursday, so Black Friday is between 23rd and 29th
-    return 23 <= d.day <= 29
+def _compute_witching_days(year: int) -> Set[date]:
+    """Compute witching days (3rd Friday of Mar/Jun/Sep/Dec) for a given year."""
+    witching = set()
+    for month in [3, 6, 9, 12]:
+        witching.add(_get_nth_weekday_of_month(year, month, 4, 3))
+    return witching
 
 
-def is_day_before_july_4th(d: date) -> bool:
-    """Check if this is July 3rd (early close before Independence Day)"""
-    return d.month == 7 and d.day == 3
+def _compute_black_fridays(year: int) -> Set[date]:
+    """Compute Black Fridays (day after Thanksgiving) for a given year."""
+    thanksgiving = _get_nth_weekday_of_month(year, 11, 3, 4)
+    return {thanksgiving + timedelta(days=1)}
 
 
-def get_good_friday(year: int) -> date:
-    """Calculate Good Friday date using the Anonymous Gregorian algorithm"""
+def _compute_july_3rd_dates(year: int) -> Set[date]:
+    """Compute July 3rd dates (day before Independence Day)."""
+    july_3 = date(year, 7, 3)
+    # Skip if weekend
+    if july_3.weekday() < 5:
+        return {july_3}
+    return set()
+
+
+def _compute_christmas_eve_dates(year: int) -> Set[date]:
+    """Compute Christmas Eve dates."""
+    dec_24 = date(year, 12, 24)
+    if dec_24.weekday() < 5:
+        return {dec_24}
+    return set()
+
+
+def _get_easter(year: int) -> date:
+    """Compute Easter Sunday using the Anonymous Gregorian algorithm."""
     a = year % 19
     b = year // 100
     c = year % 100
@@ -152,300 +121,175 @@ def get_good_friday(year: int) -> date:
     m = (a + 11 * h + 22 * l) // 451
     month = (h + l - 7 * m + 114) // 31
     day = ((h + l - 7 * m + 114) % 31) + 1
-    easter_sunday = date(year, month, day)
-    good_friday = easter_sunday - timedelta(days=2)
-    return good_friday
+    return date(year, month, day)
 
 
-def is_day_before_good_friday(d: date) -> bool:
-    """Check if this is the Thursday before Good Friday (early close)"""
-    good_friday = get_good_friday(d.year)
-    return d == good_friday - timedelta(days=1)
+def _compute_good_friday_eve_dates(year: int) -> Set[date]:
+    """Compute Thursday before Good Friday (day before Good Friday)."""
+    easter = _get_easter(year)
+    good_friday = easter - timedelta(days=2)
+    thursday_before = good_friday - timedelta(days=1)
+    return {thursday_before}
 
 
-def get_dst_offset(d: date) -> int:
-    """
-    Get DST offset adjustment for YFinance data.
+def _get_dst_offset(d: date) -> int:
+    """Get DST offset (+1 during US DST gap with Europe)."""
+    # US DST: 2nd Sunday of March to 1st Sunday of November
+    # EU DST: Last Sunday of March to last Sunday of October
+    # Gap in March: US switches before EU (+1h offset)
+    us_dst_start = _get_nth_weekday_of_month(d.year, 3, 6, 2)
+    eu_dst_start = _get_last_weekday_of_month(d.year, 3, 6)
 
-    US DST: 2nd Sunday of March to 1st Sunday of November
-    EU DST: Last Sunday of March to Last Sunday of October
-
-    During transition gaps:
-    - Mon-Thu: YFinance shows +1h (23:00 instead of 22:00)
-    - Friday: YFinance shows -1h (21:00 instead of 22:00)
-
-    Returns:
-        +1 for Mon-Thu during DST gap
-        -1 for Friday during DST gap
-        0 otherwise
-    """
-    year = d.year
-
-    # Find US DST start (2nd Sunday of March)
-    march_1 = date(year, 3, 1)
-    days_to_sunday = (6 - march_1.weekday()) % 7
-    us_dst_start = march_1 + timedelta(days=days_to_sunday + 7)  # 2nd Sunday
-
-    # Find EU DST start (last Sunday of March)
-    march_31 = date(year, 3, 31)
-    days_back_to_sunday = (march_31.weekday() + 1) % 7
-    eu_dst_start = march_31 - timedelta(days=days_back_to_sunday)
-
-    # Find EU DST end (last Sunday of October)
-    oct_31 = date(year, 10, 31)
-    days_back_to_sunday = (oct_31.weekday() + 1) % 7
-    eu_dst_end = oct_31 - timedelta(days=days_back_to_sunday)
-
-    # Find US DST end (1st Sunday of November)
-    nov_1 = date(year, 11, 1)
-    days_to_sunday = (6 - nov_1.weekday()) % 7
-    us_dst_end = nov_1 + timedelta(days=days_to_sunday)
-
-    # Check if in DST transition gap
-    in_spring_gap = us_dst_start <= d < eu_dst_start
-    in_fall_gap = eu_dst_end <= d < us_dst_end
-
-    if in_spring_gap or in_fall_gap:
-        # Friday shows -1h, other days show +1h
-        if d.weekday() == 4:  # Friday
-            return -1
-        else:
-            return 1
-
+    if us_dst_start <= d < eu_dst_start:
+        return 1
     return 0
 
 
+def _precompute_all_dates():
+    """Pre-compute all special dates from calendar range."""
+    global _CLOSED_DATES, _EARLY_CLOSE_HOURS, _LAST_CANDLE_HOURS
+
+    calendar = xcals.get_calendar("CME")
+    start_year = 2006
+    end_year = 2028
+
+    # Collect all special dates by year
+    all_us_holidays: Set[date] = set()
+    all_witching_days: Set[date] = set()
+    all_black_fridays: Set[date] = set()
+    all_july_3rd: Set[date] = set()
+    all_christmas_eve: Set[date] = set()
+    all_good_friday_eve: Set[date] = set()
+
+    for year in range(start_year, end_year + 1):
+        all_us_holidays.update(_compute_us_holidays(year))
+        all_witching_days.update(_compute_witching_days(year))
+        all_black_fridays.update(_compute_black_fridays(year))
+        all_july_3rd.update(_compute_july_3rd_dates(year))
+        all_christmas_eve.update(_compute_christmas_eve_dates(year))
+        all_good_friday_eve.update(_compute_good_friday_eve_dates(year))
+
+    # Build closed dates from calendar
+    # Start from calendar's first session
+    first_session = calendar.first_session.date()
+    last_session = calendar.last_session.date()
+    current = first_session
+    while current <= last_session:
+        if not calendar.is_session(current):
+            _CLOSED_DATES.add(current)
+        current += timedelta(days=1)
+
+    # Build early close hours and last candle hours
+    for d in all_us_holidays:
+        if d not in _CLOSED_DATES:
+            _EARLY_CLOSE_HOURS[d] = OVERNIGHT_SESSION_END_HOUR + 1  # Close at 06:00
+            _LAST_CANDLE_HOURS[d] = OVERNIGHT_SESSION_END_HOUR  # Last candle at 05:00
+
+    for d in all_witching_days:
+        if d not in _CLOSED_DATES and d not in _EARLY_CLOSE_HOURS:
+            dst_offset = _get_dst_offset(d)
+            _EARLY_CLOSE_HOURS[d] = WITCHING_CLOSE_HOUR + dst_offset + 1
+            _LAST_CANDLE_HOURS[d] = WITCHING_CLOSE_HOUR + dst_offset
+
+    for d in all_black_fridays | all_july_3rd | all_christmas_eve:
+        if d not in _CLOSED_DATES and d not in _EARLY_CLOSE_HOURS:
+            _EARLY_CLOSE_HOURS[d] = BLACK_FRIDAY_CLOSE_HOUR + 1
+            _LAST_CANDLE_HOURS[d] = BLACK_FRIDAY_CLOSE_HOUR
+
+    for d in all_good_friday_eve:
+        if d not in _CLOSED_DATES and d not in _EARLY_CLOSE_HOURS:
+            _EARLY_CLOSE_HOURS[d] = 22  # Close at 22:00
+            _LAST_CANDLE_HOURS[d] = 21  # Last candle at 21:00
+
+    # Special one-time events
+    # January 9, 2025 - National Day of Mourning for President Carter
+    carter_day = date(2025, 1, 9)
+    if carter_day not in _CLOSED_DATES:
+        _EARLY_CLOSE_HOURS[carter_day] = 16
+        _LAST_CANDLE_HOURS[carter_day] = 15
+
+
+# Pre-compute at module load
+_precompute_all_dates()
+
+
+# ============== PUBLIC API ==============
+
 def get_calendar():
-    """Get CME calendar (cached)"""
-    global _calendar
-    if _calendar is None:
-        _calendar = xcals.get_calendar("CME")
-    return _calendar
+    """Get CME calendar (cached)."""
+    return xcals.get_calendar("CME")
+
+
+def is_market_closed(d: date) -> bool:
+    """Check if market is closed on this date."""
+    return d in _CLOSED_DATES
+
+
+def is_early_close_day(d: date) -> bool:
+    """Check if this date is an early close day."""
+    return d in _EARLY_CLOSE_HOURS
 
 
 def get_market_close_hour_paris(timestamp: int) -> int:
-    """
-    Get the CME futures close hour in Paris time for a given timestamp.
-
-    CME Globex:
-    - Normal close: 23:00 Paris (17:00 ET)
-    - Early close days: earlier (e.g., Christmas Eve)
-    - Closed days: returns -1
-
-    Args:
-        timestamp: Unix timestamp
-
-    Returns:
-        Hour in Paris time when market closes, or -1 if market is closed that day
-    """
-    calendar = get_calendar()
-
-    # Convert timestamp to date
-    dt = datetime.fromtimestamp(timestamp, tz=PARIS_TZ)
-    check_date = dt.date()
-
-    # Check if market is open on this day
-    if not calendar.is_session(check_date):
-        return -1
-
-    try:
-        # Get the session close time from CME calendar
-        close_time = calendar.session_close(check_date)
-
-        # Convert to Paris timezone
-        close_paris = close_time.astimezone(PARIS_TZ)
-
-        # CME calendar returns close at midnight (00:00 next day)
-        # But actual futures close at 23:00 Paris (17:00 ET daily break)
-        # Check if this is an early close day by comparing to default
-        close_hour = close_paris.hour
-
-        # If close is at midnight (0), it means normal close at 23:00 Paris
-        if close_hour == 0:
-            return DEFAULT_CLOSE_HOUR_PARIS
-
-        # Otherwise it's an early close day
-        return close_hour
-    except Exception:
-        # Fallback to default close time
-        return DEFAULT_CLOSE_HOUR_PARIS
-
-
-def get_last_candle_hour_paris(timestamp: int) -> int:
-    """
-    Get the hour of the last 1h candle before market close.
-
-    If market closes at 16:00 NY (22:00 Paris), last candle is 21:00-22:00 (timestamped 21:00)
-    If market closes at 13:00 NY (19:00 Paris), last candle is 18:00-19:00 (timestamped 18:00)
-
-    Args:
-        timestamp: Unix timestamp
-
-    Returns:
-        Hour in Paris time for the last candle, or -1 if market is closed
-    """
-    close_hour = get_market_close_hour_paris(timestamp)
-
-    if close_hour == -1:
-        return -1
-
-    # Last candle hour is close_hour - 1
-    # (candle 21:00-22:00 is timestamped as 21:00)
-    return close_hour - 1
-
-
-def get_yfinance_last_candle_hour(timestamp: int) -> int:
-    """
-    Get the expected last candle hour in YFinance data, accounting for data quirks.
-
-    This handles:
-    - US Holidays: Only overnight session (close at 05:00)
-    - Witching days: Early close at 15:00
-    - Black Friday: Early close at 18:00
-    - July 3rd: Early close at 18:00
-    - DST transitions: +1h offset
-
-    Args:
-        timestamp: Unix timestamp
-
-    Returns:
-        Hour in Paris time for the expected last candle in YFinance data
-    """
+    """Get market close hour in Paris time. Returns -1 if market closed."""
     dt = datetime.fromtimestamp(timestamp, tz=PARIS_TZ)
     d = dt.date()
 
-    # US Holiday - only overnight session available (MLK, Presidents, Memorial, Labor Day)
-    if is_us_holiday_overnight_only(d):
-        return OVERNIGHT_SESSION_END_HOUR
+    if d in _CLOSED_DATES:
+        return -1
 
-    # Other early close days (Thanksgiving, Black Friday, Christmas Eve) have data until 18:00
-    if is_early_close_day(d):
-        return BLACK_FRIDAY_CLOSE_HOUR
+    return _EARLY_CLOSE_HOURS.get(d, DEFAULT_CLOSE_HOUR_PARIS)
 
-    # Witching day (3rd Friday of Mar/Jun/Sep/Dec)
-    if is_witching_day(d):
-        # Apply DST offset to witching days too
-        dst_offset = get_dst_offset(d)
-        return WITCHING_CLOSE_HOUR + dst_offset
 
-    # Black Friday
-    if is_black_friday(d):
-        return BLACK_FRIDAY_CLOSE_HOUR
+def get_last_candle_hour_paris(timestamp: int) -> int:
+    """Get the last candle hour before market close."""
+    dt = datetime.fromtimestamp(timestamp, tz=PARIS_TZ)
+    d = dt.date()
 
-    # July 3rd (day before Independence Day)
-    if is_day_before_july_4th(d):
-        return BLACK_FRIDAY_CLOSE_HOUR  # Same early close
+    if d in _CLOSED_DATES:
+        return -1
 
-    # Day before Good Friday (Thursday before Easter) - closes at 21:00 Paris
-    if is_day_before_good_friday(d):
-        return 21
+    return _LAST_CANDLE_HOURS.get(d, DEFAULT_LAST_CANDLE_HOUR)
 
-    # Special one-time events (hardcoded)
-    # January 9, 2025 - National Day of Mourning for President Carter (early close at 15:00)
-    if d == date(2025, 1, 9):
-        return 15
 
-    # Normal day - use calendar with DST adjustment
-    last_hour = get_last_candle_hour_paris(timestamp)
-    if last_hour == -1:
-        last_hour = DEFAULT_CLOSE_HOUR_PARIS - 1  # Default to 22:00
+def get_yfinance_last_candle_hour(timestamp: int) -> int:
+    """Get expected last candle hour in YFinance data."""
+    dt = datetime.fromtimestamp(timestamp, tz=PARIS_TZ)
+    d = dt.date()
 
-    # Apply DST offset
-    dst_offset = get_dst_offset(d)
-    return last_hour + dst_offset
+    return _LAST_CANDLE_HOURS.get(d, DEFAULT_LAST_CANDLE_HOUR)
 
 
 def is_last_candle_of_day(timestamp: int) -> bool:
-    """
-    Check if the candle at this timestamp is the last one before market close.
-
-    Uses YFinance-adjusted hours to handle:
-    - US Holidays (overnight only)
-    - Witching days
-    - Black Friday
-    - DST transitions
-
-    Args:
-        timestamp: Unix timestamp of the candle
-
-    Returns:
-        True if this is the last candle before close
-    """
+    """Check if this candle is the last one before market close."""
     dt = datetime.fromtimestamp(timestamp, tz=PARIS_TZ)
     candle_hour = dt.hour
-
-    # Use YFinance-adjusted last candle hour
-    expected_last_hour = get_yfinance_last_candle_hour(timestamp)
-
+    expected_last_hour = _LAST_CANDLE_HOURS.get(dt.date(), DEFAULT_LAST_CANDLE_HOUR)
     return candle_hour == expected_last_hour
 
 
-def is_market_closed_day(timestamp: int) -> bool:
-    """
-    Check if the market is closed on this day.
-
-    Args:
-        timestamp: Unix timestamp
-
-    Returns:
-        True if market is closed
-    """
-    return get_market_close_hour_paris(timestamp) == -1
-
-
-def get_paris_hour(timestamp: int) -> int:
-    """
-    Get the hour in Paris time for a given timestamp.
-
-    Args:
-        timestamp: Unix timestamp
-
-    Returns:
-        Hour in Paris time (0-23)
-    """
-    dt = datetime.fromtimestamp(timestamp, tz=PARIS_TZ)
-    return dt.hour
-
-
 def is_too_close_to_close(timestamp: int, min_hours_before_close: int = 2) -> bool:
-    """
-    Check if we're too close to market close to open a new position.
-
-    Uses YFinance-adjusted last candle hour to handle special days
-    (witching, holidays, etc.) where data ends earlier than normal.
-
-    Args:
-        timestamp: Unix timestamp of the candle
-        min_hours_before_close: Minimum hours required before close (default 2)
-
-    Returns:
-        True if we're within min_hours_before_close of market close
-    """
-    # Use YFinance-adjusted close hour (last_candle_hour + 1)
-    # This handles witching days, holidays, etc.
-    last_candle_hour = get_yfinance_last_candle_hour(timestamp)
-    effective_close_hour = last_candle_hour + 1
-
+    """Check if we're too close to market close to open a new position."""
     dt = datetime.fromtimestamp(timestamp, tz=PARIS_TZ)
     candle_hour = dt.hour
+    d = dt.date()
 
-    # Hours remaining until close
-    hours_until_close = effective_close_hour - candle_hour
+    if d in _CLOSED_DATES:
+        return True
+
+    close_hour = _EARLY_CLOSE_HOURS.get(d, DEFAULT_CLOSE_HOUR_PARIS)
+    hours_until_close = close_hour - candle_hour
 
     return hours_until_close < min_hours_before_close
 
 
 def is_first_candle_of_session(timestamp: int) -> bool:
-    """
-    Check if the candle at this timestamp is the first one after market reopen.
-
-    Market reopens at 00:00 Paris (after 23:00 close).
-
-    Args:
-        timestamp: Unix timestamp of the candle
-
-    Returns:
-        True if this is the first candle of the trading session (00:00 Paris)
-    """
+    """Check if this is the first candle of the trading session (00:00 Paris)."""
     dt = datetime.fromtimestamp(timestamp, tz=PARIS_TZ)
     return dt.hour == 0
+
+
+def get_paris_hour(timestamp: int) -> int:
+    """Get the hour in Paris timezone."""
+    dt = datetime.fromtimestamp(timestamp, tz=PARIS_TZ)
+    return dt.hour

@@ -35,7 +35,7 @@ def init_backtest_table(conn):
             close REAL NOT NULL,
             volume INTEGER,
             source TEXT DEFAULT 'yfinance',
-            UNIQUE(symbol, timestamp)
+            UNIQUE(symbol, timestamp, source)
         )
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_backtest_timestamp ON backtest_candles(timestamp)")

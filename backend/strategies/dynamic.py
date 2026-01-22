@@ -346,8 +346,9 @@ class DynamicStrategy(BaseStrategy):
 
     # ==================== Condition Checks ====================
 
-    def _check_indicator_buy(self, candles: List[Dict], i: int, indicators: Dict) -> bool:
-        """Check if indicator signals a BUY at index i"""
+    def _check_indicator_buy(self, candle: Dict, i: int, cached_ind: Dict) -> bool:
+        """Check if indicator signals a BUY at index i.
+        Uses pre-cached indicator arrays for O(1) access."""
         ind_config = self.config.indicator
         if not ind_config:
             return True  # No indicator = always true
@@ -358,19 +359,20 @@ class DynamicStrategy(BaseStrategy):
         if mode == 'sell':
             return True  # Indicator only for sell, buy is always OK
 
-        candle = candles[i]
-
         if ind_type == 'bollinger':
-            bb = indicators.get('bollinger', {})
-            lower = bb.get('lower', [None] * len(candles))[i]
+            bb_lower = cached_ind.get('bb_lower')
+            if bb_lower is None:
+                return False
+            lower = bb_lower[i]
             if lower is None:
                 return False
             return candle['low'] < lower
 
         elif ind_type == 'macd-cross':
-            macd = indicators.get('macd', {})
-            macd_line = macd.get('macd', [None] * len(candles))
-            signal_line = macd.get('signal', [None] * len(candles))
+            macd_line = cached_ind.get('macd_line')
+            signal_line = cached_ind.get('signal_line')
+            if macd_line is None or signal_line is None:
+                return False
             if i < 1 or macd_line[i] is None or signal_line[i] is None:
                 return False
             if macd_line[i - 1] is None or signal_line[i - 1] is None:
@@ -379,34 +381,39 @@ class DynamicStrategy(BaseStrategy):
             return macd_line[i - 1] <= signal_line[i - 1] and macd_line[i] > signal_line[i]
 
         elif ind_type == 'macd-zero':
-            macd = indicators.get('macd', {})
-            macd_line = macd.get('macd', [None] * len(candles))
+            macd_line = cached_ind.get('macd_line')
+            if macd_line is None:
+                return False
             if i < 1 or macd_line[i] is None or macd_line[i - 1] is None:
                 return False
             # Cross above zero
             return macd_line[i - 1] <= 0 and macd_line[i] > 0
 
         elif ind_type == 'macd-histogram':
-            macd = indicators.get('macd', {})
-            histogram = macd.get('histogram', [None] * len(candles))
+            histogram = cached_ind.get('histogram')
+            if histogram is None:
+                return False
             if i < 1 or histogram[i] is None or histogram[i - 1] is None:
                 return False
             # Histogram turning up (direction change)
             return histogram[i] > histogram[i - 1]
 
         elif ind_type == 'ichimoku-kumo':
-            ich = indicators.get('ichimoku', {})
-            senkou_a = ich.get('senkou_a', [None] * len(candles))[i]
-            senkou_b = ich.get('senkou_b', [None] * len(candles))[i]
+            senkou_a = cached_ind.get('senkou_a')
+            senkou_b = cached_ind.get('senkou_b')
             if senkou_a is None or senkou_b is None:
                 return False
-            kumo_top = max(senkou_a, senkou_b)
+            sa, sb = senkou_a[i], senkou_b[i]
+            if sa is None or sb is None:
+                return False
+            kumo_top = max(sa, sb)
             return candle['close'] > kumo_top
 
         elif ind_type == 'ichimoku-tk':
-            ich = indicators.get('ichimoku', {})
-            tenkan = ich.get('tenkan', [None] * len(candles))
-            kijun = ich.get('kijun', [None] * len(candles))
+            tenkan = cached_ind.get('tenkan')
+            kijun = cached_ind.get('kijun')
+            if tenkan is None or kijun is None:
+                return False
             if i < 1 or tenkan[i] is None or kijun[i] is None:
                 return False
             if tenkan[i - 1] is None or kijun[i - 1] is None:
@@ -416,53 +423,66 @@ class DynamicStrategy(BaseStrategy):
 
         elif ind_type == 'rsi-trend':
             # Buy when RSI starts rising while below oversold (20)
-            rsi = indicators.get('rsi', [None] * len(candles))
+            rsi = cached_ind.get('rsi')
+            if rsi is None:
+                return False
             if i < 1 or rsi[i] is None or rsi[i - 1] is None:
                 return False
             return rsi[i] < self.RSI_OVERSOLD and rsi[i] > rsi[i - 1]
 
         elif ind_type == 'rsi-early':
             # Buy when entering oversold zone (crosses down into <20)
-            rsi = indicators.get('rsi', [None] * len(candles))
+            rsi = cached_ind.get('rsi')
+            if rsi is None:
+                return False
             if i < 1 or rsi[i] is None or rsi[i - 1] is None:
                 return False
             return rsi[i - 1] >= self.RSI_OVERSOLD and rsi[i] < self.RSI_OVERSOLD
 
         elif ind_type == 'rsi-late':
             # Buy when exiting oversold zone (crosses up out of <20)
-            rsi = indicators.get('rsi', [None] * len(candles))
+            rsi = cached_ind.get('rsi')
+            if rsi is None:
+                return False
             if i < 1 or rsi[i] is None or rsi[i - 1] is None:
                 return False
             return rsi[i - 1] < self.RSI_OVERSOLD and rsi[i] >= self.RSI_OVERSOLD
 
         elif ind_type == 'rsi-large':
             # Buy when entering oversold zone (same as early)
-            rsi = indicators.get('rsi', [None] * len(candles))
+            rsi = cached_ind.get('rsi')
+            if rsi is None:
+                return False
             if i < 1 or rsi[i] is None or rsi[i - 1] is None:
                 return False
             return rsi[i - 1] >= self.RSI_OVERSOLD and rsi[i] < self.RSI_OVERSOLD
 
         elif ind_type == 'rsi-small':
             # Buy when exiting oversold zone (same as late)
-            rsi = indicators.get('rsi', [None] * len(candles))
+            rsi = cached_ind.get('rsi')
+            if rsi is None:
+                return False
             if i < 1 or rsi[i] is None or rsi[i - 1] is None:
                 return False
             return rsi[i - 1] < self.RSI_OVERSOLD and rsi[i] >= self.RSI_OVERSOLD
 
         elif ind_type == 'bollinger-rsi':
             # Combined: price touches lower band AND RSI < 20 (double oversold confirmation)
-            bb = indicators.get('bollinger', {})
-            rsi = indicators.get('rsi', [None] * len(candles))
-            lower = bb.get('lower', [None] * len(candles))[i]
-            rsi_val = rsi[i] if rsi else None
+            bb_lower = cached_ind.get('bb_lower')
+            rsi = cached_ind.get('rsi')
+            if bb_lower is None or rsi is None:
+                return False
+            lower = bb_lower[i]
+            rsi_val = rsi[i]
             if lower is None or rsi_val is None:
                 return False
             return candle['low'] < lower and rsi_val < self.RSI_OVERSOLD
 
         return True
 
-    def _check_indicator_sell(self, candles: List[Dict], i: int, indicators: Dict) -> bool:
-        """Check if indicator signals a SELL at index i"""
+    def _check_indicator_sell(self, candle: Dict, i: int, cached_ind: Dict) -> bool:
+        """Check if indicator signals a SELL at index i.
+        Uses pre-cached indicator arrays for O(1) access."""
         ind_config = self.config.indicator
         if not ind_config:
             return False  # No indicator = no sell signal from indicator
@@ -473,19 +493,20 @@ class DynamicStrategy(BaseStrategy):
         if mode == 'buy':
             return False  # Indicator only for buy
 
-        candle = candles[i]
-
         if ind_type == 'bollinger':
-            bb = indicators.get('bollinger', {})
-            upper = bb.get('upper', [None] * len(candles))[i]
+            bb_upper = cached_ind.get('bb_upper')
+            if bb_upper is None:
+                return False
+            upper = bb_upper[i]
             if upper is None:
                 return False
             return candle['high'] > upper
 
         elif ind_type == 'macd-cross':
-            macd = indicators.get('macd', {})
-            macd_line = macd.get('macd', [None] * len(candles))
-            signal_line = macd.get('signal', [None] * len(candles))
+            macd_line = cached_ind.get('macd_line')
+            signal_line = cached_ind.get('signal_line')
+            if macd_line is None or signal_line is None:
+                return False
             if i < 1 or macd_line[i] is None or signal_line[i] is None:
                 return False
             if macd_line[i - 1] is None or signal_line[i - 1] is None:
@@ -494,34 +515,39 @@ class DynamicStrategy(BaseStrategy):
             return macd_line[i - 1] >= signal_line[i - 1] and macd_line[i] < signal_line[i]
 
         elif ind_type == 'macd-zero':
-            macd = indicators.get('macd', {})
-            macd_line = macd.get('macd', [None] * len(candles))
+            macd_line = cached_ind.get('macd_line')
+            if macd_line is None:
+                return False
             if i < 1 or macd_line[i] is None or macd_line[i - 1] is None:
                 return False
             # Cross below zero
             return macd_line[i - 1] >= 0 and macd_line[i] < 0
 
         elif ind_type == 'macd-histogram':
-            macd = indicators.get('macd', {})
-            histogram = macd.get('histogram', [None] * len(candles))
+            histogram = cached_ind.get('histogram')
+            if histogram is None:
+                return False
             if i < 1 or histogram[i] is None or histogram[i - 1] is None:
                 return False
             # Histogram turning down (direction change)
             return histogram[i] < histogram[i - 1]
 
         elif ind_type == 'ichimoku-kumo':
-            ich = indicators.get('ichimoku', {})
-            senkou_a = ich.get('senkou_a', [None] * len(candles))[i]
-            senkou_b = ich.get('senkou_b', [None] * len(candles))[i]
+            senkou_a = cached_ind.get('senkou_a')
+            senkou_b = cached_ind.get('senkou_b')
             if senkou_a is None or senkou_b is None:
                 return False
-            kumo_bottom = min(senkou_a, senkou_b)
+            sa, sb = senkou_a[i], senkou_b[i]
+            if sa is None or sb is None:
+                return False
+            kumo_bottom = min(sa, sb)
             return candle['close'] < kumo_bottom
 
         elif ind_type == 'ichimoku-tk':
-            ich = indicators.get('ichimoku', {})
-            tenkan = ich.get('tenkan', [None] * len(candles))
-            kijun = ich.get('kijun', [None] * len(candles))
+            tenkan = cached_ind.get('tenkan')
+            kijun = cached_ind.get('kijun')
+            if tenkan is None or kijun is None:
+                return False
             if i < 1 or tenkan[i] is None or kijun[i] is None:
                 return False
             if tenkan[i - 1] is None or kijun[i - 1] is None:
@@ -531,66 +557,77 @@ class DynamicStrategy(BaseStrategy):
 
         elif ind_type == 'rsi-trend':
             # Sell when RSI starts falling while above overbought (80)
-            rsi = indicators.get('rsi', [None] * len(candles))
+            rsi = cached_ind.get('rsi')
+            if rsi is None:
+                return False
             if i < 1 or rsi[i] is None or rsi[i - 1] is None:
                 return False
             return rsi[i] > self.RSI_OVERBOUGHT and rsi[i] < rsi[i - 1]
 
         elif ind_type == 'rsi-early':
             # Sell when entering overbought zone (crosses up into >80)
-            rsi = indicators.get('rsi', [None] * len(candles))
+            rsi = cached_ind.get('rsi')
+            if rsi is None:
+                return False
             if i < 1 or rsi[i] is None or rsi[i - 1] is None:
                 return False
             return rsi[i - 1] <= self.RSI_OVERBOUGHT and rsi[i] > self.RSI_OVERBOUGHT
 
         elif ind_type == 'rsi-late':
             # Sell when exiting overbought zone (crosses down out of >80)
-            rsi = indicators.get('rsi', [None] * len(candles))
+            rsi = cached_ind.get('rsi')
+            if rsi is None:
+                return False
             if i < 1 or rsi[i] is None or rsi[i - 1] is None:
                 return False
             return rsi[i - 1] > self.RSI_OVERBOUGHT and rsi[i] <= self.RSI_OVERBOUGHT
 
         elif ind_type == 'rsi-large':
             # Sell when exiting overbought zone (crosses down out of >80)
-            rsi = indicators.get('rsi', [None] * len(candles))
+            rsi = cached_ind.get('rsi')
+            if rsi is None:
+                return False
             if i < 1 or rsi[i] is None or rsi[i - 1] is None:
                 return False
             return rsi[i - 1] > self.RSI_OVERBOUGHT and rsi[i] <= self.RSI_OVERBOUGHT
 
         elif ind_type == 'rsi-small':
             # Sell when entering overbought zone (crosses up into >80)
-            rsi = indicators.get('rsi', [None] * len(candles))
+            rsi = cached_ind.get('rsi')
+            if rsi is None:
+                return False
             if i < 1 or rsi[i] is None or rsi[i - 1] is None:
                 return False
             return rsi[i - 1] <= self.RSI_OVERBOUGHT and rsi[i] > self.RSI_OVERBOUGHT
 
         elif ind_type == 'bollinger-rsi':
             # Sell when RSI > 80 (overbought exit)
-            rsi = indicators.get('rsi', [None] * len(candles))
-            rsi_val = rsi[i] if rsi else None
+            rsi = cached_ind.get('rsi')
+            if rsi is None:
+                return False
+            rsi_val = rsi[i]
             if rsi_val is None:
                 return False
             return rsi_val > self.RSI_OVERBOUGHT
 
         return False
 
-    def _check_ma_conditions_buy(self, candles: List[Dict], i: int, mas: Dict) -> bool:
-        """Check MA-based conditions for BUY (all must be true)"""
-        candle = candles[i]
-        close = candle['close']
+    def _check_ma_conditions_buy(self, close: float, i: int, cached_ma: Dict) -> bool:
+        """Check MA-based conditions for BUY (all must be true).
+        Uses pre-cached MA arrays for O(1) access."""
 
         # MA Trend: MA must be rising
         if self.config.ma_trend:
-            ma = mas.get(f'ma{self.config.ma_trend}', [None] * len(candles))
-            if i < 1 or ma[i] is None or ma[i - 1] is None:
+            ma = cached_ma.get(f'ma{self.config.ma_trend}')
+            if ma is None or i < 1 or ma[i] is None or ma[i - 1] is None:
                 return False
             if ma[i] <= ma[i - 1]:  # Not rising
                 return False
 
         # Value above MA: Price must be above MA
         if self.config.value_above_ma:
-            ma = mas.get(f'ma{self.config.value_above_ma}', [None] * len(candles))
-            if ma[i] is None:
+            ma = cached_ma.get(f'ma{self.config.value_above_ma}')
+            if ma is None or ma[i] is None:
                 return False
             if close <= ma[i]:
                 return False
@@ -599,42 +636,42 @@ class DynamicStrategy(BaseStrategy):
         if self.config.ma_cross:
             fast = self.config.ma_cross.get('fast')
             slow = self.config.ma_cross.get('slow')
-            ma_fast = mas.get(f'ma{fast}', [None] * len(candles))
-            ma_slow = mas.get(f'ma{slow}', [None] * len(candles))
-            if ma_fast[i] is None or ma_slow[i] is None:
+            ma_fast = cached_ma.get(f'ma{fast}')
+            ma_slow = cached_ma.get(f'ma{slow}')
+            if ma_fast is None or ma_slow is None or ma_fast[i] is None or ma_slow[i] is None:
                 return False
             if ma_fast[i] <= ma_slow[i]:
                 return False
 
         return True
 
-    def _check_ma_conditions_sell(self, candles: List[Dict], i: int, mas: Dict) -> bool:
-        """Check MA-based conditions for SELL (symmetric - any triggers sell)"""
-        candle = candles[i]
-        close = candle['close']
+    def _check_ma_conditions_sell(self, close: float, i: int, cached_ma: Dict) -> bool:
+        """Check MA-based conditions for SELL (symmetric - any triggers sell).
+        Uses pre-cached MA arrays for O(1) access."""
 
         # MA Trend: MA falling = sell
         if self.config.ma_trend:
-            ma = mas.get(f'ma{self.config.ma_trend}', [None] * len(candles))
-            if i >= 1 and ma[i] is not None and ma[i - 1] is not None:
+            ma = cached_ma.get(f'ma{self.config.ma_trend}')
+            if ma is not None and i >= 1 and ma[i] is not None and ma[i - 1] is not None:
                 if ma[i] < ma[i - 1]:  # Falling
                     return True
 
         # Value above MA: Price below MA = sell
         if self.config.value_above_ma:
-            ma = mas.get(f'ma{self.config.value_above_ma}', [None] * len(candles))
-            if ma[i] is not None and close < ma[i]:
+            ma = cached_ma.get(f'ma{self.config.value_above_ma}')
+            if ma is not None and ma[i] is not None and close < ma[i]:
                 return True
 
         # MA Cross: Fast below Slow = sell
         if self.config.ma_cross:
             fast = self.config.ma_cross.get('fast')
             slow = self.config.ma_cross.get('slow')
-            ma_fast = mas.get(f'ma{fast}', [None] * len(candles))
-            ma_slow = mas.get(f'ma{slow}', [None] * len(candles))
-            if ma_fast[i] is not None and ma_slow[i] is not None:
-                if ma_fast[i] < ma_slow[i]:
-                    return True
+            ma_fast = cached_ma.get(f'ma{fast}')
+            ma_slow = cached_ma.get(f'ma{slow}')
+            if ma_fast is not None and ma_slow is not None:
+                if ma_fast[i] is not None and ma_slow[i] is not None:
+                    if ma_fast[i] < ma_slow[i]:
+                        return True
 
         return False
 
@@ -686,39 +723,49 @@ class DynamicStrategy(BaseStrategy):
 
         # Pre-calculate all indicators
         closes = [c['close'] for c in candles]
-        indicators = {}
-        mas = {}
 
-        # Calculate required MAs
-        ma_periods = set()
+        # Calculate required MAs - cache directly
+        cached_ma: Dict[str, List] = {}
         if self.config.ma_trend:
-            ma_periods.add(self.config.ma_trend)
+            cached_ma[f'ma{self.config.ma_trend}'] = self._calculate_sma(closes, self.config.ma_trend)
         if self.config.value_above_ma:
-            ma_periods.add(self.config.value_above_ma)
+            cached_ma[f'ma{self.config.value_above_ma}'] = self._calculate_sma(closes, self.config.value_above_ma)
         if self.config.ma_cross:
-            ma_periods.add(self.config.ma_cross.get('fast'))
-            ma_periods.add(self.config.ma_cross.get('slow'))
+            fast = self.config.ma_cross.get('fast')
+            slow = self.config.ma_cross.get('slow')
+            if fast:
+                cached_ma[f'ma{fast}'] = self._calculate_sma(closes, fast)
+            if slow:
+                cached_ma[f'ma{slow}'] = self._calculate_sma(closes, slow)
 
-        for period in ma_periods:
-            if period:
-                mas[f'ma{period}'] = self._calculate_sma(closes, period)
-
-        # Calculate indicator if needed
+        # Pre-cache indicator arrays for O(1) access in the loop
+        cached_ind: Dict[str, List] = {}
         ind_config = self.config.indicator
         if ind_config:
             ind_type = ind_config.get('type')
             if ind_type == 'bollinger':
-                indicators['bollinger'] = self._calculate_bollinger(closes)
+                bb = self._calculate_bollinger(closes)
+                cached_ind['bb_lower'] = bb['lower']
+                cached_ind['bb_upper'] = bb['upper']
             elif ind_type in ('macd-cross', 'macd-zero', 'macd-histogram'):
-                indicators['macd'] = self._calculate_macd(closes)
+                macd = self._calculate_macd(closes)
+                cached_ind['macd_line'] = macd['macd']
+                cached_ind['signal_line'] = macd['signal']
+                cached_ind['histogram'] = macd['histogram']
             elif ind_type in ('ichimoku-kumo', 'ichimoku-tk'):
-                indicators['ichimoku'] = self._calculate_ichimoku(candles)
+                ich = self._calculate_ichimoku(candles)
+                cached_ind['tenkan'] = ich['tenkan']
+                cached_ind['kijun'] = ich['kijun']
+                cached_ind['senkou_a'] = ich['senkou_a']
+                cached_ind['senkou_b'] = ich['senkou_b']
             elif ind_type in ('rsi-trend', 'rsi-early', 'rsi-late', 'rsi-large', 'rsi-small'):
-                indicators['rsi'] = self._calculate_rsi(closes)
+                cached_ind['rsi'] = self._calculate_rsi(closes)
             elif ind_type == 'bollinger-rsi':
                 # Combined indicator: calculate both
-                indicators['bollinger'] = self._calculate_bollinger(closes)
-                indicators['rsi'] = self._calculate_rsi(closes)
+                bb = self._calculate_bollinger(closes)
+                cached_ind['bb_lower'] = bb['lower']
+                cached_ind['bb_upper'] = bb['upper']
+                cached_ind['rsi'] = self._calculate_rsi(closes)
 
         signals: List[Signal] = []
         start_index = self.required_lookback
@@ -733,8 +780,6 @@ class DynamicStrategy(BaseStrategy):
             # Get date for daily tracking
             dt = datetime.fromtimestamp(timestamp, tz=paris_tz)
             date_str = dt.strftime('%Y-%m-%d')
-            prev_dt = datetime.fromtimestamp(prev_timestamp, tz=paris_tz)
-            prev_date_str = prev_dt.strftime('%Y-%m-%d')
 
             # Check time constraint on previous candle
             in_time_window = self._check_time_constraint(prev_timestamp)
@@ -762,12 +807,12 @@ class DynamicStrategy(BaseStrategy):
                     sell_label = 'SL'
 
                 # 3. MA conditions (symmetric sell)
-                elif not should_sell and self._check_ma_conditions_sell(candles, i - 1, mas):
+                elif not should_sell and self._check_ma_conditions_sell(prev_candle['close'], i - 1, cached_ma):
                     should_sell = True
                     sell_label = 'MA'
 
                 # 4. Indicator sell signal
-                elif not should_sell and self._check_indicator_sell(candles, i - 1, indicators):
+                elif not should_sell and self._check_indicator_sell(prev_candle, i - 1, cached_ind):
                     should_sell = True
                     ind_type = ind_config.get('type', '') if ind_config else ''
                     sell_label = ind_type.upper().split('-')[0]
@@ -814,11 +859,11 @@ class DynamicStrategy(BaseStrategy):
                         can_buy = False
 
                 # MA conditions
-                if can_buy and not self._check_ma_conditions_buy(candles, check_index, mas):
+                if can_buy and not self._check_ma_conditions_buy(prev_candle['close'], check_index, cached_ma):
                     can_buy = False
 
                 # Indicator buy signal
-                if can_buy and not self._check_indicator_buy(candles, check_index, indicators):
+                if can_buy and not self._check_indicator_buy(prev_candle, check_index, cached_ind):
                     can_buy = False
 
                 if can_buy:

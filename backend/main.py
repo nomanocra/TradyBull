@@ -23,7 +23,8 @@ from notification_service import (
     send_signal_notification_sync,
     test_telegram_notification,
     get_notification_history,
-    was_notification_already_sent
+    was_notification_already_sent,
+    get_last_notification_type
 )
 
 # Import signal calculator (lazy import to avoid circular deps)
@@ -68,12 +69,16 @@ last_fetch_time = None
 # WebSocket connections
 connected_clients: list[WebSocket] = []
 
+# Flag to pause background fetching during heavy DB operations
+is_recalculating = False
+
 
 @contextmanager
 def get_db():
     """Context manager for database connection"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30.0)  # 30 second timeout for locks
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")  # Better concurrency
     try:
         yield conn
     finally:
@@ -271,7 +276,7 @@ def store_backtest_candles(candles: list):
                 INSERT INTO backtest_candles
                 (symbol, timestamp, open, high, low, close, volume, source)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(symbol, timestamp) DO UPDATE SET
+                ON CONFLICT(symbol, timestamp, source) DO UPDATE SET
                     high = MAX(backtest_candles.high, excluded.high),
                     low = MIN(backtest_candles.low, excluded.low),
                     close = excluded.close,
@@ -497,7 +502,13 @@ def broadcast_to_clients(data: dict):
 
 def fetch_all_intervals():
     """Fetch data for all intervals. Automatically determines optimal period for each."""
-    global last_fetch_time
+    global last_fetch_time, is_recalculating
+
+    # Skip if recalculation is in progress to avoid DB lock conflicts
+    if is_recalculating:
+        print(f"[{datetime.now(PARIS_TZ).strftime('%H:%M:%S')}] Skipping fetch - recalculation in progress")
+        return
+
     print(f"[{datetime.now(PARIS_TZ).strftime('%H:%M:%S')}] Fetching data from yfinance...")
 
     try:
@@ -513,47 +524,68 @@ def fetch_all_intervals():
             with get_db() as conn:
                 print(f"  Checking signals for {len(STRATEGIES)} strategies + dynamic...")
                 results = check_all_strategies_latest_candle(conn, SYMBOL)
-                new_signals_count = sum(1 for s in results.values() if s is not None)
+                new_signals_count = sum(len(signals) for signals in results.values())
                 print(f"  Signal check complete: {new_signals_count} new signals found")
-                for strategy_name, signal in results.items():
-                    if signal is not None:
-                        print(f"  [{strategy_name}] New {signal.type} signal at {signal.price}")
 
-                        # Send notification for the new signal
-                        try:
-                            # Only send notifications for recent signals (< 15 minutes old)
-                            signal_age = int(time.time()) - signal.signal_timestamp
-                            if signal_age > 900:  # 15 minutes in seconds
-                                print(f"    Skipping notification for old signal ({signal_age//60}min old)")
-                                continue
+                for strategy_name, signals in results.items():
+                    if not signals:
+                        continue
 
-                            # Check if notification was already sent for this signal
-                            if was_notification_already_sent(strategy_name, signal.signal_timestamp, signal.type):
-                                print(f"    Skipping notification already sent for {signal.type} signal")
-                                continue
+                    # Determine which signal type we need based on last notification
+                    last_type = get_last_notification_type(strategy_name)
+                    needed_type = "sell" if last_type == "buy" else "buy"
 
-                            # Get display name for the strategy
-                            strategy_class = STRATEGIES.get(strategy_name)
-                            if strategy_class:
-                                strategy_instance = strategy_class()
-                                display_name = strategy_instance.display_config.display_name
-                            else:
-                                # For dynamic strategies, get display name from DB
-                                row = conn.execute(
-                                    "SELECT display_name FROM dynamic_strategies WHERE name = ?",
-                                    (strategy_name,)
-                                ).fetchone()
-                                display_name = row[0] if row else strategy_name
+                    # Find the LAST signal of the needed type
+                    # (e.g., if we need "sell" and signals are [buy, sell, buy, sell], take the last sell)
+                    signal_to_notify = None
+                    for signal in reversed(signals):
+                        if signal.type == needed_type:
+                            signal_to_notify = signal
+                            break
 
-                            send_signal_notification_sync(
-                                strategy_name=strategy_name,
-                                strategy_display_name=display_name,
-                                signal_type=signal.type,
-                                price=signal.price,
-                                timestamp=signal.signal_timestamp
-                            )
-                        except Exception as notif_err:
-                            print(f"  Warning: Could not send notification: {notif_err}")
+                    if signal_to_notify is None:
+                        # No signal of the needed type
+                        if len(signals) > 0:
+                            print(f"  [{strategy_name}] {len(signals)} new signals but none of type '{needed_type}' (last notif was '{last_type}')")
+                        continue
+
+                    print(f"  [{strategy_name}] Selected {signal_to_notify.type} signal at {signal_to_notify.price} (from {len(signals)} new signals)")
+
+                    # Send notification for the selected signal
+                    try:
+                        # Only send notifications for recent signals (< 15 minutes old)
+                        signal_age = int(time.time()) - signal_to_notify.signal_timestamp
+                        if signal_age > 900:  # 15 minutes in seconds
+                            print(f"    Skipping notification for old signal ({signal_age//60}min old)")
+                            continue
+
+                        # Check if notification was already sent for this signal
+                        if was_notification_already_sent(strategy_name, signal_to_notify.signal_timestamp, signal_to_notify.type):
+                            print(f"    Skipping notification already sent for {signal_to_notify.type} signal")
+                            continue
+
+                        # Get display name for the strategy
+                        strategy_class = STRATEGIES.get(strategy_name)
+                        if strategy_class:
+                            strategy_instance = strategy_class()
+                            display_name = strategy_instance.display_config.display_name
+                        else:
+                            # For dynamic strategies, get display name from DB
+                            row = conn.execute(
+                                "SELECT display_name FROM dynamic_strategies WHERE name = ?",
+                                (strategy_name,)
+                            ).fetchone()
+                            display_name = row[0] if row else strategy_name
+
+                        send_signal_notification_sync(
+                            strategy_name=strategy_name,
+                            strategy_display_name=display_name,
+                            signal_type=signal_to_notify.type,
+                            price=signal_to_notify.price,
+                            timestamp=signal_to_notify.signal_timestamp
+                        )
+                    except Exception as notif_err:
+                        print(f"  Warning: Could not send notification: {notif_err}")
         except Exception as e:
             print(f"Warning: Could not calculate signals: {e}")
 
@@ -706,24 +738,71 @@ def get_status():
     }
 
 
+@app.get("/api/backtest/sources")
+def get_backtest_sources():
+    """Get available data sources for backtesting"""
+    try:
+        with get_db() as conn:
+            rows = conn.execute("""
+                SELECT source, COUNT(*) as count,
+                       MIN(timestamp) as min_ts, MAX(timestamp) as max_ts
+                FROM backtest_candles
+                WHERE symbol = ?
+                GROUP BY source
+            """, (SYMBOL,)).fetchall()
+
+            sources = []
+            for row in rows:
+                min_date = datetime.fromtimestamp(row["min_ts"], tz=PARIS_TZ)
+                max_date = datetime.fromtimestamp(row["max_ts"], tz=PARIS_TZ)
+                days_coverage = (max_date - min_date).days
+                years_coverage = days_coverage / 365.25
+
+                sources.append({
+                    "source": row["source"],
+                    "count": row["count"],
+                    "start_date": min_date.strftime("%Y-%m-%d"),
+                    "end_date": max_date.strftime("%Y-%m-%d"),
+                    "days_coverage": days_coverage,
+                    "years_coverage": round(years_coverage, 1)
+                })
+
+            return {"sources": sources}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/backtest/info")
-def get_backtest_info():
+def get_backtest_info(
+    source: Optional[str] = Query(None, description="Data source: 'yfinance' or 'firstrate'")
+):
     """Get information about available backtesting data"""
     try:
         with get_db() as conn:
-            cursor = conn.execute("""
-                SELECT
-                    COUNT(*) as count,
-                    MIN(timestamp) as min_ts,
-                    MAX(timestamp) as max_ts
-                FROM backtest_candles
-                WHERE symbol = ?
-            """, (SYMBOL,))
+            if source:
+                cursor = conn.execute("""
+                    SELECT
+                        COUNT(*) as count,
+                        MIN(timestamp) as min_ts,
+                        MAX(timestamp) as max_ts
+                    FROM backtest_candles
+                    WHERE symbol = ? AND source = ?
+                """, (SYMBOL, source))
+            else:
+                cursor = conn.execute("""
+                    SELECT
+                        COUNT(*) as count,
+                        MIN(timestamp) as min_ts,
+                        MAX(timestamp) as max_ts
+                    FROM backtest_candles
+                    WHERE symbol = ?
+                """, (SYMBOL,))
             row = cursor.fetchone()
 
             if row["count"] == 0:
                 return {
                     "symbol": SYMBOL,
+                    "source": source,
                     "count": 0,
                     "message": "No backtesting data available. Run bootstrap script."
                 }
@@ -734,6 +813,7 @@ def get_backtest_info():
 
             return {
                 "symbol": SYMBOL,
+                "source": source,
                 "interval": "1h",
                 "count": row["count"],
                 "start_date": min_date.strftime("%Y-%m-%d %H:%M"),
@@ -750,38 +830,37 @@ def get_backtest_info():
 def get_backtest_data(
     start: Optional[int] = Query(None, description="Start timestamp (Unix)"),
     end: Optional[int] = Query(None, description="End timestamp (Unix)"),
+    source: Optional[str] = Query(None, description="Data source: 'yfinance' or 'firstrate'"),
     limit: int = Query(10000, description="Max candles to return")
 ):
-    """Get backtesting data with optional date range filter"""
+    """Get backtesting data with optional date range and source filter"""
     try:
         with get_db() as conn:
-            if start and end:
-                query = """
-                    SELECT timestamp, open, high, low, close, volume
-                    FROM backtest_candles
-                    WHERE symbol = ? AND timestamp >= ? AND timestamp <= ?
-                    ORDER BY timestamp ASC
-                    LIMIT ?
-                """
-                rows = conn.execute(query, (SYMBOL, start, end, limit)).fetchall()
-            elif start:
-                query = """
-                    SELECT timestamp, open, high, low, close, volume
-                    FROM backtest_candles
-                    WHERE symbol = ? AND timestamp >= ?
-                    ORDER BY timestamp ASC
-                    LIMIT ?
-                """
-                rows = conn.execute(query, (SYMBOL, start, limit)).fetchall()
-            else:
-                query = """
-                    SELECT timestamp, open, high, low, close, volume
-                    FROM backtest_candles
-                    WHERE symbol = ?
-                    ORDER BY timestamp ASC
-                    LIMIT ?
-                """
-                rows = conn.execute(query, (SYMBOL, limit)).fetchall()
+            # Build query dynamically
+            conditions = ["symbol = ?"]
+            params = [SYMBOL]
+
+            if source:
+                conditions.append("source = ?")
+                params.append(source)
+            if start:
+                conditions.append("timestamp >= ?")
+                params.append(start)
+            if end:
+                conditions.append("timestamp <= ?")
+                params.append(end)
+
+            where_clause = " AND ".join(conditions)
+            params.append(limit)
+
+            query = f"""
+                SELECT timestamp, open, high, low, close, volume
+                FROM backtest_candles
+                WHERE {where_clause}
+                ORDER BY timestamp ASC
+                LIMIT ?
+            """
+            rows = conn.execute(query, params).fetchall()
 
             candles = [
                 {
@@ -797,6 +876,7 @@ def get_backtest_data(
 
             return {
                 "symbol": SYMBOL,
+                "source": source,
                 "interval": "1h",
                 "data": candles,
                 "count": len(candles)
@@ -814,9 +894,10 @@ def get_signals(
     strategy: str = Query(..., description="Strategy name (e.g., 'bollinger-nosl')"),
     start: Optional[int] = Query(None, description="Start timestamp (Unix)"),
     end: Optional[int] = Query(None, description="End timestamp (Unix)"),
+    data_source: Optional[str] = Query(None, description="Data source: 'yfinance' or 'firstrate'"),
     limit: int = Query(10000, description="Max signals to return")
 ):
-    """Get signals for a strategy within optional date range"""
+    """Get signals for a strategy within optional date range and data source"""
     try:
         _, get_signals_from_db, _, _, _, _, STRATEGIES = get_signal_calculator()
 
@@ -830,11 +911,12 @@ def get_signals(
                     raise HTTPException(status_code=400, detail=f"Unknown strategy: {strategy}")
 
         with get_db() as conn:
-            signals = get_signals_from_db(conn, strategy, SYMBOL, start, end, limit)
+            signals = get_signals_from_db(conn, strategy, SYMBOL, start, end, limit, data_source)
 
             return {
                 "strategy": strategy,
                 "symbol": SYMBOL,
+                "data_source": data_source,
                 "signals": signals,
                 "count": len(signals)
             }
@@ -979,14 +1061,21 @@ def list_strategies():
 
 @app.post("/api/signals/recalculate")
 def recalculate_signals(
-    strategy: Optional[str] = Query(default=None, description="Strategy name to recalculate (all if not specified)")
+    strategy: Optional[str] = Query(default=None, description="Strategy name to recalculate (all if not specified)"),
+    data_source: str = Query(default="yfinance", description="Data source: 'yfinance' or 'firstrate'")
 ):
     """
-    Force full recalculation of signals from backtest_candles (single source of truth).
+    Force full recalculation of signals from backtest_candles.
     Use in backtesting to catch missed signals when backend wasn't running.
     Does NOT send notifications (safe to use anytime).
+
+    Args:
+        data_source: Which candle data to use ('yfinance' or 'firstrate')
     """
+    global is_recalculating
     try:
+        is_recalculating = True
+        print(f"[Recalculate] Starting recalculation for data_source={data_source}...")
         _, _, _, recalculate_strategy_fn, recalculate_all_strategies_fn, _, STRATEGIES = get_signal_calculator()
 
         with get_db() as conn:
@@ -998,16 +1087,20 @@ def recalculate_signals(
                     ).fetchone()
                     if not dynamic_row:
                         raise HTTPException(status_code=404, detail=f"Strategy not found: {strategy}")
-                count = recalculate_strategy_fn(conn, strategy, SYMBOL)
-                return {"strategy": strategy, "signals_count": count, "message": "Recalculation complete (no notifications sent)"}
+                count = recalculate_strategy_fn(conn, strategy, SYMBOL, data_source)
+                print(f"[Recalculate] Done - {count} signals for {strategy} (data_source={data_source})")
+                return {"strategy": strategy, "data_source": data_source, "signals_count": count, "message": "Recalculation complete (no notifications sent)"}
             else:
-                results = recalculate_all_strategies_fn(conn, SYMBOL)
+                results = recalculate_all_strategies_fn(conn, SYMBOL, data_source)
                 total = sum(results.values())
-                return {"strategies": results, "total_signals": total, "message": "Recalculation complete (no notifications sent)"}
+                print(f"[Recalculate] Done - {total} signals across {len(results)} strategies (data_source={data_source})")
+                return {"strategies": results, "data_source": data_source, "total_signals": total, "message": "Recalculation complete (no notifications sent)"}
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        is_recalculating = False
 
 
 # ==================== Dynamic Strategies ====================
@@ -1253,8 +1346,9 @@ def get_kpis(
     strategy: str = Query(..., description="Strategy name (e.g., 'bollinger-nosl')"),
     start: Optional[int] = Query(None, description="Start timestamp (Unix)"),
     end: Optional[int] = Query(None, description="End timestamp (Unix)"),
+    data_source: Optional[str] = Query(None, description="Data source: 'yfinance' or 'firstrate'"),
 ):
-    """Get KPIs for a strategy within optional date range"""
+    """Get KPIs for a strategy within optional date range and data source"""
     try:
         from kpi_calculator import calculate_kpis
 
@@ -1271,12 +1365,13 @@ def get_kpis(
                     raise HTTPException(status_code=400, detail=f"Unknown strategy: {strategy}")
 
         with get_db() as conn:
-            signals = get_signals_from_db(conn, strategy, SYMBOL, start, end)
+            signals = get_signals_from_db(conn, strategy, SYMBOL, start, end, data_source=data_source)
             kpis = calculate_kpis(signals)
 
             return {
                 "strategy": strategy,
                 "symbol": SYMBOL,
+                "data_source": data_source,
                 "kpis": kpis.to_dict(),
                 "signal_count": len(signals)
             }
@@ -1290,8 +1385,10 @@ def get_kpis(
 def get_all_kpis(
     start: Optional[int] = Query(None, description="Start timestamp (Unix)"),
     end: Optional[int] = Query(None, description="End timestamp (Unix)"),
+    data_source: Optional[str] = Query(None, description="Data source: 'yfinance' or 'firstrate'"),
+    include_archived: bool = Query(True, description="Include archived strategies"),
 ):
-    """Get KPIs for all strategies (Python + dynamic) within optional date range"""
+    """Get KPIs for all strategies (Python + dynamic) within optional date range and data source"""
     try:
         from kpi_calculator import calculate_kpis
         from strategies.dynamic import create_dynamic_strategy
@@ -1306,8 +1403,12 @@ def get_all_kpis(
 
             # Python-defined strategies
             for strategy_name, strategy_class in STRATEGIES.items():
+                is_archived = strategy_name in archived_set
+                if not include_archived and is_archived:
+                    continue
+
                 strategy_instance = strategy_class()
-                signals = get_signals_from_db(conn, strategy_name, SYMBOL, start, end)
+                signals = get_signals_from_db(conn, strategy_name, SYMBOL, start, end, data_source=data_source)
                 kpis = calculate_kpis(signals)
 
                 results.append({
@@ -1315,7 +1416,7 @@ def get_all_kpis(
                     "display_name": strategy_instance.display_config.display_name,
                     "kpis": kpis.to_dict(),
                     "signal_count": len(signals),
-                    "is_archived": strategy_name in archived_set,
+                    "is_archived": is_archived,
                     "is_dynamic": False
                 })
 
@@ -1325,12 +1426,16 @@ def get_all_kpis(
             ).fetchall()
 
             for row in dynamic_rows:
+                is_archived = row['name'] in archived_set
+                if not include_archived and is_archived:
+                    continue
+
                 config = json.loads(row['config'])
                 config['name'] = row['name']
                 config['display_name'] = row['display_name']
                 try:
                     strategy_instance = create_dynamic_strategy(config)
-                    signals = get_signals_from_db(conn, row['name'], SYMBOL, start, end)
+                    signals = get_signals_from_db(conn, row['name'], SYMBOL, start, end, data_source=data_source)
                     kpis = calculate_kpis(signals)
 
                     results.append({
@@ -1338,7 +1443,7 @@ def get_all_kpis(
                         "display_name": row['display_name'],
                         "kpis": kpis.to_dict(),
                         "signal_count": len(signals),
-                        "is_archived": row['name'] in archived_set,
+                        "is_archived": is_archived,
                         "is_dynamic": True
                     })
                 except Exception as e:
