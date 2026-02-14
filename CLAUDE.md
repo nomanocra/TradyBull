@@ -2,7 +2,7 @@
 
 ## Description
 
-TradyBull est un dashboard de trading pour les Nasdaq 100 Futures (NQ=F). L'application permet d'explorer les graphiques avec différents indicateurs techniques, et de backtester des stratégies de trading avec calcul automatique des signaux et KPIs.
+TradyBull est un dashboard de trading pour les Nasdaq 100 Futures (NQ=F). L'application permet de backtester des stratégies de trading avec calcul automatique des signaux et KPIs, et de suivre les signaux en temps réel.
 
 ## Stack Technique
 
@@ -16,10 +16,26 @@ TradyBull est un dashboard de trading pour les Nasdaq 100 Futures (NQ=F). L'appl
 
 ### Backend (Python FastAPI)
 - **Framework**: FastAPI avec uvicorn
-- **Data Source**: yfinance (Yahoo Finance)
+- **Data Source**: yfinance (Yahoo Finance), FirstRate Data (historique)
 - **Database**: SQLite (tradybull.db)
 - **WebSocket**: Communication temps réel avec le frontend
 - **Port**: 8000
+
+### Trading API (eToro)
+- **API Portal**: https://api-portal.etoro.com/
+- **Base URL**: `https://public-api.etoro.com/api/v1/`
+- **Usage**: Trading temps réel (exécution des ordres)
+- **Clés API**: Variables d'environnement dans `.env.local`
+  - `ETORO_PUBLIC_KEY` - Clé publique (x-api-key header)
+  - `ETORO_USER_KEY` - Clé utilisateur (x-user-key header)
+- **Headers requis**:
+  - `x-request-id` - UUID unique par requête
+  - `x-api-key` - ETORO_PUBLIC_KEY
+  - `x-user-key` - ETORO_USER_KEY
+- **Endpoints clés**:
+  - `GET /api/v1/market-data/instruments` - Métadonnées des instruments
+  - `GET /api/v1/market-data/instruments/rates` - Prix bid/ask temps réel
+  - `GET /api/v1/market-data/exchanges` - Infos sur les exchanges
 
 ## Structure du Projet
 
@@ -27,27 +43,8 @@ TradyBull est un dashboard de trading pour les Nasdaq 100 Futures (NQ=F). L'appl
 tradybull/
 ├── src/
 │   ├── app/
-│   │   ├── page.tsx                    # Redirect vers /exploration/real-time
+│   │   ├── page.tsx                    # Redirect vers /strategy/backtesting/overview
 │   │   ├── layout.tsx                  # Layout principal avec Sidebar
-│   │   ├── exploration/
-│   │   │   ├── real-time/              # Exploration temps réel
-│   │   │   │   ├── page.tsx            # Multi-indicator view
-│   │   │   │   ├── layout.tsx
-│   │   │   │   ├── realtime-context.tsx
-│   │   │   │   ├── bollinger/
-│   │   │   │   ├── macd/
-│   │   │   │   ├── ichimoku/
-│   │   │   │   ├── moving-averages/
-│   │   │   │   └── stochastic-rsi/
-│   │   │   └── historical/             # Exploration données historiques
-│   │   │       ├── page.tsx
-│   │   │       ├── layout.tsx
-│   │   │       ├── historical-context.tsx  # Context partagé pour zoom/data
-│   │   │       ├── bollinger/
-│   │   │       ├── macd/
-│   │   │       ├── ichimoku/
-│   │   │       ├── moving-averages/
-│   │   │       └── stochastic-rsi/
 │   │   └── strategy/
 │   │       ├── real-time/              # Stratégies temps réel
 │   │       │   ├── page.tsx
@@ -58,13 +55,14 @@ tradybull/
 │   │           ├── layout.tsx
 │   │           ├── overview/page.tsx   # Tableau comparatif KPIs
 │   │           └── [strategy]/page.tsx # Page dynamique par stratégie
+│   ├── contexts/
+│   │   ├── historical-context.tsx      # Context partagé pour données historiques
+│   │   └── realtime-context.tsx        # Context partagé pour données temps réel
 │   ├── components/
 │   │   ├── chart/
 │   │   │   ├── candlestick-chart.tsx   # Graphique principal
 │   │   │   └── chart-navigator.tsx     # Barre de zoom/navigation
 │   │   ├── dashboard/
-│   │   │   ├── exploration-dashboard.tsx
-│   │   │   ├── realtime-exploration-dashboard.tsx
 │   │   │   ├── historical-dashboard.tsx
 │   │   │   ├── multi-indicator-historical-dashboard.tsx
 │   │   │   ├── strategy-backtesting-dashboard.tsx
@@ -161,13 +159,8 @@ SELECT strategy_name, COUNT(*) FROM signals GROUP BY strategy_name;
 
 L'application a 2 modes principaux (toggle dans la sidebar) :
 
-1. **Exploration** : Visualisation des indicateurs techniques
-   - Real-Time : Données en temps réel via WebSocket
-   - Historical : Données historiques avec zoom/navigation
-
-2. **Strategy** : Test et analyse des stratégies de trading
-   - Real-Time : Signaux calculés sur données live
-   - Backtesting : Analyse historique avec KPIs
+1. **Backtesting** : Analyse historique des stratégies avec KPIs
+2. **Real-Time** : Signaux calculés sur données live via WebSocket
 
 ### Système de Stratégies
 

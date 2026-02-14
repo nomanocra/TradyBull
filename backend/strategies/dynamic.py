@@ -796,7 +796,7 @@ class DynamicStrategy(BaseStrategy):
                 if self.config.intraday in ('daily', 'multi-daily'):
                     if is_last_candle_of_day(timestamp):
                         should_sell = True
-                        sell_price = candle['close']  # Close at this candle's close
+                        sell_price = candle['open']  # Close at candle open (22h, not 23h)
                         sell_signal_ts = timestamp
                         sell_label = 'EOD'
 

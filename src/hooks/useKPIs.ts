@@ -14,6 +14,12 @@ export interface KPIs {
   avg_trade_duration_hours: number;
   max_trade_duration_hours: number;
   score: number;
+  // Yearly performance metrics
+  yearly_returns_std_pct: number;
+  best_year_return_pct: number;
+  worst_year_return_pct: number;
+  best_year: number;
+  worst_year: number;
 }
 
 interface UseKPIsOptions {
@@ -21,6 +27,7 @@ interface UseKPIsOptions {
   startTs?: number;
   endTs?: number;
   enabled?: boolean;
+  dataSource?: string;
 }
 
 interface UseKPIsResult {
@@ -38,6 +45,7 @@ export function useKPIs({
   startTs,
   endTs,
   enabled = true,
+  dataSource,
 }: UseKPIsOptions): UseKPIsResult {
   const [kpis, setKPIs] = useState<KPIs | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -53,6 +61,7 @@ export function useKPIs({
       let url = `${API_URL}/kpis?strategy=${encodeURIComponent(strategy)}`;
       if (startTs) url += `&start=${startTs}`;
       if (endTs) url += `&end=${endTs}`;
+      if (dataSource) url += `&data_source=${encodeURIComponent(dataSource)}`;
 
       const response = await fetch(url);
       if (!response.ok) {
@@ -68,7 +77,7 @@ export function useKPIs({
     } finally {
       setIsLoading(false);
     }
-  }, [strategy, startTs, endTs, enabled]);
+  }, [strategy, startTs, endTs, enabled, dataSource]);
 
   useEffect(() => {
     fetchKPIs();
@@ -95,6 +104,7 @@ interface UseAllKPIsOptions {
   startTs?: number;
   endTs?: number;
   enabled?: boolean;
+  dataSource?: string;
 }
 
 interface UseAllKPIsResult {
@@ -107,11 +117,13 @@ interface UseAllKPIsResult {
 
 /**
  * Hook to fetch KPIs for all strategies from the backend API.
+ * Loads non-archived strategies first (fast), then archived ones in background.
  */
 export function useAllKPIs({
   startTs,
   endTs,
   enabled = true,
+  dataSource,
 }: UseAllKPIsOptions = {}): UseAllKPIsResult {
   const [data, setData] = useState<StrategyKPIData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -124,27 +136,41 @@ export function useAllKPIs({
       setIsLoading(true);
       setError(null);
 
-      let url = `${API_URL}/kpis/all`;
-      const params: string[] = [];
-      if (startTs) params.push(`start=${startTs}`);
-      if (endTs) params.push(`end=${endTs}`);
-      if (params.length > 0) url += `?${params.join('&')}`;
+      // Build base params
+      const baseParams: string[] = [];
+      if (startTs) baseParams.push(`start=${startTs}`);
+      if (endTs) baseParams.push(`end=${endTs}`);
+      if (dataSource) baseParams.push(`data_source=${encodeURIComponent(dataSource)}`);
 
-      const response = await fetch(url);
-      if (!response.ok) {
-        const respData = await response.json().catch(() => ({}));
-        throw new Error(respData.detail || `Failed to fetch KPIs: ${response.status}`);
+      // First, fetch non-archived strategies (fast)
+      const activeParams = [...baseParams, 'include_archived=false'];
+      const activeUrl = `${API_URL}/kpis/all?${activeParams.join('&')}`;
+
+      const activeResponse = await fetch(activeUrl);
+      if (!activeResponse.ok) {
+        const respData = await activeResponse.json().catch(() => ({}));
+        throw new Error(respData.detail || `Failed to fetch KPIs: ${activeResponse.status}`);
       }
 
-      const respData = await response.json();
-      setData(respData.strategies || []);
+      const activeData = await activeResponse.json();
+      setData(activeData.strategies || []);
+      setIsLoading(false);
+
+      // Then, fetch archived strategies in background and merge
+      const archivedParams = [...baseParams, 'include_archived=true'];
+      const archivedUrl = `${API_URL}/kpis/all?${archivedParams.join('&')}`;
+
+      const archivedResponse = await fetch(archivedUrl);
+      if (archivedResponse.ok) {
+        const archivedData = await archivedResponse.json();
+        setData(archivedData.strategies || []);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load KPIs');
       setData([]);
-    } finally {
       setIsLoading(false);
     }
-  }, [startTs, endTs, enabled]);
+  }, [startTs, endTs, enabled, dataSource]);
 
   useEffect(() => {
     fetchAllKPIs();
@@ -161,8 +187,11 @@ export function useAllKPIs({
         setData(prev =>
           prev.map(item => item.strategy === event.strategyName ? { ...item, is_archived: false } : item)
         );
-      } else if (event.type === 'create' || event.type === 'delete') {
-        // For create/delete, we need to refetch
+      } else if (event.type === 'delete') {
+        // Optimistic removal - remove from local state immediately
+        setData(prev => prev.filter(item => item.strategy !== event.strategyName));
+      } else if (event.type === 'create') {
+        // For create, we need to refetch
         fetchAllKPIs();
       }
     });

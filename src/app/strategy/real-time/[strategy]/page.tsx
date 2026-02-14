@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import { StrategyRealtimeDashboard } from '@/components/dashboard/strategy-realtime-dashboard';
-import { useRealtimeData } from '@/app/exploration/real-time/realtime-context';
+import { useRealtimeData } from '@/contexts/realtime-context';
 import { useStrategies } from '@/hooks/useStrategies';
 
 const EMPTY_SIGNALS: never[] = [];

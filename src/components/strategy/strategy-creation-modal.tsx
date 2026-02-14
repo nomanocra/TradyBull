@@ -50,7 +50,7 @@ interface StrategyConfig {
 interface StrategyCreationModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCreated?: () => void;
+  onCreated?: (strategyName: string) => void;
 }
 
 // All indicators in a single list
@@ -326,13 +326,14 @@ export function StrategyCreationModal({
         body: JSON.stringify(payload),
       });
 
+      const data = await response.json();
+
       if (!response.ok) {
-        const data = await response.json();
         throw new Error(data.detail || 'Failed to create strategy');
       }
 
       onOpenChange(false);
-      onCreated?.();
+      onCreated?.(data.strategy?.name || data.name || generatedName);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create strategy');
     } finally {

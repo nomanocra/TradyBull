@@ -8,6 +8,7 @@ interface UseSignalsOptions {
   startTs?: number;
   endTs?: number;
   enabled?: boolean;
+  dataSource?: string;
 }
 
 interface UseSignalsResult {
@@ -25,12 +26,14 @@ interface UseSignalsResult {
  * @param startTs - Optional start timestamp (Unix seconds)
  * @param endTs - Optional end timestamp (Unix seconds)
  * @param enabled - Whether to enable fetching (default: true)
+ * @param dataSource - Data source for signals ('yfinance' or 'firstrate')
  */
 export function useSignals({
   strategy,
   startTs,
   endTs,
   enabled = true,
+  dataSource,
 }: UseSignalsOptions): UseSignalsResult {
   const [signals, setSignals] = useState<Signal[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -46,6 +49,7 @@ export function useSignals({
       let url = `${API_URL}/signals?strategy=${encodeURIComponent(strategy)}`;
       if (startTs) url += `&start=${startTs}`;
       if (endTs) url += `&end=${endTs}`;
+      if (dataSource) url += `&data_source=${encodeURIComponent(dataSource)}`;
 
       const response = await fetch(url);
       if (!response.ok) {
@@ -75,7 +79,7 @@ export function useSignals({
     } finally {
       if (showLoading) setIsLoading(false);
     }
-  }, [strategy, startTs, endTs, enabled]);
+  }, [strategy, startTs, endTs, enabled, dataSource]);
 
   // Initial fetch and polling every 10 seconds
   useEffect(() => {

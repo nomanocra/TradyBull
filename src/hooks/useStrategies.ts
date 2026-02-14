@@ -72,8 +72,11 @@ export function useStrategies(): UseStrategiesResult {
         setAllStrategies(prev =>
           prev.map(s => s.name === event.strategyName ? { ...s, is_archived: false } : s)
         );
-      } else if (event.type === 'create' || event.type === 'delete') {
-        // For create/delete, we need to refetch
+      } else if (event.type === 'delete') {
+        // Optimistic removal - remove from local state immediately
+        setAllStrategies(prev => prev.filter(s => s.name !== event.strategyName));
+      } else if (event.type === 'create') {
+        // For create, we need to refetch
         fetchStrategies();
       }
     });

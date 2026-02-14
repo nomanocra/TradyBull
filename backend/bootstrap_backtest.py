@@ -43,6 +43,83 @@ def init_backtest_table(conn):
     conn.commit()
 
 
+def fetch_latest_yfinance_data(conn, symbol=SYMBOL):
+    """Fetch only new yfinance candles since the last one in the database.
+    Uses INSERT OR IGNORE so existing data is never deleted or overwritten.
+    Returns the number of new candles inserted."""
+
+    cursor = conn.execute(
+        "SELECT COUNT(*), MAX(timestamp) FROM backtest_candles WHERE symbol = ? AND source = 'yfinance'",
+        (symbol,)
+    )
+    row = cursor.fetchone()
+    existing_count = row[0]
+    last_ts = row[1]
+
+    if existing_count == 0 or last_ts is None:
+        print("[FetchLatest] No existing yfinance data. Run bootstrap_backtest.py first.")
+        return 0
+
+    last_dt = datetime.fromtimestamp(last_ts, tz=PARIS_TZ)
+    gap_hours = (datetime.now(PARIS_TZ) - last_dt).total_seconds() / 3600
+
+    if gap_hours < 2:
+        print(f"[FetchLatest] Data is up to date (last candle: {last_dt.strftime('%Y-%m-%d %H:%M')})")
+        return 0
+
+    print(f"[FetchLatest] Fetching gap data ({gap_hours:.1f} hours since last candle at {last_dt.strftime('%Y-%m-%d %H:%M')})")
+    period = "7d" if gap_hours <= 168 else "1mo"
+
+    ticker = yf.Ticker(symbol)
+    try:
+        data = ticker.history(period=period, interval="1h")
+    except Exception as e:
+        print(f"[FetchLatest] Error fetching with period={period}: {e}")
+        return 0
+
+    if data.empty:
+        print("[FetchLatest] No data received from yfinance")
+        return 0
+
+    print(f"[FetchLatest] Received {len(data)} candles from yfinance")
+
+    candles = []
+    for timestamp_idx, candle_row in data.iterrows():
+        if timestamp_idx.tzinfo is None:
+            ts_utc = pytz.utc.localize(timestamp_idx)
+        else:
+            ts_utc = timestamp_idx.astimezone(pytz.utc)
+        ts_paris = ts_utc.astimezone(PARIS_TZ)
+
+        candles.append((
+            symbol,
+            int(ts_paris.timestamp()),
+            round(candle_row["Open"], 2),
+            round(candle_row["High"], 2),
+            round(candle_row["Low"], 2),
+            round(candle_row["Close"], 2),
+            int(candle_row["Volume"]) if candle_row["Volume"] else 0,
+            "yfinance"
+        ))
+
+    # INSERT OR IGNORE: never overwrite existing data
+    conn.executemany(
+        """INSERT OR IGNORE INTO backtest_candles
+           (symbol, timestamp, open, high, low, close, volume, source)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        candles
+    )
+    conn.commit()
+
+    new_count = conn.execute(
+        "SELECT COUNT(*) FROM backtest_candles WHERE symbol = ? AND source = 'yfinance' AND timestamp > ?",
+        (symbol, last_ts)
+    ).fetchone()[0]
+
+    print(f"[FetchLatest] Inserted {new_count} new candles")
+    return new_count
+
+
 def bootstrap_backtest_data(force: bool = False):
     """Download maximum available 1h data and store in backtest_candles table."""
 

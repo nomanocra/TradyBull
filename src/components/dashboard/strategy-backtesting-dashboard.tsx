@@ -8,7 +8,7 @@ import { DataSourceSelector } from '@/components/ui/data-source-selector';
 import { KPITiles } from '@/components/kpi/kpi-tiles';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';
-import { useHistoricalData } from '@/app/exploration/historical/historical-context';
+import { useHistoricalData } from '@/contexts/historical-context';
 import { Signal } from '@/types/market';
 import { KPIs } from '@/hooks/useKPIs';
 

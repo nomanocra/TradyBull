@@ -1,4 +1,4 @@
-import { HistoricalProvider } from '@/app/exploration/historical/historical-context';
+import { HistoricalProvider } from '@/contexts/historical-context';
 
 export default function StrategyBacktestingLayout({
   children,

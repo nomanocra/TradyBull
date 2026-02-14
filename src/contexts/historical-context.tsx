@@ -61,9 +61,11 @@ export function HistoricalProvider({ children, defaultDataSource = 'yfinance' }:
   const [zoomState, setZoomState] = useState<ZoomState>(DEFAULT_ZOOM);
   const [dataSource, setDataSource] = useState(defaultDataSource);
   const isSourceChangeRef = useRef(false);
+  // Per-source date memory: remembers start/end dates for each data source
+  const sourceDatesRef = useRef<Record<string, { start: Date; end: Date }>>({});
 
   // Fetch available date bounds and keep them updated
-  const fetchBounds = useCallback(async (isInitial = false, preserveDates = false) => {
+  const fetchBounds = useCallback(async (isInitial = false, isSourceChange = false) => {
     try {
       const sourceParam = dataSource ? `?source=${dataSource}` : '';
       const response = await fetch(`${API_URL}/info${sourceParam}`);
@@ -75,22 +77,21 @@ export function HistoricalProvider({ children, defaultDataSource = 'yfinance' }:
         const maxDate = new Date(info.end_timestamp * 1000);
 
         setDateBounds(prev => {
-          if (preserveDates) {
-            // When switching sources, clamp existing dates to new bounds
-            setStartDate(current => {
-              if (!current) return minDate;
-              if (current < minDate) return minDate;
-              if (current > maxDate) return maxDate;
-              return current;
-            });
-            setEndDate(current => {
-              if (!current) return maxDate;
-              if (current < minDate) return minDate;
-              if (current > maxDate) return maxDate;
-              return current;
-            });
+          if (isSourceChange) {
+            // Restore saved dates for this source, or default to full range
+            const saved = sourceDatesRef.current[dataSource];
+            if (saved) {
+              // Clamp saved dates to current bounds
+              const clampedStart = saved.start < minDate ? minDate : saved.start > maxDate ? maxDate : saved.start;
+              const clampedEnd = saved.end < minDate ? minDate : saved.end > maxDate ? maxDate : saved.end;
+              setStartDate(clampedStart);
+              setEndDate(clampedEnd);
+            } else {
+              setStartDate(minDate);
+              setEndDate(maxDate);
+            }
           } else if (isInitial) {
-            // Initial load: set full range
+            // First load: set full range
             setStartDate(minDate);
             setEndDate(maxDate);
           } else if (!prev || prev.maxDate.getTime() !== maxDate.getTime()) {
@@ -113,12 +114,12 @@ export function HistoricalProvider({ children, defaultDataSource = 'yfinance' }:
   // Initial fetch and polling for bounds every 30 seconds
   useEffect(() => {
     const isSourceChange = isSourceChangeRef.current;
-    isSourceChangeRef.current = false; // Reset flag
+    isSourceChangeRef.current = false;
 
-    fetchBounds(!isSourceChange, isSourceChange); // isInitial=true only if not a source change
+    fetchBounds(!isSourceChange, isSourceChange);
 
     const intervalId = setInterval(() => {
-      fetchBounds(false, false); // Poll to check for new data
+      fetchBounds(false, false);
     }, 30000);
 
     return () => clearInterval(intervalId);
@@ -162,15 +163,18 @@ export function HistoricalProvider({ children, defaultDataSource = 'yfinance' }:
     return () => clearInterval(intervalId);
   }, [fetchData]);
 
-  // Handle data source change - preserve dates and clamp to new bounds
+  // Handle data source change - save current dates and restore saved dates for new source
   const handleSetDataSource = useCallback((source: string) => {
     if (source !== dataSource) {
-      isSourceChangeRef.current = true; // Flag to preserve dates on next fetchBounds
+      // Save current dates for the source we're leaving
+      if (startDate && endDate) {
+        sourceDatesRef.current[dataSource] = { start: startDate, end: endDate };
+      }
+      isSourceChangeRef.current = true;
       setDataSource(source);
-      setDateBounds(null); // Clear bounds, will be refetched
-      // Don't reset dates - they will be clamped to new bounds in fetchBounds
+      setDateBounds(null);
     }
-  }, [dataSource]);
+  }, [dataSource, startDate, endDate]);
 
   const value: HistoricalContextValue = {
     data,

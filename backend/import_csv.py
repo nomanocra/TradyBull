@@ -67,10 +67,15 @@ def import_firstrate_csv(
     conn = sqlite3.connect(DB_PATH)
     init_backtest_table(conn)
 
-    # Count rows for progress
+    # Count rows and detect header
     with open(csv_path, 'r') as f:
-        total_rows = sum(1 for _ in f) - 1  # Minus header
+        first_line = f.readline().strip()
+        first_field = first_line.split(',')[0]
+        has_header_check = any(c.isalpha() for c in first_field)
+        remaining_rows = sum(1 for _ in f)
+        total_rows = remaining_rows if has_header_check else remaining_rows + 1
     print(f"[Import] Total rows: {total_rows}")
+    print(f"[Import] Has header: {has_header_check}")
 
     # Process CSV
     inserted = 0
@@ -89,13 +94,39 @@ def import_firstrate_csv(
     """
 
     with open(csv_path, 'r') as f:
-        reader = csv.DictReader(f)
+        # Check if first line looks like a header
+        first_line = f.readline().strip()
+        f.seek(0)
+
+        # Detect if header exists (first field contains letters like "DateTime")
+        first_field = first_line.split(',')[0]
+        has_header = any(c.isalpha() for c in first_field)
+
+        if has_header:
+            reader = csv.DictReader(f)
+        else:
+            # No header - use list reader with positional indices
+            reader = csv.reader(f)
 
         batch = []
         for i, row in enumerate(reader):
             try:
-                # Try multiple datetime formats
-                dt_str = row.get('DateTime') or row.get('datetime') or row.get('Date') or row.get('date')
+                # Handle both dict (with header) and list (no header) rows
+                if has_header:
+                    dt_str = row.get('DateTime') or row.get('datetime') or row.get('timestamp') or row.get('Date') or row.get('date')
+                    open_val = float(row.get('Open') or row.get('open') or row.get('OPEN'))
+                    high_val = float(row.get('High') or row.get('high') or row.get('HIGH'))
+                    low_val = float(row.get('Low') or row.get('low') or row.get('LOW'))
+                    close_val = float(row.get('Close') or row.get('close') or row.get('CLOSE'))
+                    volume_val = int(float(row.get('Volume') or row.get('volume') or row.get('VOLUME') or 0))
+                else:
+                    # Positional: datetime, open, high, low, close, volume
+                    dt_str = row[0]
+                    open_val = float(row[1])
+                    high_val = float(row[2])
+                    low_val = float(row[3])
+                    close_val = float(row[4])
+                    volume_val = int(float(row[5])) if len(row) > 5 else 0
 
                 # Common FirstRate formats
                 for fmt in [
@@ -115,13 +146,6 @@ def import_firstrate_csv(
                 # Convert to Paris timezone
                 dt_source = source_timezone.localize(dt)
                 dt_paris = dt_source.astimezone(PARIS_TZ)
-
-                # Get OHLCV values (handle different column naming conventions)
-                open_val = float(row.get('Open') or row.get('open') or row.get('OPEN'))
-                high_val = float(row.get('High') or row.get('high') or row.get('HIGH'))
-                low_val = float(row.get('Low') or row.get('low') or row.get('LOW'))
-                close_val = float(row.get('Close') or row.get('close') or row.get('CLOSE'))
-                volume_val = int(float(row.get('Volume') or row.get('volume') or row.get('VOLUME') or 0))
 
                 batch.append((
                     symbol,

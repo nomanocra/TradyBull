@@ -178,6 +178,24 @@ def was_notification_already_sent(
         conn.close()
 
 
+def get_last_notification_type(strategy_name: str) -> Optional[str]:
+    """
+    Get the type (buy/sell) of the last notification sent for a strategy.
+    Returns None if no notifications have been sent yet.
+    """
+    conn = get_db()
+    try:
+        row = conn.execute("""
+            SELECT signal_type FROM notification_history
+            WHERE strategy_name = ? AND success = 1
+            ORDER BY sent_at DESC
+            LIMIT 1
+        """, (strategy_name,)).fetchone()
+        return row['signal_type'] if row else None
+    finally:
+        conn.close()
+
+
 def is_within_time_window(time_start: str, time_end: str) -> bool:
     """Check if current time is within the notification time window"""
     now = datetime.now(PARIS_TZ)

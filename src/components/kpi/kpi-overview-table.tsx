@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
-import { ArrowUpDown, ArrowUp, ArrowDown, Plus, LineChart, Archive, ArchiveRestore } from 'lucide-react';
+import { ArrowUpDown, ArrowUp, ArrowDown, Plus, LineChart, Archive, ArchiveRestore, Trash2 } from 'lucide-react';
 import { StrategyKPIData } from '@/hooks/useKPIs';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
@@ -19,7 +19,10 @@ type SortKey =
   | 'num_trades'
   | 'avg_return_per_trade_pct'
   | 'avg_trade_duration_hours'
-  | 'max_trade_duration_hours';
+  | 'max_trade_duration_hours'
+  | 'yearly_returns_std_pct'
+  | 'best_year_return_pct'
+  | 'worst_year_return_pct';
 
 type SortDirection = 'asc' | 'desc';
 
@@ -31,6 +34,7 @@ interface KPIOverviewTableProps {
   onAddStrategy?: () => void;
   onArchive?: (strategyName: string) => void;
   onUnarchive?: (strategyName: string) => void;
+  onDelete?: (strategyName: string) => void;
 }
 
 function formatDuration(hours: number): string {
@@ -52,8 +56,12 @@ function formatValue(value: number | undefined, type: SortKey): string {
     case 'total_return_pct':
     case 'avg_yearly_return_pct':
     case 'avg_return_per_trade_pct':
-      return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
+    case 'best_year_return_pct':
+    case 'worst_year_return_pct':
+      return `${value >= 0 ? '+' : ''}${value.toFixed(1)}%`;
     case 'win_rate_pct':
+      return `${value.toFixed(1)}%`;
+    case 'yearly_returns_std_pct':
       return `${value.toFixed(1)}%`;
     case 'profit_factor':
       return value >= 999 ? '∞' : value.toFixed(2);
@@ -80,6 +88,8 @@ function getColorClass(value: number | undefined, type: SortKey): string {
     case 'total_return_pct':
     case 'avg_yearly_return_pct':
     case 'avg_return_per_trade_pct':
+    case 'best_year_return_pct':
+    case 'worst_year_return_pct':
       return value >= 0 ? 'text-emerald-500' : 'text-red-500';
     case 'win_rate_pct':
       return value >= 50 ? 'text-emerald-500' : 'text-red-500';
@@ -89,6 +99,12 @@ function getColorClass(value: number | undefined, type: SortKey): string {
       if (value <= 3) return 'text-emerald-500';
       if (value <= 5) return 'text-yellow-500';
       if (value <= 10) return 'text-orange-500';
+      return 'text-red-500';
+    case 'yearly_returns_std_pct':
+      // Lower std dev = more consistent = better
+      if (value <= 8) return 'text-emerald-500';
+      if (value <= 12) return 'text-yellow-500';
+      if (value <= 16) return 'text-orange-500';
       return 'text-red-500';
     default:
       return 'text-foreground';
@@ -100,16 +116,18 @@ const columns: { key: SortKey; label: string; numeric: boolean }[] = [
   { key: 'score', label: 'Score', numeric: true },
   { key: 'total_return_pct', label: 'Total Return', numeric: true },
   { key: 'avg_yearly_return_pct', label: 'Yearly Return', numeric: true },
+  { key: 'yearly_returns_std_pct', label: 'Std Dev', numeric: true },
+  { key: 'best_year_return_pct', label: 'Best Year', numeric: true },
+  { key: 'worst_year_return_pct', label: 'Worst Year', numeric: true },
   { key: 'win_rate_pct', label: 'Win Rate', numeric: true },
   { key: 'profit_factor', label: 'Profit Factor', numeric: true },
   { key: 'max_drawdown_pct', label: 'Max Drawdown', numeric: true },
   { key: 'num_trades', label: 'Trades', numeric: true },
   { key: 'avg_return_per_trade_pct', label: 'Avg Return', numeric: true },
-  { key: 'avg_trade_duration_hours', label: 'Avg Duration', numeric: true },
   { key: 'max_trade_duration_hours', label: 'Max Duration', numeric: true },
 ];
 
-export function KPIOverviewTable({ data, isLoading, showArchived = false, searchQuery = '', onAddStrategy, onArchive, onUnarchive }: KPIOverviewTableProps) {
+export function KPIOverviewTable({ data, isLoading, showArchived = false, searchQuery = '', onAddStrategy, onArchive, onUnarchive, onDelete }: KPIOverviewTableProps) {
   const [sortKey, setSortKey] = useState<SortKey>('score');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
@@ -322,17 +340,30 @@ export function KPIOverviewTable({ data, isLoading, showArchived = false, search
                     : 'bg-[#fafafa] dark:bg-[#0d0d0d] group-hover:bg-neutral-100 dark:group-hover:bg-neutral-800'
                 }`}>
                   {item.is_archived ? (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          onClick={() => onUnarchive?.(item.strategy)}
-                          className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-all opacity-0 group-hover:opacity-100"
-                        >
-                          <ArchiveRestore size={14} />
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent side="bottom">Unarchive</TooltipContent>
-                    </Tooltip>
+                    <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={() => onUnarchive?.(item.strategy)}
+                            className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-all"
+                          >
+                            <ArchiveRestore size={14} />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">Unarchive</TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={() => onDelete?.(item.strategy)}
+                            className="p-1.5 text-muted-foreground hover:text-red-500 hover:bg-muted transition-all"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">Delete</TooltipContent>
+                      </Tooltip>
+                    </div>
                   ) : (
                     <Tooltip>
                       <TooltipTrigger asChild>

@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import { MemoizedCandlestickChart } from '@/components/chart/candlestick-chart';
 import { DatePicker } from '@/components/ui/date-picker';
-import { useHistoricalData } from '@/app/exploration/historical/historical-context';
+import { useHistoricalData } from '@/contexts/historical-context';
 
 interface HistoricalDashboardProps {
   pageName?: string;

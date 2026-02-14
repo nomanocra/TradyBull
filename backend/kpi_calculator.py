@@ -20,6 +20,12 @@ class StrategyKPIs:
     avg_trade_duration_hours: float  # Average trade duration in hours
     max_trade_duration_hours: float  # Maximum trade duration in hours
     score: float                     # Normalized score (0-10) based on Calmar ratio
+    # Yearly performance metrics
+    yearly_returns_std_pct: float    # Standard deviation of yearly returns (%)
+    best_year_return_pct: float      # Best year return (%)
+    worst_year_return_pct: float     # Worst year return (%)
+    best_year: int                   # Best performing year
+    worst_year: int                  # Worst performing year
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -47,6 +53,11 @@ def calculate_kpis(signals: List[Dict[str, Any]]) -> StrategyKPIs:
             avg_trade_duration_hours=0.0,
             max_trade_duration_hours=0.0,
             score=0.0,
+            yearly_returns_std_pct=0.0,
+            best_year_return_pct=0.0,
+            worst_year_return_pct=0.0,
+            best_year=0,
+            worst_year=0,
         )
 
     # Pair buy and sell signals to calculate trade returns
@@ -99,6 +110,11 @@ def calculate_kpis(signals: List[Dict[str, Any]]) -> StrategyKPIs:
             avg_trade_duration_hours=0.0,
             max_trade_duration_hours=0.0,
             score=0.0,
+            yearly_returns_std_pct=0.0,
+            best_year_return_pct=0.0,
+            worst_year_return_pct=0.0,
+            best_year=0,
+            worst_year=0,
         )
 
     # Calculate metrics
@@ -140,14 +156,51 @@ def calculate_kpis(signals: List[Dict[str, Any]]) -> StrategyKPIs:
     else:
         avg_yearly_return_pct = 0.0
 
-    # Calculate score based on Calmar ratio: Score = 10 × tanh(Calmar / 2)
-    # Calmar = Yearly Return / Max Drawdown
+    # Calculate yearly performance metrics first (needed for score)
+    from datetime import datetime
+    yearly_returns: Dict[int, float] = {}
+    for trade in trades:
+        # Group by sell year (when the return is realized)
+        year = datetime.fromtimestamp(trade['sell_time']).year
+        yearly_returns[year] = yearly_returns.get(year, 0) + trade['return_pct']
+
+    # Calculate std dev, best and worst year
+    if len(yearly_returns) >= 2:
+        yearly_values = list(yearly_returns.values())
+        mean_yearly = sum(yearly_values) / len(yearly_values)
+        variance = sum((v - mean_yearly) ** 2 for v in yearly_values) / len(yearly_values)
+        yearly_returns_std_pct = math.sqrt(variance)
+
+        best_year = max(yearly_returns, key=yearly_returns.get)
+        worst_year = min(yearly_returns, key=yearly_returns.get)
+        best_year_return_pct = yearly_returns[best_year]
+        worst_year_return_pct = yearly_returns[worst_year]
+    elif len(yearly_returns) == 1:
+        year = list(yearly_returns.keys())[0]
+        yearly_returns_std_pct = 0.0
+        best_year = worst_year = year
+        best_year_return_pct = worst_year_return_pct = yearly_returns[year]
+    else:
+        yearly_returns_std_pct = 0.0
+        best_year = worst_year = 0
+        best_year_return_pct = worst_year_return_pct = 0.0
+
+    # Calculate score combining Calmar ratio and consistency
+    # Base score from Calmar ratio: 10 × tanh(Calmar / 2)
+    # Consistency factor: penalize high yearly volatility
+    # Final score = base_score × consistency_factor
     if max_drawdown_pct > 0:
         calmar_ratio = avg_yearly_return_pct / max_drawdown_pct
-        score = 10 * math.tanh(calmar_ratio / 2)
+        base_score = 10 * math.tanh(calmar_ratio / 2)
     else:
-        # No drawdown: perfect score if positive return, 0 otherwise
-        score = 10.0 if avg_yearly_return_pct > 0 else 0.0
+        base_score = 10.0 if avg_yearly_return_pct > 0 else 0.0
+
+    # Consistency factor: 1 / (1 + std_dev/50)
+    # std_dev of 0 = factor 1.0 (no penalty)
+    # std_dev of 50 = factor 0.5 (50% penalty)
+    # std_dev of 100 = factor 0.33 (67% penalty)
+    consistency_factor = 1 / (1 + yearly_returns_std_pct / 50)
+    score = base_score * consistency_factor
 
     return StrategyKPIs(
         total_return_pct=round(total_return_pct, 2),
@@ -160,6 +213,11 @@ def calculate_kpis(signals: List[Dict[str, Any]]) -> StrategyKPIs:
         avg_trade_duration_hours=round(avg_trade_duration_hours, 1),
         max_trade_duration_hours=round(max(durations), 1),
         score=round(score, 1),
+        yearly_returns_std_pct=round(yearly_returns_std_pct, 2),
+        best_year_return_pct=round(best_year_return_pct, 2),
+        worst_year_return_pct=round(worst_year_return_pct, 2),
+        best_year=best_year,
+        worst_year=worst_year,
     )
 
 

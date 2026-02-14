@@ -3,7 +3,7 @@
 import { useParams } from 'next/navigation';
 import { StrategyBacktestingDashboard } from '@/components/dashboard/strategy-backtesting-dashboard';
 import { BacktestingPageSkeleton } from '@/components/dashboard/backtesting-page-skeleton';
-import { useHistoricalData } from '@/app/exploration/historical/historical-context';
+import { useHistoricalData } from '@/contexts/historical-context';
 import { useSignals } from '@/hooks/useSignals';
 import { useStrategies } from '@/hooks/useStrategies';
 import { useKPIs } from '@/hooks/useKPIs';
@@ -11,7 +11,7 @@ import { useKPIs } from '@/hooks/useKPIs';
 export default function StrategyBacktestingPage() {
   const params = useParams();
   const strategySlug = params.strategy as string;
-  const { data, startDate, endDate } = useHistoricalData();
+  const { data, startDate, endDate, dataSource } = useHistoricalData();
   const { allStrategies, isLoading: strategiesLoading } = useStrategies();
 
   // Find the strategy config (including archived strategies)
@@ -27,6 +27,7 @@ export default function StrategyBacktestingPage() {
     startTs,
     endTs,
     enabled: data.length > 0 && !!strategyConfig,
+    dataSource,
   });
 
   // Fetch KPIs from backend
@@ -35,6 +36,7 @@ export default function StrategyBacktestingPage() {
     startTs,
     endTs,
     enabled: data.length > 0 && !!strategyConfig,
+    dataSource,
   });
 
   // Refresh both signals and KPIs

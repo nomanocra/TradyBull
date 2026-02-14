@@ -4,7 +4,7 @@ import { useState, useEffect, useTransition, useMemo, useRef, useCallback } from
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { ChevronDown, ChevronRight, Compass, Play, History, Sun, Moon, Archive, ArchiveRestore, Search, X, Bell, Table, Plus, MoreHorizontal, Trash2, RefreshCw } from 'lucide-react';
+import { ChevronDown, ChevronRight, Play, History, Sun, Moon, Archive, ArchiveRestore, Search, X, Bell, Table, Plus, MoreHorizontal, Trash2, RefreshCw } from 'lucide-react';
 import { ModeSelector, ModeOption } from '@/components/ui/mode-selector';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -39,7 +39,7 @@ const LAST_PATH_KEY = 'tradybull-last-path';
 const MIN_WIDTH = 208; // w-52
 const MAX_WIDTH = 460;
 
-type Mode = 'exploration' | 'backtesting' | 'realtime';
+type Mode = 'backtesting' | 'realtime';
 
 interface NavItem {
   name: string;
@@ -54,31 +54,6 @@ interface NavSection {
   isArchive?: boolean;
   isStandalone?: boolean; // Items rendered at root level without collapsible header
 }
-
-const explorationNavigation: NavSection[] = [
-  {
-    title: 'Real Time',
-    items: [
-      { name: 'Multi Indicator', href: '/exploration/real-time' },
-      { name: 'Bollinger', href: '/exploration/real-time/bollinger' },
-      { name: 'MACD', href: '/exploration/real-time/macd' },
-      { name: 'Ichimoku', href: '/exploration/real-time/ichimoku' },
-      { name: 'Moving Averages', href: '/exploration/real-time/moving-averages' },
-      { name: 'Stochastic RSI', href: '/exploration/real-time/stochastic-rsi' },
-    ],
-  },
-  {
-    title: 'Historical Data',
-    items: [
-      { name: 'Multi Indicator', href: '/exploration/historical' },
-      { name: 'Bollinger', href: '/exploration/historical/bollinger' },
-      { name: 'MACD', href: '/exploration/historical/macd' },
-      { name: 'Ichimoku', href: '/exploration/historical/ichimoku' },
-      { name: 'Moving Averages', href: '/exploration/historical/moving-averages' },
-      { name: 'Stochastic RSI', href: '/exploration/historical/stochastic-rsi' },
-    ],
-  },
-];
 
 // Backtesting navigation generated dynamically from the API
 function generateBacktestingNavigation(
@@ -143,14 +118,11 @@ function generateRealtimeNavigation(strategies: StrategyConfig[]): NavSection[] 
 }
 
 const modeOptions: ModeOption[] = [
-  { value: 'exploration', label: 'Exploration', description: 'Explore indicators', icon: Compass },
   { value: 'backtesting', label: 'Backtesting', description: 'Test strategies', icon: History },
   { value: 'realtime', label: 'Real Time', description: 'Live trading signals', icon: Play },
 ];
 
 const defaultSections: Record<string, boolean> = {
-  'Real Time': true,
-  'Historical Data': true,
   'Backtesting': true,
   'Archive': false, // Collapsed by default
   'Notifications': true,
@@ -165,7 +137,7 @@ export function Sidebar() {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [pendingPath, setPendingPath] = useState<string | null>(null);
-  const [mode, setMode] = useState<Mode>('exploration');
+  const [mode, setMode] = useState<Mode>('backtesting');
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>(defaultSections);
   const [theme, setTheme] = useState<Theme>('dark');
   const [isHydrated, setIsHydrated] = useState(false);
@@ -222,8 +194,6 @@ export function Sidebar() {
       setMode('backtesting');
     } else if (pathname.startsWith('/strategy/real-time')) {
       setMode('realtime');
-    } else if (pathname.startsWith('/exploration')) {
-      setMode('exploration');
     }
   }, [pathname]);
 
@@ -249,8 +219,6 @@ export function Sidebar() {
       setMode('backtesting');
     } else if (pathname.startsWith('/strategy/real-time')) {
       setMode('realtime');
-    } else if (pathname.startsWith('/exploration')) {
-      setMode('exploration');
     }
     const savedTheme = localStorage.getItem(THEME_STORAGE_KEY) as Theme | null;
     if (savedTheme === 'dark' || savedTheme === 'light') {
@@ -291,14 +259,12 @@ export function Sidebar() {
 
   const baseNavigation = useMemo(() => {
     switch (mode) {
-      case 'exploration':
-        return explorationNavigation;
       case 'backtesting':
         return backtestingNavigation;
       case 'realtime':
         return realtimeNavigation;
       default:
-        return explorationNavigation;
+        return backtestingNavigation;
     }
   }, [mode, backtestingNavigation, realtimeNavigation]);
 
@@ -324,8 +290,7 @@ export function Sidebar() {
     // Already on this page
     if (href === pathname) return true;
     // For base paths, only match exact
-    if (href === '/exploration/real-time' || href === '/exploration/historical' ||
-        href === '/strategy/real-time' || href === '/strategy/backtesting') {
+    if (href === '/strategy/real-time' || href === '/strategy/backtesting') {
       return pathname === href;
     }
     return false;
@@ -364,6 +329,8 @@ export function Sidebar() {
   // Confirm delete strategy
   const confirmDeleteStrategy = async () => {
     if (!deleteStrategySlug) return;
+    const wasOnDeletedStrategy = pathname.includes(`/strategy/backtesting/${deleteStrategySlug}`) ||
+                                  pathname.includes(`/strategy/real-time/${deleteStrategySlug}`);
     try {
       // Use dynamic endpoint for dynamic strategies (full cleanup)
       const response = await fetch(`http://localhost:8000/api/strategies/dynamic/${encodeURIComponent(deleteStrategySlug)}`, {
@@ -371,6 +338,13 @@ export function Sidebar() {
       });
       if (response.ok) {
         refetchStrategies();
+        // Navigate to overview if we were on the deleted strategy's page
+        if (wasOnDeletedStrategy) {
+          const targetPath = mode === 'realtime'
+            ? '/strategy/real-time/notifications'
+            : '/strategy/backtesting/overview';
+          router.push(targetPath);
+        }
       }
     } catch (error) {
       console.error('Failed to delete strategy:', error);
@@ -384,14 +358,22 @@ export function Sidebar() {
   const handleRefreshAllStrategies = useCallback(async () => {
     setIsRefreshingAll(true);
     try {
-      // Recalculate all non-archived strategies
-      const response = await fetch('http://localhost:8000/api/signals/recalculate', {
-        method: 'POST',
-      });
-      if (!response.ok) {
-        throw new Error('Failed to recalculate signals');
+      // Fetch available data sources
+      const sourcesResponse = await fetch('http://localhost:8000/api/backtest/sources');
+      const sources = sourcesResponse.ok
+        ? (await sourcesResponse.json()).sources?.map((s: { source: string }) => s.source) || ['yfinance']
+        : ['yfinance'];
+
+      // Recalculate for each data source
+      for (const source of sources) {
+        const response = await fetch(`http://localhost:8000/api/signals/recalculate?data_source=${encodeURIComponent(source)}`, {
+          method: 'POST',
+        });
+        if (!response.ok) {
+          console.error(`Failed to recalculate signals for source: ${source}`);
+        }
       }
-      // Optionally refresh strategies list
+      // Refresh strategies list
       refetchStrategies();
     } catch (error) {
       console.error('Error refreshing all strategies:', error);
@@ -487,10 +469,8 @@ export function Sidebar() {
             const newMode = value as Mode;
             setMode(newMode);
             // Navigate to default page for the new mode
-            let targetPath = '/exploration/real-time';
-            if (newMode === 'backtesting') {
-              targetPath = '/strategy/backtesting/overview';
-            } else if (newMode === 'realtime') {
+            let targetPath = '/strategy/backtesting/overview';
+            if (newMode === 'realtime') {
               targetPath = '/strategy/real-time/notifications';
             }
             if (pathname !== targetPath) {
@@ -785,9 +765,11 @@ export function Sidebar() {
       <StrategyCreationModal
         open={strategyCreationModalOpen}
         onOpenChange={setStrategyCreationModalOpen}
-        onCreated={(strategyName?: string) => {
-          refetchStrategies();
-          strategyEvents.emit({ type: 'create', strategyName: strategyName || '' });
+        onCreated={async (strategyName: string) => {
+          await refetchStrategies();
+          strategyEvents.emit({ type: 'create', strategyName });
+          // Navigate to the new strategy page
+          router.push(`/strategy/backtesting/${strategyName}`);
         }}
       />
 

@@ -42,3 +42,6 @@ next-env.d.ts
 backend/tradybull.db
 TradyBullUI-darwin-x64/
 tradybull.db
+
+# FirstRate historical data
+public/NQ_*.txt

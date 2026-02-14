@@ -1,4 +1,4 @@
-import { RealtimeProvider } from '@/app/exploration/real-time/realtime-context';
+import { RealtimeProvider } from '@/contexts/realtime-context';
 
 export default function StrategyRealtimeLayout({
   children,

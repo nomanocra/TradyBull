@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { Search, Plus } from 'lucide-react';
 import { DatePicker } from '@/components/ui/date-picker';
 import { DataSourceSelector } from '@/components/ui/data-source-selector';
@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { KPIOverviewTable } from '@/components/kpi/kpi-overview-table';
 import { StrategyCreationModal } from '@/components/strategy/strategy-creation-modal';
-import { useHistoricalData } from '@/app/exploration/historical/historical-context';
+import { useHistoricalData } from '@/contexts/historical-context';
 import { useAllKPIs } from '@/hooks/useKPIs';
 import { useStrategies } from '@/hooks/useStrategies';
 import { strategyEvents } from '@/lib/strategy-events';
@@ -44,8 +44,23 @@ export default function BacktestingOverviewPage() {
     dataSource,
   });
 
-  // Get archive/unarchive functions from useStrategies
-  const { archiveStrategy, unarchiveStrategy } = useStrategies();
+  // Get archive/unarchive/delete functions from useStrategies
+  const { archiveStrategy, unarchiveStrategy, deleteStrategy } = useStrategies();
+
+  // Compute filtered strategy count (same logic as KPIOverviewTable)
+  const filteredCount = useMemo(() => {
+    if (!kpisData.length) return 0;
+    let filtered = showArchived
+      ? kpisData
+      : kpisData.filter((item) => !item.is_archived);
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      filtered = filtered.filter((item) =>
+        item.display_name.toLowerCase().includes(query)
+      );
+    }
+    return filtered.length;
+  }, [kpisData, showArchived, searchQuery]);
 
   const handleArchive = useCallback(async (strategyName: string) => {
     // Optimistic update - immediately update UI
@@ -60,6 +75,11 @@ export default function BacktestingOverviewPage() {
     // Then call API in background
     await unarchiveStrategy(strategyName);
   }, [unarchiveStrategy, updateStrategyArchived]);
+
+  const handleDelete = useCallback(async (strategyName: string) => {
+    await deleteStrategy(strategyName);
+    // No refetch needed - optimistic removal via strategyEvents
+  }, [deleteStrategy]);
 
   // Handle year range selection (year=0 means "All")
   const handleYearRangeSelect = useCallback((year: number) => {
@@ -92,6 +112,9 @@ export default function BacktestingOverviewPage() {
         {/* Title - Left */}
         <div className="flex-1 flex items-center gap-2">
           <span className="text-xs font-semibold text-brand">Strategies Overview</span>
+          {kpisData.length > 0 && (
+            <span className="text-[10px] text-muted-foreground">({filteredCount})</span>
+          )}
         </div>
 
         {/* Data source + Symbol - Center */}
@@ -203,6 +226,7 @@ export default function BacktestingOverviewPage() {
             onAddStrategy={() => setStrategyModalOpen(true)}
             onArchive={handleArchive}
             onUnarchive={handleUnarchive}
+            onDelete={handleDelete}
           />
         </div>
       </div>

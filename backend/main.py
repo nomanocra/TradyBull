@@ -135,13 +135,15 @@ def init_db():
                 label TEXT,
                 metadata TEXT,
                 created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-                UNIQUE(strategy_name, symbol, signal_timestamp, type)
+                data_source TEXT DEFAULT 'yfinance',
+                UNIQUE(strategy_name, symbol, signal_timestamp, type, data_source)
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_signals_strategy ON signals(strategy_name)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_signals_strategy_symbol ON signals(strategy_name, symbol)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_signals_timestamp ON signals(signal_timestamp)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_signals_strategy_timestamp ON signals(strategy_name, signal_timestamp)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_signals_strategy_source ON signals(strategy_name, data_source)")
 
         # Signal processing state (for incremental updates)
         # Migration: recreate table to allow 'unified' data_source
@@ -1076,6 +1078,15 @@ def recalculate_signals(
     try:
         is_recalculating = True
         print(f"[Recalculate] Starting recalculation for data_source={data_source}...")
+
+        # Fetch latest yfinance data before recalculating
+        if data_source == "yfinance":
+            from bootstrap_backtest import fetch_latest_yfinance_data
+            with get_db() as conn:
+                new_candles = fetch_latest_yfinance_data(conn, SYMBOL)
+                if new_candles > 0:
+                    print(f"[Recalculate] Fetched {new_candles} new yfinance candles")
+
         _, _, _, recalculate_strategy_fn, recalculate_all_strategies_fn, _, STRATEGIES = get_signal_calculator()
 
         with get_db() as conn:
@@ -1340,7 +1351,7 @@ def unarchive_strategy(strategy_name: str):
 
 @app.delete("/api/strategies/{strategy_name}")
 def delete_strategy(strategy_name: str):
-    """Delete a strategy's data (signals, settings, history). Strategy stays archived."""
+    """Delete a strategy and all its data (signals, settings, history)."""
     try:
         with get_db() as conn:
             # Delete all data associated with the strategy
@@ -1348,7 +1359,9 @@ def delete_strategy(strategy_name: str):
             conn.execute("DELETE FROM signal_processing_state WHERE strategy_name = ?", (strategy_name,))
             conn.execute("DELETE FROM notification_settings WHERE strategy_name = ?", (strategy_name,))
             conn.execute("DELETE FROM notification_history WHERE strategy_name = ?", (strategy_name,))
-            # Keep in archived_strategies - strategy is defined in Python code
+            conn.execute("DELETE FROM archived_strategies WHERE strategy_name = ?", (strategy_name,))
+            # Also delete from dynamic_strategies if it's a user-created strategy
+            conn.execute("DELETE FROM dynamic_strategies WHERE name = ?", (strategy_name,))
             conn.commit()
 
         return {"status": "deleted", "strategy": strategy_name}

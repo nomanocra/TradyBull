@@ -4,7 +4,7 @@ import { useMemo } from 'react';
 import { Info, Loader2 } from 'lucide-react';
 import { MemoizedCandlestickChart } from '@/components/chart/candlestick-chart';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { useRealtimeData } from '@/app/exploration/real-time/realtime-context';
+import { useRealtimeData } from '@/contexts/realtime-context';
 import { Signal } from '@/types/market';
 
 // Skeleton component for chart loading
