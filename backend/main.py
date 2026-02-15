@@ -1781,14 +1781,58 @@ class BotUpdateRequest(BaseModel):
 
 @app.get("/api/bots")
 def list_bots():
-    """List all trading bots with their stats."""
+    """List all trading bots with their stats and live P&L for open positions."""
     try:
         bots = bot_engine.list_bots()
         for bot in bots:
-            bot["stats"] = bot_engine.get_bot_stats(bot["id"])
+            stats = bot_engine.get_bot_stats(bot["id"])
+            # Fetch live P&L for open positions
+            if stats["open_positions"] > 0:
+                live_pnl = _get_bot_live_pnl(bot["id"], bot["account_type"])
+                stats["live_pnl"] = live_pnl
+            else:
+                stats["live_pnl"] = None
+            bot["stats"] = stats
         return {"bots": bots}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _get_bot_live_pnl(bot_id: int, account_type: str) -> Optional[float]:
+    """Sum live P&L of all open positions for a bot.
+    Tries eToro API first, falls back to price-based estimate."""
+    try:
+        with get_db() as conn:
+            open_trades = conn.execute(
+                "SELECT position_id, price, amount FROM bot_trades WHERE bot_id = ? AND status = 'open'",
+                (bot_id,),
+            ).fetchall()
+        if not open_trades:
+            return None
+
+        # Try eToro API for each open position
+        total = 0.0
+        found_any = False
+        for trade in open_trades:
+            if trade["position_id"]:
+                pnl = etoro_client.get_position_pnl(trade["position_id"], account_type)
+                if pnl is not None:
+                    total += pnl
+                    found_any = True
+                    continue
+            # Fallback: estimate from last known price
+            with get_db() as conn:
+                last_price_row = conn.execute(
+                    "SELECT close FROM backtest_candles WHERE source = 'yfinance' ORDER BY timestamp DESC LIMIT 1"
+                ).fetchone()
+            if last_price_row and trade["price"]:
+                estimated = ((last_price_row[0] - trade["price"]) / trade["price"]) * trade["amount"]
+                total += estimated
+                found_any = True
+
+        return round(total, 2) if found_any else None
+    except Exception:
+        return None
 
 
 @app.post("/api/bots")
@@ -1908,11 +1952,38 @@ def stop_bot(bot_id: int):
 
 @app.get("/api/bots/{bot_id}/trades")
 def get_bot_trades(bot_id: int, limit: int = Query(default=50, le=200)):
-    """Get trade history for a bot."""
+    """Get trade history for a bot, with live P&L for open positions."""
     bot = bot_engine.get_bot(bot_id)
     if not bot:
         raise HTTPException(status_code=404, detail=f"Bot not found: {bot_id}")
     trades = bot_engine.get_trades(bot_id, limit)
+    # Enrich open trades with live P&L from eToro (fallback to price estimate)
+    for trade in trades:
+        if trade.get("status") == "open":
+            live_pnl = None
+            # Try eToro API first
+            if trade.get("position_id"):
+                try:
+                    live_pnl = etoro_client.get_position_pnl(
+                        position_id=trade["position_id"],
+                        account_type=bot["account_type"],
+                    )
+                except Exception:
+                    pass
+            # Fallback: estimate from last known price
+            if live_pnl is None and trade.get("price"):
+                try:
+                    with get_db() as conn:
+                        last_price_row = conn.execute(
+                            "SELECT close FROM backtest_candles WHERE source = 'yfinance' ORDER BY timestamp DESC LIMIT 1"
+                        ).fetchone()
+                    if last_price_row:
+                        live_pnl = round(((last_price_row[0] - trade["price"]) / trade["price"]) * trade["amount"], 2)
+                except Exception:
+                    pass
+            trade["live_pnl"] = live_pnl
+        else:
+            trade["live_pnl"] = None
     return {"trades": trades}
 
 

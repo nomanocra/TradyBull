@@ -11,6 +11,7 @@ export interface BotStats {
   best_trade: number;
   worst_trade: number;
   open_positions: number;
+  live_pnl: number | null;
 }
 
 export interface TradingBot {
@@ -40,6 +41,7 @@ export interface BotTrade {
   opened_at: number;
   closed_at: number | null;
   pnl: number | null;
+  live_pnl: number | null;
   error_message: string | null;
   bot_name?: string;
   strategy_name?: string;
@@ -61,7 +63,6 @@ export function useBots() {
 
   const fetchBots = useCallback(async () => {
     try {
-      setIsLoading(true);
       const response = await fetch(`${API_URL}/bots`);
       if (!response.ok) throw new Error('Failed to fetch bots');
       const data = await response.json();

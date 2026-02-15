@@ -291,13 +291,20 @@ export default function TradyBotsPage() {
                               bot.stats.total_pnl >= 0 ? 'text-green-500' : 'text-red-500'
                             }`}
                           >
-                            P&L: {bot.stats.total_pnl >= 0 ? '+' : ''}
-                            {bot.stats.total_pnl.toFixed(2)}
+                            P&L: {bot.stats.total_pnl >= 0 ? '+' : ''}$
+                            {Math.abs(bot.stats.total_pnl).toFixed(2)}
                           </span>
                           {bot.stats.open_positions > 0 && (
-                            <span className="text-[10px] text-brand">
-                              {bot.stats.open_positions} open
-                            </span>
+                            <>
+                              <span className="text-[10px] text-brand">
+                                {bot.stats.open_positions} open
+                              </span>
+                              {bot.stats.live_pnl !== null && (
+                                <span className={`text-[10px] italic ${bot.stats.live_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                  {bot.stats.live_pnl >= 0 ? '+' : '-'}${Math.abs(bot.stats.live_pnl).toFixed(2)} live
+                                </span>
+                              )}
+                            </>
                           )}
                         </>
                       )}
@@ -512,9 +519,14 @@ export default function TradyBotsPage() {
                       <td className="py-1.5 px-2">{trade.price.toFixed(2)}</td>
                       <td className="py-1.5 px-2">${trade.amount}</td>
                       <td className="py-1.5 px-2">
-                        {trade.pnl !== null ? (
+                        {trade.status === 'open' && trade.live_pnl !== null ? (
+                          <span className={`italic ${trade.live_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                            {trade.live_pnl >= 0 ? '+' : '-'}${Math.abs(trade.live_pnl).toFixed(2)}
+                            <span className="text-[9px] ml-1 opacity-60">live</span>
+                          </span>
+                        ) : trade.pnl !== null ? (
                           <span className={trade.pnl >= 0 ? 'text-green-500' : 'text-red-500'}>
-                            {trade.pnl >= 0 ? '+' : ''}{trade.pnl.toFixed(2)}
+                            {trade.pnl >= 0 ? '+' : '-'}${Math.abs(trade.pnl).toFixed(2)}
                           </span>
                         ) : (
                           <span className="text-muted-foreground">-</span>
