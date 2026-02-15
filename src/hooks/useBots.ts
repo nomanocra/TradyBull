@@ -21,6 +21,7 @@ export interface TradingBot {
   amount: number;
   leverage: number;
   account_type: 'demo' | 'real';
+  signal_source: 'yfinance' | 'etoro';
   enabled: number;
   status: 'active' | 'stopped' | 'error';
   created_at: number;
@@ -50,6 +51,7 @@ interface CreateBotParams {
   amount: number;
   leverage: number;
   account_type: string;
+  signal_source: string;
 }
 
 export function useBots() {

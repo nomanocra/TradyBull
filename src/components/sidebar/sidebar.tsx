@@ -26,6 +26,7 @@ import {
 import { useStrategies, StrategyConfig } from '@/hooks/useStrategies';
 import { strategyEvents } from '@/lib/strategy-events';
 import { useNotifications } from '@/hooks/useNotifications';
+import { useBots } from '@/hooks/useBots';
 import { NotificationModal } from '@/components/notifications/notification-modal';
 import { StrategyCreationModal } from '@/components/strategy/strategy-creation-modal';
 import packageJson from '../../../package.json';
@@ -99,17 +100,17 @@ function generateBacktestingNavigation(
 function generateRealtimeNavigation(strategies: StrategyConfig[]): NavSection[] {
   return [
     {
-      title: 'Notifications',
-      isStandalone: true,
-      items: [
-        { name: 'Notifications', href: '/strategy/real-time/notifications' },
-      ],
-    },
-    {
       title: 'TradyBots',
       isStandalone: true,
       items: [
         { name: 'TradyBots', href: '/strategy/real-time/tradybots' },
+      ],
+    },
+    {
+      title: 'Notifications',
+      isStandalone: true,
+      items: [
+        { name: 'Notifications', href: '/strategy/real-time/notifications' },
       ],
     },
     {
@@ -171,6 +172,9 @@ export function Sidebar() {
 
   // Strategy creation modal state
   const [strategyCreationModalOpen, setStrategyCreationModalOpen] = useState(false);
+
+  // Fetch bots
+  const { bots } = useBots();
 
   // Global refresh state
   const [isRefreshingAll, setIsRefreshingAll] = useState(false);
@@ -348,7 +352,7 @@ export function Sidebar() {
         // Navigate to overview if we were on the deleted strategy's page
         if (wasOnDeletedStrategy) {
           const targetPath = mode === 'realtime'
-            ? '/strategy/real-time/notifications'
+            ? '/strategy/real-time/tradybots'
             : '/strategy/backtesting/overview';
           router.push(targetPath);
         }
@@ -405,6 +409,18 @@ export function Sidebar() {
     e.stopPropagation();
     setNotificationModalStrategy(strategySlug);
     setNotificationModalOpen(true);
+  };
+
+  // Check if strategy has an active bot
+  const hasActiveBot = useCallback((strategySlug: string) => {
+    return bots.some(b => b.strategy_name === strategySlug && b.status === 'active');
+  }, [bots]);
+
+  // Handle bot icon click - navigate to TradyBots page
+  const handleBotClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    router.push('/strategy/real-time/tradybots');
   };
 
   // Handle resize
@@ -478,7 +494,7 @@ export function Sidebar() {
             // Navigate to default page for the new mode
             let targetPath = '/strategy/backtesting/overview';
             if (newMode === 'realtime') {
-              targetPath = '/strategy/real-time/notifications';
+              targetPath = '/strategy/real-time/tradybots';
             }
             if (pathname !== targetPath) {
               setPendingPath(targetPath);
@@ -613,6 +629,8 @@ export function Sidebar() {
                         const showRestoreIcon = item.strategySlug && section.isArchive && (isHovered || isDropdownOpen);
                         const strategyHasNotifications = item.strategySlug && hasNotifications(item.strategySlug);
                         const showNotificationIcon = item.strategySlug && mode === 'realtime' && (isHovered || strategyHasNotifications);
+                        const strategyHasActiveBot = item.strategySlug && hasActiveBot(item.strategySlug);
+                        const showBotIcon = item.strategySlug && mode === 'realtime' && (isHovered || strategyHasActiveBot);
 
                         return (
                           <div
@@ -625,7 +643,7 @@ export function Sidebar() {
                               href={item.href}
                               onClick={(e) => handleNavClick(e, item.href)}
                               title={item.name}
-                              className={`block px-4 py-1.5 text-xs transition-colors pr-8 truncate ${
+                              className={`block px-4 py-1.5 text-xs transition-colors ${mode === 'realtime' ? 'pr-14' : 'pr-8'} truncate ${
                                 isActive
                                   ? 'text-brand bg-brand/10 border-l-2 border-brand'
                                   : 'text-muted-foreground hover:text-foreground hover:bg-muted border-l-2 border-transparent'
@@ -682,25 +700,48 @@ export function Sidebar() {
                               </DropdownMenu>
                             )}
 
-                            {/* Notification button (Real Time only) */}
-                            {showNotificationIcon && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <button
-                                    onClick={(e) => handleNotificationClick(e, item.strategySlug!)}
-                                    className={`absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md transition-colors hover:bg-muted-foreground/20 ${
-                                      strategyHasNotifications
-                                        ? 'text-brand hover:text-brand'
-                                        : 'text-muted-foreground hover:text-foreground'
-                                    }`}
-                                  >
-                                    <Bell size={12} />
-                                  </button>
-                                </TooltipTrigger>
-                                <TooltipContent side="right">
-                                  {strategyHasNotifications ? 'Edit Notification' : 'Add Notification'}
-                                </TooltipContent>
-                              </Tooltip>
+                            {/* Notification + Bot icons (Real Time only) */}
+                            {(showNotificationIcon || showBotIcon) && (
+                              <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
+                                {showNotificationIcon && (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <button
+                                        onClick={(e) => handleNotificationClick(e, item.strategySlug!)}
+                                        className={`p-1 rounded-md transition-colors hover:bg-muted-foreground/20 ${
+                                          strategyHasNotifications
+                                            ? 'text-brand hover:text-brand'
+                                            : 'text-muted-foreground hover:text-foreground'
+                                        }`}
+                                      >
+                                        <Bell size={12} />
+                                      </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="right">
+                                      {strategyHasNotifications ? 'Edit Notification' : 'Add Notification'}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                )}
+                                {showBotIcon && (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <button
+                                        onClick={handleBotClick}
+                                        className={`p-1 rounded-md transition-colors hover:bg-muted-foreground/20 ${
+                                          strategyHasActiveBot
+                                            ? 'text-brand hover:text-brand'
+                                            : 'text-muted-foreground hover:text-foreground'
+                                        }`}
+                                      >
+                                        <Bot size={12} />
+                                      </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="right">
+                                      {strategyHasActiveBot ? 'View Bot' : 'Create Bot'}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                )}
+                              </div>
                             )}
                           </div>
                         );

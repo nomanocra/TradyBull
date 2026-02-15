@@ -5,6 +5,10 @@ import { CandleData, Signal } from '@/types/market';
 
 const API_URL = 'http://localhost:8000/api';
 
+// Sort candles by time ascending (required by lightweight-charts)
+const sortByTime = (candles: CandleData[]): CandleData[] =>
+  [...candles].sort((a, b) => a.time - b.time);
+
 interface NotificationSettings {
   strategy_name: string;
   enabled: boolean;
@@ -33,6 +37,7 @@ interface WebSocketMessage {
     '1day': CandleData[];
   };
   signals?: Record<string, Signal[]>;
+  etoro_signals?: Record<string, Signal[]>;
 }
 
 // Type for signals organized by strategy
@@ -77,7 +82,8 @@ export function RealtimeProvider({ children }: RealtimeProviderProps) {
     '1day': [],
     '15min': [],
   });
-  const [signals, setSignals] = useState<SignalsByStrategy>({});
+  const [yfinanceSignals, setYfinanceSignals] = useState<SignalsByStrategy>({});
+  const [etoroSignals, setEtoroSignals] = useState<SignalsByStrategy>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastFetchTime, setLastFetchTime] = useState<string | null>(null);
@@ -92,6 +98,15 @@ export function RealtimeProvider({ children }: RealtimeProviderProps) {
 
   const realtimeSourceRef = useRef(realtimeSource);
   useEffect(() => { realtimeSourceRef.current = realtimeSource; }, [realtimeSource]);
+
+  // Refs for reading current values without useCallback dependencies
+  const dataRef = useRef(data);
+  dataRef.current = data;
+  const dataSourceRef = useRef(dataSource);
+  dataSourceRef.current = dataSource;
+
+  // Cache data per source for instant switching
+  const dataCacheRef = useRef<Record<string, { data: ChartData; dataSource: string }>>({});
 
   // Hydrate realtimeSource from localStorage on mount
   useEffect(() => {
@@ -110,7 +125,21 @@ export function RealtimeProvider({ children }: RealtimeProviderProps) {
   }, [realtimeSource, isSourceHydrated]);
 
   const setRealtimeSource = useCallback((source: string) => {
+    // Cache current source data before switching
+    if (dataRef.current['1h'].length > 0) {
+      dataCacheRef.current[realtimeSourceRef.current] = { data: dataRef.current, dataSource: dataSourceRef.current };
+    }
     setRealtimeSourceState(source);
+    // Restore from cache if available, otherwise show loading skeletons
+    const cached = dataCacheRef.current[source];
+    if (cached && cached.data['1h'].length > 0) {
+      setData(cached.data);
+      setDataSource(cached.dataSource);
+      setIsLoading(false);
+    } else {
+      setData({ '1h': [], '1day': [], '15min': [] });
+      setIsLoading(true);
+    }
   }, []);
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -233,19 +262,25 @@ export function RealtimeProvider({ children }: RealtimeProviderProps) {
       const message: WebSocketMessage = JSON.parse(event.data);
 
       if (message.type === 'data_update') {
-        // Only update chart data from WebSocket when using yfinance
+        // Always cache yfinance data from WebSocket
+        const wsData: ChartData = {
+          '1h': sortByTime(message.data['1h'] || []),
+          '1day': sortByTime(message.data['1day'] || []),
+          '15min': sortByTime(message.data['15min'] || []),
+        };
+        dataCacheRef.current['yfinance'] = { data: wsData, dataSource: message.symbol };
+        // Only update displayed chart data when using yfinance
         if (realtimeSourceRef.current !== 'etoro') {
-          setData({
-            '1h': message.data['1h'] || [],
-            '1day': message.data['1day'] || [],
-            '15min': message.data['15min'] || [],
-          });
+          setData(wsData);
           setDataSource(message.symbol);
         }
-        // Always update signals from WebSocket (they come from yfinance regardless)
+        // Always update signals from WebSocket (both yfinance and etoro)
         if (message.signals) {
           checkAndNotifyNewSignals(message.signals);
-          setSignals(message.signals);
+          setYfinanceSignals(message.signals);
+        }
+        if (message.etoro_signals) {
+          setEtoroSignals(message.etoro_signals);
         }
         setMarketOpen(message.market_open);
         setStandby(message.standby || false);
@@ -373,11 +408,13 @@ export function RealtimeProvider({ children }: RealtimeProviderProps) {
 
         if (cancelled) return;
 
-        setData({
-          '15min': data15m.data || [],
-          '1h': data1h.data || [],
-          '1day': data1d.data || [],
-        });
+        const etoroData: ChartData = {
+          '15min': sortByTime(data15m.data || []),
+          '1h': sortByTime(data1h.data || []),
+          '1day': sortByTime(data1d.data || []),
+        };
+        dataCacheRef.current['etoro'] = { data: etoroData, dataSource: 'NSDQ100' };
+        setData(etoroData);
         setDataSource('NSDQ100');
         setError(null);
         setIsLoading(false);
@@ -389,8 +426,10 @@ export function RealtimeProvider({ children }: RealtimeProviderProps) {
       }
     };
 
-    // Fetch immediately on switch
-    setIsLoading(true);
+    // Fetch immediately on switch (only show loading if no cached data)
+    if (!dataCacheRef.current['etoro']?.data['1h']?.length) {
+      setIsLoading(true);
+    }
     fetchEtoroData();
 
     // Poll every FETCH_INTERVAL seconds
@@ -401,6 +440,9 @@ export function RealtimeProvider({ children }: RealtimeProviderProps) {
       clearInterval(intervalId);
     };
   }, [realtimeSource, isSourceHydrated]);
+
+  // Derive signals from the selected realtime source
+  const signals = realtimeSource === 'etoro' ? etoroSignals : yfinanceSignals;
 
   const value: RealtimeContextValue = {
     data,

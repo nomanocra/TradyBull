@@ -398,13 +398,14 @@ def recalculate_all_strategies(conn: sqlite3.Connection, symbol: str, data_sourc
 
 # ==================== NEW: Optimized signal check on latest candle ====================
 
-def get_strategy_state(conn: sqlite3.Connection, strategy_name: str, symbol: str) -> Optional[Dict]:
-    """Get the current state for a strategy (unified, no data_source distinction)"""
+def get_strategy_state(conn: sqlite3.Connection, strategy_name: str, symbol: str, source: str = 'yfinance') -> Optional[Dict]:
+    """Get the current state for a strategy, per data source."""
+    data_source_key = 'unified' if source == 'yfinance' else f'unified_{source}'
     cursor = conn.execute("""
         SELECT last_processed_timestamp, last_signal_state
         FROM signal_processing_state
-        WHERE strategy_name = ? AND symbol = ? AND data_source = 'unified'
-    """, (strategy_name, symbol))
+        WHERE strategy_name = ? AND symbol = ? AND data_source = ?
+    """, (strategy_name, symbol, data_source_key))
     row = cursor.fetchone()
     if row:
         return {
@@ -415,20 +416,22 @@ def get_strategy_state(conn: sqlite3.Connection, strategy_name: str, symbol: str
 
 
 def save_strategy_state(conn: sqlite3.Connection, strategy_name: str, symbol: str,
-                        last_timestamp: int, state: Dict):
-    """Save the strategy state (unified)"""
+                        last_timestamp: int, state: Dict, source: str = 'yfinance'):
+    """Save the strategy state, per data source."""
+    data_source_key = 'unified' if source == 'yfinance' else f'unified_{source}'
     conn.execute("""
         INSERT OR REPLACE INTO signal_processing_state
         (strategy_name, symbol, data_source, last_processed_timestamp, last_signal_state, updated_at)
-        VALUES (?, ?, 'unified', ?, ?, strftime('%s', 'now'))
-    """, (strategy_name, symbol, last_timestamp, json.dumps(state)))
+        VALUES (?, ?, ?, ?, ?, strftime('%s', 'now'))
+    """, (strategy_name, symbol, data_source_key, last_timestamp, json.dumps(state)))
     conn.commit()
 
 
 def check_signal_on_latest_candle(
     conn: sqlite3.Connection,
     strategy_name: str,
-    symbol: str
+    symbol: str,
+    source: str = 'yfinance'
 ) -> List[Signal]:
     """
     Check for signals on new candles since last processed.
@@ -437,10 +440,8 @@ def check_signal_on_latest_candle(
     Returns ALL inserted signals so the caller can decide which one to notify
     based on the last notification type sent.
 
-    Example: If BUY → SELL → BUY happened while offline, returns all 3 signals.
-    The caller will pick the appropriate one based on last notification state.
-
     Uses backtest_candles as the single source of truth.
+    The `source` parameter determines which candle data and state to use.
 
     Returns:
         List of all newly inserted signals (can be empty)
@@ -448,8 +449,8 @@ def check_signal_on_latest_candle(
     # Get strategy instance
     strategy = get_strategy(strategy_name, conn)
 
-    # Get current state
-    proc_state = get_strategy_state(conn, strategy_name, symbol)
+    # Get current state (per source)
+    proc_state = get_strategy_state(conn, strategy_name, symbol, source=source)
 
     if proc_state:
         last_timestamp = proc_state['last_processed_timestamp']
@@ -458,22 +459,19 @@ def check_signal_on_latest_candle(
         last_timestamp = 0
         current_state = None
 
-    # Check if we have an open position
-    has_position = current_state and current_state.get('position') is not None
-
-    # Fetch lookback candles + new candles from backtest_candles (yfinance only for real-time)
+    # Fetch lookback candles + new candles from backtest_candles
     lookback_start = last_timestamp - (strategy.required_lookback * 3600 * 2) if last_timestamp > 0 else 0
 
     query = """
         SELECT timestamp, open, high, low, close, volume
         FROM backtest_candles
-        WHERE symbol = ? AND source = 'yfinance' AND timestamp >= ?
+        WHERE symbol = ? AND source = ? AND timestamp >= ?
         ORDER BY timestamp ASC
     """
-    rows = conn.execute(query, (symbol, lookback_start)).fetchall()
+    rows = conn.execute(query, (symbol, source, lookback_start)).fetchall()
 
     if not rows:
-        return None
+        return []
 
     candles = [
         {
@@ -499,8 +497,8 @@ def check_signal_on_latest_candle(
     # Filter to only get signals for candles after last processed
     new_signals = [s for s in signals if s.signal_timestamp > last_timestamp]
 
-    # Save updated state
-    save_strategy_state(conn, strategy_name, symbol, latest_candle['time'], final_state)
+    # Save updated state (per source)
+    save_strategy_state(conn, strategy_name, symbol, latest_candle['time'], final_state, source=source)
 
     # Save all new signals to database and track which ones were actually inserted
     inserted_signals = []
@@ -508,7 +506,7 @@ def check_signal_on_latest_candle(
         cursor = conn.execute("""
             INSERT OR IGNORE INTO signals
             (strategy_name, symbol, signal_timestamp, trigger_timestamp, type, price, label, metadata, data_source)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'yfinance')
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             strategy_name,
             symbol,
@@ -517,7 +515,8 @@ def check_signal_on_latest_candle(
             signal.type,
             signal.price,
             signal.label,
-            json.dumps(signal.metadata) if signal.metadata else None
+            json.dumps(signal.metadata) if signal.metadata else None,
+            source
         ))
         if cursor.rowcount > 0:
             inserted_signals.append(signal)
@@ -526,7 +525,7 @@ def check_signal_on_latest_candle(
     return inserted_signals
 
 
-def check_all_strategies_latest_candle(conn: sqlite3.Connection, symbol: str) -> Dict[str, List[Signal]]:
+def check_all_strategies_latest_candle(conn: sqlite3.Connection, symbol: str, source: str = 'yfinance') -> Dict[str, List[Signal]]:
     """
     Check all strategies (hardcoded + dynamic) for signals on new candles.
 
@@ -537,14 +536,14 @@ def check_all_strategies_latest_candle(conn: sqlite3.Connection, symbol: str) ->
 
     # Hardcoded strategies
     for strategy_name in STRATEGIES:
-        signals = check_signal_on_latest_candle(conn, strategy_name, symbol)
+        signals = check_signal_on_latest_candle(conn, strategy_name, symbol, source=source)
         results[strategy_name] = signals
 
     # Dynamic strategies from database
     dynamic_rows = conn.execute("SELECT name FROM dynamic_strategies").fetchall()
     for row in dynamic_rows:
         strategy_name = row[0]
-        signals = check_signal_on_latest_candle(conn, strategy_name, symbol)
+        signals = check_signal_on_latest_candle(conn, strategy_name, symbol, source=source)
         results[strategy_name] = signals
 
     return results

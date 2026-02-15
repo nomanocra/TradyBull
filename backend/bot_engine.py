@@ -76,6 +76,7 @@ class BotEngine:
         amount: float,
         leverage: int = 1,
         account_type: str = "demo",
+        signal_source: str = "yfinance",
     ) -> dict:
         """Create a new trading bot."""
         conn = self._get_db()
@@ -89,9 +90,9 @@ class BotEngine:
             now = int(time.time())
             conn.execute(
                 """INSERT INTO trading_bots
-                   (name, strategy_name, etoro_instrument_id, amount, leverage, account_type, enabled, status, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, 0, 'stopped', ?, ?)""",
-                (name, strategy_name, 0, amount, leverage, account_type, now, now),
+                   (name, strategy_name, etoro_instrument_id, amount, leverage, account_type, signal_source, enabled, status, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'stopped', ?, ?)""",
+                (name, strategy_name, 0, amount, leverage, account_type, signal_source, now, now),
             )
             conn.commit()
             bot_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
@@ -123,7 +124,7 @@ class BotEngine:
         """Update bot fields."""
         conn = self._get_db()
         try:
-            allowed = {"name", "amount", "leverage", "account_type", "enabled", "status"}
+            allowed = {"name", "amount", "leverage", "account_type", "signal_source", "enabled", "status"}
             updates = {k: v for k, v in kwargs.items() if k in allowed}
             if not updates:
                 return self.get_bot(bot_id)
@@ -220,22 +221,25 @@ class BotEngine:
     # Signal processing
     # =========================================================================
 
-    def process_new_signals(self, strategy_signals: dict):
+    def process_new_signals(self, strategy_signals: dict, source: str = 'yfinance'):
         """
         Called by the background fetcher when new signals are detected.
         Checks each active bot and executes trades if their strategy has new signals.
+        Only processes bots whose signal_source matches the given source.
 
         Args:
             strategy_signals: {strategy_name: [Signal, ...]}
+            source: 'yfinance' or 'etoro' - only bots configured for this source will be processed
         """
         if not strategy_signals:
             return
 
         conn = self._get_db()
         try:
-            # Get all active bots
+            # Get all active bots matching this signal source
             bots = conn.execute(
-                "SELECT * FROM trading_bots WHERE enabled = 1 AND status = 'active'"
+                "SELECT * FROM trading_bots WHERE enabled = 1 AND status = 'active' AND signal_source = ?",
+                (source,)
             ).fetchall()
 
             for bot in bots:

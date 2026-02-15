@@ -80,6 +80,7 @@ export default function TradyBotsPage() {
   const [newBotAmount, setNewBotAmount] = useState('100');
   const [newBotLeverage, setNewBotLeverage] = useState('1');
   const [newBotAccount, setNewBotAccount] = useState('demo');
+  const [newBotSignalSource, setNewBotSignalSource] = useState('yfinance');
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
@@ -104,6 +105,7 @@ export default function TradyBotsPage() {
         amount: parseFloat(newBotAmount),
         leverage: parseInt(newBotLeverage),
         account_type: newBotAccount,
+        signal_source: newBotSignalSource,
       });
       setCreateModalOpen(false);
       setNewBotName('');
@@ -111,6 +113,7 @@ export default function TradyBotsPage() {
       setNewBotAmount('100');
       setNewBotLeverage('1');
       setNewBotAccount('demo');
+      setNewBotSignalSource('yfinance');
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : 'Failed to create bot');
     } finally {
@@ -248,6 +251,15 @@ export default function TradyBotsPage() {
                       >
                         {bot.account_type.toUpperCase()}
                       </span>
+                      <span
+                        className={`text-[10px] px-1.5 py-0.5 ${
+                          bot.signal_source === 'etoro'
+                            ? 'bg-emerald-500/10 text-emerald-500'
+                            : 'bg-violet-500/10 text-violet-500'
+                        }`}
+                      >
+                        {bot.signal_source === 'etoro' ? 'eToro' : 'yFinance'}
+                      </span>
                       {bot.status === 'active' && (
                         <span className="text-[10px] px-1.5 py-0.5 bg-green-500/10 text-green-500 flex items-center gap-0.5">
                           <Activity size={8} /> Running
@@ -382,6 +394,22 @@ export default function TradyBotsPage() {
                 value={newBotAccount}
                 onChange={setNewBotAccount}
               />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs text-muted-foreground block">Signal Source</label>
+              <GroupButton
+                options={[
+                  { value: 'yfinance', label: 'yFinance' },
+                  { value: 'etoro', label: 'eToro' },
+                ]}
+                value={newBotSignalSource}
+                onChange={setNewBotSignalSource}
+              />
+              <p className="text-[10px] text-muted-foreground">
+                {newBotSignalSource === 'yfinance'
+                  ? 'Signals based on yFinance data (slight delay, backtested)'
+                  : 'Signals based on eToro real-time data (no delay)'}
+              </p>
             </div>
             <div className="space-y-1.5">
               <div className="flex gap-3">

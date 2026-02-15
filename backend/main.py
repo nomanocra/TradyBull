@@ -120,11 +120,38 @@ def init_db():
                 close REAL NOT NULL,
                 volume INTEGER,
                 source TEXT DEFAULT 'yfinance',
-                UNIQUE(symbol, timestamp)
+                UNIQUE(symbol, timestamp, source)
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_backtest_timestamp ON backtest_candles(timestamp)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_backtest_symbol_timestamp ON backtest_candles(symbol, timestamp)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_backtest_symbol_source ON backtest_candles(symbol, source, timestamp)")
+
+        # Migration: update UNIQUE constraint to include source if needed
+        cursor = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='backtest_candles'")
+        existing_schema = cursor.fetchone()
+        if existing_schema and 'UNIQUE(symbol, timestamp)' in existing_schema[0] and 'UNIQUE(symbol, timestamp, source)' not in existing_schema[0]:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS backtest_candles_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    symbol TEXT NOT NULL DEFAULT 'NQ=F',
+                    timestamp INTEGER NOT NULL,
+                    open REAL NOT NULL,
+                    high REAL NOT NULL,
+                    low REAL NOT NULL,
+                    close REAL NOT NULL,
+                    volume INTEGER,
+                    source TEXT DEFAULT 'yfinance',
+                    UNIQUE(symbol, timestamp, source)
+                )
+            """)
+            conn.execute("INSERT OR IGNORE INTO backtest_candles_new SELECT * FROM backtest_candles")
+            conn.execute("DROP TABLE backtest_candles")
+            conn.execute("ALTER TABLE backtest_candles_new RENAME TO backtest_candles")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_backtest_timestamp ON backtest_candles(timestamp)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_backtest_symbol_timestamp ON backtest_candles(symbol, timestamp)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_backtest_symbol_source ON backtest_candles(symbol, source, timestamp)")
+            print("[DB] Migrated backtest_candles UNIQUE constraint to include source")
 
         # Signals table (pre-calculated trading signals)
         conn.execute("""
@@ -270,6 +297,9 @@ def init_db():
         if "consecutive_errors" not in columns:
             conn.execute("ALTER TABLE trading_bots ADD COLUMN consecutive_errors INTEGER NOT NULL DEFAULT 0")
             print("[DB] Added consecutive_errors column to trading_bots")
+        if "signal_source" not in columns:
+            conn.execute("ALTER TABLE trading_bots ADD COLUMN signal_source TEXT NOT NULL DEFAULT 'yfinance'")
+            print("[DB] Added signal_source column to trading_bots")
 
         # Bot trades table
         conn.execute("""
@@ -318,7 +348,7 @@ def store_candles(interval: str, candles: list):
         conn.commit()
 
 
-def store_backtest_candles(candles: list):
+def store_backtest_candles(candles: list, source: str = "yfinance"):
     """Store 1h candles in backtest table (no retention limit, grows indefinitely)"""
     if not candles:
         return 0
@@ -343,7 +373,7 @@ def store_backtest_candles(candles: list):
                 candle["low"],
                 candle["close"],
                 candle.get("volume", 0),
-                "yfinance"
+                source
             ))
         conn.commit()
         return cursor.rowcount
@@ -486,7 +516,7 @@ def fetch_and_store_data(interval: str) -> list:
 
 
 def get_all_data_payload() -> dict:
-    """Get all data for WebSocket broadcast, including signals"""
+    """Get all data for WebSocket broadcast, including signals for both yfinance and etoro"""
     payload = {
         "type": "data_update",
         "symbol": SYMBOL,
@@ -498,24 +528,24 @@ def get_all_data_payload() -> dict:
             "1h": get_candles_from_db("1h"),
             "1day": get_candles_from_db("1d"),
         },
-        "signals": {}
+        "signals": {},
+        "etoro_signals": {}
     }
 
     # Add signals for all strategies (hardcoded + dynamic)
     try:
         _, get_signals_from_db, _, _, _, _, STRATEGIES = get_signal_calculator()
         with get_db() as conn:
-            # Hardcoded strategies
-            for strategy_name in STRATEGIES:
-                signals = get_signals_from_db(conn, strategy_name, SYMBOL)
-                payload["signals"][strategy_name] = signals
-
-            # Dynamic strategies from database
+            all_strategy_names = list(STRATEGIES.keys())
+            # Add dynamic strategies
             dynamic_rows = conn.execute("SELECT name FROM dynamic_strategies").fetchall()
-            for row in dynamic_rows:
-                strategy_name = row['name']
-                signals = get_signals_from_db(conn, strategy_name, SYMBOL)
-                payload["signals"][strategy_name] = signals
+            all_strategy_names.extend(row['name'] for row in dynamic_rows)
+
+            for strategy_name in all_strategy_names:
+                # yFinance signals
+                payload["signals"][strategy_name] = get_signals_from_db(conn, strategy_name, SYMBOL, data_source='yfinance')
+                # eToro signals
+                payload["etoro_signals"][strategy_name] = get_signals_from_db(conn, strategy_name, SYMBOL, data_source='etoro')
     except Exception as e:
         print(f"Warning: Could not load signals: {e}")
 
@@ -572,12 +602,29 @@ def fetch_all_intervals():
         last_fetch_time = datetime.now(PARIS_TZ)
         print(f"[{last_fetch_time.strftime('%H:%M:%S')}] Data fetched and stored successfully")
 
+        # Fetch eToro 1H candles and store in backtest_candles
+        try:
+            instrument_id = etoro_client.get_instrument_id("NSDQ100")
+            # Use 500 candles for initial load, 50 for regular updates
+            with get_db() as conn:
+                etoro_count = conn.execute(
+                    "SELECT COUNT(*) FROM backtest_candles WHERE source = 'etoro'"
+                ).fetchone()[0]
+            candle_count = 500 if etoro_count == 0 else 50
+            etoro_candles = etoro_client.get_historical_candles(instrument_id, "OneHour", candle_count)
+            if etoro_candles:
+                store_backtest_candles(etoro_candles, source="etoro")
+                print(f"  [eToro] Stored {len(etoro_candles)} 1H candles in backtest table")
+        except Exception as e:
+            print(f"  [eToro] Skipping: {e}")
+
         # Check signals on latest candle for all strategies (using backtest_candles as single source)
         try:
             _, _, _, _, _, check_all_strategies_latest_candle, STRATEGIES = get_signal_calculator()
             with get_db() as conn:
-                print(f"  Checking signals for {len(STRATEGIES)} strategies + dynamic...")
-                results = check_all_strategies_latest_candle(conn, SYMBOL)
+                # yFinance signals
+                print(f"  Checking yFinance signals for {len(STRATEGIES)} strategies + dynamic...")
+                results = check_all_strategies_latest_candle(conn, SYMBOL, source='yfinance')
                 new_signals_count = sum(len(signals) for signals in results.values())
                 print(f"  Signal check complete: {new_signals_count} new signals found")
 
@@ -641,11 +688,23 @@ def fetch_all_intervals():
                     except Exception as notif_err:
                         print(f"  Warning: Could not send notification: {notif_err}")
 
-                # Feed signals to bot engine for auto-trading
+                # Feed yFinance signals to bot engine for auto-trading
                 try:
-                    bot_engine.process_new_signals(results)
+                    bot_engine.process_new_signals(results, source='yfinance')
                 except Exception as bot_err:
                     print(f"  Warning: Bot engine error: {bot_err}")
+
+                # eToro signals
+                print(f"  Checking eToro signals for {len(STRATEGIES)} strategies + dynamic...")
+                etoro_results = check_all_strategies_latest_candle(conn, SYMBOL, source='etoro')
+                etoro_new_count = sum(len(s) for s in etoro_results.values() if s)
+                print(f"  eToro signal check complete: {etoro_new_count} new signals found")
+
+                # Feed eToro signals to bot engine for auto-trading
+                try:
+                    bot_engine.process_new_signals(etoro_results, source='etoro')
+                except Exception as bot_err:
+                    print(f"  Warning: Bot engine error (eToro): {bot_err}")
         except Exception as e:
             print(f"Warning: Could not calculate signals: {e}")
 
@@ -1118,6 +1177,20 @@ def list_strategies():
         return {
             "strategies": strategies_list
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/fetch")
+def manual_fetch():
+    """Manually trigger a fetch of latest market data from yfinance (15min, 1h, 1day).
+    Also broadcasts updated data to all WebSocket clients."""
+    try:
+        fetch_all_intervals()
+        # Broadcast fresh data to all connected clients
+        if connected_clients:
+            broadcast_to_clients(get_all_data_payload())
+        return {"message": "Fetch complete", "last_fetch": last_fetch_time.strftime("%H:%M:%S") if last_fetch_time else None}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1695,6 +1768,7 @@ class BotCreateRequest(BaseModel):
     amount: float
     leverage: int = 1
     account_type: str = "demo"
+    signal_source: str = "yfinance"
 
 
 class BotUpdateRequest(BaseModel):
@@ -1702,6 +1776,7 @@ class BotUpdateRequest(BaseModel):
     amount: Optional[float] = None
     leverage: Optional[int] = None
     account_type: Optional[str] = None
+    signal_source: Optional[str] = None
 
 
 @app.get("/api/bots")
@@ -1739,12 +1814,15 @@ def create_bot(request: BotCreateRequest):
                 strategy_exists = dynamic is not None
         if not strategy_exists:
             raise HTTPException(status_code=400, detail=f"Strategy not found: {request.strategy_name}")
+        if request.signal_source not in ("yfinance", "etoro"):
+            raise HTTPException(status_code=400, detail="Signal source must be 'yfinance' or 'etoro'")
         bot = bot_engine.create_bot(
             name=request.name,
             strategy_name=request.strategy_name,
             amount=request.amount,
             leverage=request.leverage,
             account_type=request.account_type,
+            signal_source=request.signal_source,
         )
         bot["stats"] = bot_engine.get_bot_stats(bot["id"])
         return {"bot": bot}
@@ -1771,6 +1849,8 @@ def update_bot(bot_id: int, request: BotUpdateRequest):
     """Update a trading bot."""
     try:
         updates = {k: v for k, v in request.model_dump().items() if v is not None}
+        if "signal_source" in updates and updates["signal_source"] not in ("yfinance", "etoro"):
+            raise HTTPException(status_code=400, detail="Signal source must be 'yfinance' or 'etoro'")
         bot = bot_engine.update_bot(bot_id, **updates)
         if not bot:
             raise HTTPException(status_code=404, detail=f"Bot not found: {bot_id}")

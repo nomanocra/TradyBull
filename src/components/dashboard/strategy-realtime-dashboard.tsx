@@ -1,7 +1,7 @@
 'use client';
 
-import { useMemo } from 'react';
-import { Info, Loader2, Database } from 'lucide-react';
+import { useMemo, useState, useCallback } from 'react';
+import { Info, Loader2, Database, RefreshCw } from 'lucide-react';
 import { MemoizedCandlestickChart } from '@/components/chart/candlestick-chart';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -69,6 +69,19 @@ export function StrategyRealtimeDashboard({
     const change = last && prev ? ((last - prev) / prev) * 100 : null;
     return { lastPrice: last, priceChange: change };
   }, [data]);
+
+  // Manual refresh
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      await fetch('http://localhost:8000/api/fetch', { method: 'POST' });
+    } catch {
+      // WebSocket will deliver updated data
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, []);
 
   // Get display time
   const { displayTime, displayDate } = useMemo(() => {
@@ -187,13 +200,26 @@ export function StrategyRealtimeDashboard({
               marketOpen ? 'Market Open' : 'Market Closed'
             }
           />
+          {/* Refresh button */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={handleRefresh}
+                disabled={isRefreshing}
+                className="p-1 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+              >
+                <RefreshCw size={12} className={isRefreshing ? 'animate-spin' : ''} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Refresh market data</TooltipContent>
+          </Tooltip>
         </div>
       </header>
 
       {/* Charts Grid */}
       <div className="flex-1 flex flex-col gap-2 p-2 bg-background min-h-0">
-        {/* Show skeleton while initial data is loading */}
-        {data['1h'].length === 0 ? (
+        {/* Show skeleton while data is loading (initial load or source switch) */}
+        {isLoading || data['1h'].length === 0 ? (
           <>
             <div className="flex-[1.2] min-h-0">
               <ChartSkeleton title="1H" />
