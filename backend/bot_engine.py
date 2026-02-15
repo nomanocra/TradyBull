@@ -19,6 +19,7 @@ from etoro_client import (
     close_position,
     get_portfolio,
     get_account_balance,
+    get_position_pnl,
 )
 
 PARIS_TZ = pytz.timezone("Europe/Paris")
@@ -352,15 +353,22 @@ class BotEngine:
                 ).fetchone()
 
                 if open_trade and open_trade["position_id"]:
+                    # Fetch real P&L from eToro before closing
+                    etoro_pnl = get_position_pnl(
+                        position_id=open_trade["position_id"],
+                        account_type=bot["account_type"],
+                    )
+
                     result = close_position(
                         position_id=open_trade["position_id"],
                         account_type=bot["account_type"],
                     )
 
-                    # Calculate P&L (percentage-based on invested amount, including leverage)
-                    # NOTE: eToro portfolio endpoint may return P&L per position via get_position_pnl(),
-                    # but we use manual calculation as the primary method for consistency.
-                    pnl = ((signal.price - open_trade["price"]) / open_trade["price"]) * open_trade["amount"] * bot.get("leverage", 1)
+                    # Use eToro P&L if available, otherwise fallback to manual calculation
+                    if etoro_pnl is not None:
+                        pnl = etoro_pnl
+                    else:
+                        pnl = ((signal.price - open_trade["price"]) / open_trade["price"]) * open_trade["amount"] * bot.get("leverage", 1)
 
                     # Update the buy trade as closed
                     conn.execute(

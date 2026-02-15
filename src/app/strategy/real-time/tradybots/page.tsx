@@ -228,6 +228,9 @@ export default function TradyBotsPage() {
                   key={bot.id}
                   className="flex items-center justify-between p-3 bg-card border border-border hover:border-muted-foreground/30 transition-colors"
                 >
+                  {/* Bot Icon */}
+                  <Bot size={20} className="text-muted-foreground mr-4" />
+
                   {/* Toggle (Kill Switch) */}
                   <div className="flex flex-col items-center gap-1 mr-4">
                     <span className="text-[10px] text-muted-foreground">Active</span>

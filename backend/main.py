@@ -869,7 +869,7 @@ def get_backtest_sources():
                 SELECT source, COUNT(*) as count,
                        MIN(timestamp) as min_ts, MAX(timestamp) as max_ts
                 FROM backtest_candles
-                WHERE symbol = ?
+                WHERE symbol = ? AND source != 'etoro'
                 GROUP BY source
             """, (SYMBOL,)).fetchall()
 
