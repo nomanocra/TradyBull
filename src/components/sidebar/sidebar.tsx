@@ -4,7 +4,7 @@ import { useState, useEffect, useTransition, useMemo, useRef, useCallback } from
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { ChevronDown, ChevronRight, Play, History, Sun, Moon, Archive, ArchiveRestore, Search, X, Bell, Table, Plus, MoreHorizontal, Trash2, RefreshCw } from 'lucide-react';
+import { ChevronDown, ChevronRight, Play, History, Sun, Moon, Archive, ArchiveRestore, Search, X, Bell, Table, Plus, MoreHorizontal, Trash2, RefreshCw, Bot } from 'lucide-react';
 import { ModeSelector, ModeOption } from '@/components/ui/mode-selector';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -103,6 +103,13 @@ function generateRealtimeNavigation(strategies: StrategyConfig[]): NavSection[] 
       isStandalone: true,
       items: [
         { name: 'Notifications', href: '/strategy/real-time/notifications' },
+      ],
+    },
+    {
+      title: 'TradyBots',
+      isStandalone: true,
+      items: [
+        { name: 'TradyBots', href: '/strategy/real-time/tradybots' },
       ],
     },
     {
@@ -532,6 +539,7 @@ export function Sidebar() {
                       } ${isLoading ? 'opacity-70' : ''}`}
                     >
                       {isNotificationsItem && <Bell size={14} />}
+                      {item.href === '/strategy/real-time/tradybots' && <Bot size={14} />}
                       {isOverviewItem && <Table size={14} />}
                       {item.name}
                     </Link>

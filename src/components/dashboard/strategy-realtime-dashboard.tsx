@@ -1,9 +1,10 @@
 'use client';
 
 import { useMemo } from 'react';
-import { Info, Loader2 } from 'lucide-react';
+import { Info, Loader2, Database } from 'lucide-react';
 import { MemoizedCandlestickChart } from '@/components/chart/candlestick-chart';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useRealtimeData } from '@/contexts/realtime-context';
 import { Signal } from '@/types/market';
 
@@ -57,6 +58,8 @@ export function StrategyRealtimeDashboard({
     countdown,
     isResetting,
     wsConnected,
+    realtimeSource,
+    setRealtimeSource,
   } = useRealtimeData();
 
   // Memoize price calculations to avoid recalculations on every render
@@ -105,8 +108,20 @@ export function StrategyRealtimeDashboard({
           )}
         </div>
 
-        {/* Symbol and price - Center */}
-        <div className="flex items-center gap-2">
+        {/* Data source + Symbol and price - Center */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1">
+            <Database className="h-3 w-3 text-muted-foreground" />
+            <Select value={realtimeSource} onValueChange={setRealtimeSource}>
+              <SelectTrigger className="!h-6 w-auto text-[10px] border-none bg-transparent shadow-none hover:bg-muted/50 focus:ring-0 px-1.5 gap-0.5 [&_svg]:size-3">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="yfinance" className="text-xs">yFinance</SelectItem>
+                <SelectItem value="etoro" className="text-xs">eToro</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <span className="text-xs font-medium text-muted-foreground">{dataSource || 'NASDAQ'}</span>
           {lastPrice && (
             <>

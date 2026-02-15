@@ -27,6 +27,10 @@ from notification_service import (
     get_last_notification_type
 )
 
+# Import bot engine and eToro client
+from bot_engine import BotEngine
+import etoro_client
+
 # Import signal calculator (lazy import to avoid circular deps)
 def get_signal_calculator():
     from signal_calculator import (
@@ -238,6 +242,54 @@ def init_db():
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_notif_history_strategy ON notification_history(strategy_name)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_notif_history_sent_at ON notification_history(sent_at)")
+
+        # Trading bots table
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS trading_bots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                strategy_name TEXT NOT NULL,
+                etoro_instrument_id INTEGER DEFAULT 0,
+                amount REAL NOT NULL,
+                leverage INTEGER NOT NULL DEFAULT 1,
+                account_type TEXT NOT NULL DEFAULT 'demo' CHECK(account_type IN ('demo', 'real')),
+                enabled INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'stopped' CHECK(status IN ('active', 'stopped', 'error')),
+                consecutive_errors INTEGER NOT NULL DEFAULT 0,
+                created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+                updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+            )
+        """)
+
+        # Migration: add leverage column if missing
+        cursor = conn.execute("PRAGMA table_info(trading_bots)")
+        columns = {row[1] for row in cursor.fetchall()}
+        if "leverage" not in columns:
+            conn.execute("ALTER TABLE trading_bots ADD COLUMN leverage INTEGER NOT NULL DEFAULT 1")
+            print("[DB] Added leverage column to trading_bots")
+        if "consecutive_errors" not in columns:
+            conn.execute("ALTER TABLE trading_bots ADD COLUMN consecutive_errors INTEGER NOT NULL DEFAULT 0")
+            print("[DB] Added consecutive_errors column to trading_bots")
+
+        # Bot trades table
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS bot_trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bot_id INTEGER NOT NULL,
+                position_id INTEGER,
+                signal_type TEXT NOT NULL CHECK(signal_type IN ('buy', 'sell')),
+                price REAL NOT NULL,
+                amount REAL NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('open', 'closed', 'error')),
+                opened_at INTEGER NOT NULL,
+                closed_at INTEGER,
+                pnl REAL,
+                error_message TEXT,
+                FOREIGN KEY (bot_id) REFERENCES trading_bots(id)
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_bot_trades_bot ON bot_trades(bot_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_bot_trades_status ON bot_trades(status)")
 
         conn.commit()
 
@@ -588,6 +640,12 @@ def fetch_all_intervals():
                         )
                     except Exception as notif_err:
                         print(f"  Warning: Could not send notification: {notif_err}")
+
+                # Feed signals to bot engine for auto-trading
+                try:
+                    bot_engine.process_new_signals(results)
+                except Exception as bot_err:
+                    print(f"  Warning: Bot engine error: {bot_err}")
         except Exception as e:
             print(f"Warning: Could not calculate signals: {e}")
 
@@ -660,6 +718,9 @@ def background_fetcher():
 
 # Initialize database on startup
 init_db()
+
+# Initialize bot engine
+bot_engine = BotEngine(DB_PATH)
 
 # Start background fetcher thread
 fetcher_thread = threading.Thread(target=background_fetcher, daemon=True)
@@ -1264,23 +1325,32 @@ def get_dynamic_strategy(name: str):
 def delete_dynamic_strategy(name: str):
     """Delete a dynamic strategy and all its data"""
     try:
-        with get_db() as conn:
-            # Check if exists
+        conn = sqlite3.connect(DB_PATH, timeout=30.0, isolation_level=None)
+        conn.row_factory = sqlite3.Row
+        try:
             existing = conn.execute(
                 "SELECT name FROM dynamic_strategies WHERE name = ?", (name,)
             ).fetchone()
 
             if not existing:
+                conn.close()
                 raise HTTPException(status_code=404, detail=f"Dynamic strategy not found: {name}")
 
-            # Delete all associated data
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute("DELETE FROM dynamic_strategies WHERE name = ?", (name,))
             conn.execute("DELETE FROM signals WHERE strategy_name = ?", (name,))
             conn.execute("DELETE FROM signal_processing_state WHERE strategy_name = ?", (name,))
             conn.execute("DELETE FROM notification_settings WHERE strategy_name = ?", (name,))
             conn.execute("DELETE FROM notification_history WHERE strategy_name = ?", (name,))
             conn.execute("DELETE FROM archived_strategies WHERE strategy_name = ?", (name,))
-            conn.execute("DELETE FROM dynamic_strategies WHERE name = ?", (name,))
-            conn.commit()
+            conn.execute("COMMIT")
+        except HTTPException:
+            raise
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+        finally:
+            conn.close()
 
         return {"status": "deleted", "strategy": name}
     except HTTPException:
@@ -1353,18 +1423,26 @@ def unarchive_strategy(strategy_name: str):
 def delete_strategy(strategy_name: str):
     """Delete a strategy and all its data (signals, settings, history)."""
     try:
-        with get_db() as conn:
-            # Delete all data associated with the strategy
+        conn = sqlite3.connect(DB_PATH, timeout=30.0, isolation_level=None)
+        conn.row_factory = sqlite3.Row
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute("DELETE FROM dynamic_strategies WHERE name = ?", (strategy_name,))
             conn.execute("DELETE FROM signals WHERE strategy_name = ?", (strategy_name,))
             conn.execute("DELETE FROM signal_processing_state WHERE strategy_name = ?", (strategy_name,))
             conn.execute("DELETE FROM notification_settings WHERE strategy_name = ?", (strategy_name,))
             conn.execute("DELETE FROM notification_history WHERE strategy_name = ?", (strategy_name,))
             conn.execute("DELETE FROM archived_strategies WHERE strategy_name = ?", (strategy_name,))
-            # Also delete from dynamic_strategies if it's a user-created strategy
-            conn.execute("DELETE FROM dynamic_strategies WHERE name = ?", (strategy_name,))
-            conn.commit()
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+        finally:
+            conn.close()
 
         return {"status": "deleted", "strategy": strategy_name}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1605,6 +1683,263 @@ def get_strategy_notification_history(strategy_name: str, limit: int = Query(def
         return {"history": history}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# TRADING BOTS API ENDPOINTS
+# ============================================================================
+
+class BotCreateRequest(BaseModel):
+    name: str
+    strategy_name: str
+    amount: float
+    leverage: int = 1
+    account_type: str = "demo"
+
+
+class BotUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    amount: Optional[float] = None
+    leverage: Optional[int] = None
+    account_type: Optional[str] = None
+
+
+@app.get("/api/bots")
+def list_bots():
+    """List all trading bots with their stats."""
+    try:
+        bots = bot_engine.list_bots()
+        for bot in bots:
+            bot["stats"] = bot_engine.get_bot_stats(bot["id"])
+        return {"bots": bots}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/bots")
+def create_bot(request: BotCreateRequest):
+    """Create a new trading bot."""
+    try:
+        if not request.name.strip():
+            raise HTTPException(status_code=400, detail="Bot name cannot be empty")
+        if request.amount < 10:
+            raise HTTPException(status_code=400, detail="Minimum amount is $10")
+        if request.leverage < 1:
+            raise HTTPException(status_code=400, detail="Leverage must be at least 1")
+        if request.account_type not in ("demo", "real"):
+            raise HTTPException(status_code=400, detail="Account type must be 'demo' or 'real'")
+        # Check strategy exists (built-in or dynamic)
+        from strategies import STRATEGIES
+        strategy_exists = request.strategy_name in STRATEGIES
+        if not strategy_exists:
+            with get_db() as conn:
+                dynamic = conn.execute(
+                    "SELECT name FROM dynamic_strategies WHERE name = ?", (request.strategy_name,)
+                ).fetchone()
+                strategy_exists = dynamic is not None
+        if not strategy_exists:
+            raise HTTPException(status_code=400, detail=f"Strategy not found: {request.strategy_name}")
+        bot = bot_engine.create_bot(
+            name=request.name,
+            strategy_name=request.strategy_name,
+            amount=request.amount,
+            leverage=request.leverage,
+            account_type=request.account_type,
+        )
+        bot["stats"] = bot_engine.get_bot_stats(bot["id"])
+        return {"bot": bot}
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/bots/{bot_id}")
+def get_bot(bot_id: int):
+    """Get a trading bot by ID."""
+    bot = bot_engine.get_bot(bot_id)
+    if not bot:
+        raise HTTPException(status_code=404, detail=f"Bot not found: {bot_id}")
+    bot["stats"] = bot_engine.get_bot_stats(bot_id)
+    return {"bot": bot}
+
+
+@app.put("/api/bots/{bot_id}")
+def update_bot(bot_id: int, request: BotUpdateRequest):
+    """Update a trading bot."""
+    try:
+        updates = {k: v for k, v in request.model_dump().items() if v is not None}
+        bot = bot_engine.update_bot(bot_id, **updates)
+        if not bot:
+            raise HTTPException(status_code=404, detail=f"Bot not found: {bot_id}")
+        bot["stats"] = bot_engine.get_bot_stats(bot_id)
+        return {"bot": bot}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/bots/{bot_id}")
+def delete_bot(bot_id: int):
+    """Delete a trading bot and its trade history."""
+    deleted = bot_engine.delete_bot(bot_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Bot not found: {bot_id}")
+    return {"status": "deleted", "bot_id": bot_id}
+
+
+@app.post("/api/bots/{bot_id}/start")
+def start_bot(bot_id: int):
+    """Start a trading bot (enable auto-trading)."""
+    bot = bot_engine.get_bot(bot_id)
+    if not bot:
+        raise HTTPException(status_code=404, detail=f"Bot not found: {bot_id}")
+    # Check account balance before starting
+    try:
+        balance = etoro_client.get_account_balance(bot["account_type"])
+        available = balance.get("available", 0)
+        if available < bot["amount"]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Insufficient balance: ${available:.2f} available, ${bot['amount']:.2f} required"
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Warning: Could not check balance: {e}")
+        # Allow start even if balance check fails (eToro API might be down)
+    bot = bot_engine.start_bot(bot_id)
+    bot["stats"] = bot_engine.get_bot_stats(bot_id)
+    return {"bot": bot}
+
+
+@app.post("/api/bots/{bot_id}/stop")
+def stop_bot(bot_id: int):
+    """Stop a trading bot (kill switch)."""
+    bot = bot_engine.stop_bot(bot_id)
+    if not bot:
+        raise HTTPException(status_code=404, detail=f"Bot not found: {bot_id}")
+    bot["stats"] = bot_engine.get_bot_stats(bot_id)
+    return {"bot": bot}
+
+
+@app.get("/api/bots/{bot_id}/trades")
+def get_bot_trades(bot_id: int, limit: int = Query(default=50, le=200)):
+    """Get trade history for a bot."""
+    bot = bot_engine.get_bot(bot_id)
+    if not bot:
+        raise HTTPException(status_code=404, detail=f"Bot not found: {bot_id}")
+    trades = bot_engine.get_trades(bot_id, limit)
+    return {"trades": trades}
+
+
+@app.get("/api/bots/trades/all")
+def get_all_bot_trades(limit: int = Query(default=100, le=500)):
+    """Get recent trades across all bots."""
+    trades = bot_engine.get_all_trades(limit)
+    return {"trades": trades}
+
+
+# ============================================================================
+# ETORO DATA ENDPOINTS
+# ============================================================================
+
+@app.get("/api/etoro/instrument")
+def get_etoro_instrument(symbol: str = Query(default="NSDQ100")):
+    """Search for an eToro instrument by symbol."""
+    try:
+        result = etoro_client.search_instrument(symbol)
+        if not result:
+            raise HTTPException(status_code=404, detail=f"Instrument not found: {symbol}")
+        return {"instrument": result}
+    except HTTPException:
+        raise
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/etoro/rates")
+def get_etoro_rates(symbol: str = Query(default="NSDQ100")):
+    """Get current bid/ask rates from eToro."""
+    try:
+        instrument_id = etoro_client.get_instrument_id(symbol)
+        rates = etoro_client.get_current_rates([instrument_id])
+        return {"rates": rates, "instrument_id": instrument_id}
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/etoro/candles")
+def get_etoro_candles(
+    symbol: str = Query(default="NSDQ100"),
+    interval: str = Query(default="1h", description="Interval: 15min, 1h, 1day"),
+    count: int = Query(default=500, le=1000),
+):
+    """Get historical candles from eToro."""
+    try:
+        instrument_id = etoro_client.get_instrument_id(symbol)
+        etoro_interval = etoro_client.get_etoro_interval(interval)
+        candles = etoro_client.get_historical_candles(instrument_id, etoro_interval, count)
+        return {
+            "symbol": symbol,
+            "interval": interval,
+            "instrument_id": instrument_id,
+            "data": candles,
+            "count": len(candles),
+        }
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/etoro/portfolio")
+def get_etoro_portfolio(account_type: str = Query(default="demo")):
+    """Get eToro portfolio details."""
+    try:
+        portfolio = etoro_client.get_portfolio(account_type)
+        return {"portfolio": portfolio}
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/etoro/balance")
+def get_etoro_balance():
+    """Get eToro account balances for demo and real accounts."""
+    balances = {}
+    for account_type in ("demo", "real"):
+        try:
+            balances[account_type] = etoro_client.get_account_balance(account_type)
+        except Exception as e:
+            balances[account_type] = {"account_type": account_type, "error": str(e)}
+    return {"balances": balances}
+
+
+@app.get("/api/realtime/sources")
+def get_realtime_sources():
+    """Get available real-time data sources."""
+    sources = [
+        {
+            "source": "yfinance",
+            "label": "yFinance",
+            "description": "Yahoo Finance data (~10min delay)",
+        },
+        {
+            "source": "etoro",
+            "label": "eToro",
+            "description": "eToro real-time market data",
+        },
+    ]
+    return {"sources": sources}
 
 
 # ============================================================================

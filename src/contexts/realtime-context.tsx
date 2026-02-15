@@ -50,6 +50,8 @@ interface RealtimeContextValue {
   countdown: number;
   isResetting: boolean;
   wsConnected: boolean;
+  realtimeSource: string;
+  setRealtimeSource: (source: string) => void;
 }
 
 const RealtimeContext = createContext<RealtimeContextValue | null>(null);
@@ -85,6 +87,31 @@ export function RealtimeProvider({ children }: RealtimeProviderProps) {
   const [countdown, setCountdown] = useState(FETCH_INTERVAL);
   const [isResetting, setIsResetting] = useState(false);
   const [wsConnected, setWsConnected] = useState(false);
+  const [realtimeSource, setRealtimeSourceState] = useState<string>('yfinance');
+  const [isSourceHydrated, setIsSourceHydrated] = useState(false);
+
+  const realtimeSourceRef = useRef(realtimeSource);
+  useEffect(() => { realtimeSourceRef.current = realtimeSource; }, [realtimeSource]);
+
+  // Hydrate realtimeSource from localStorage on mount
+  useEffect(() => {
+    const stored = localStorage.getItem('tradybull-realtime-source');
+    if (stored === 'yfinance' || stored === 'etoro') {
+      setRealtimeSourceState(stored);
+    }
+    setIsSourceHydrated(true);
+  }, []);
+
+  // Persist realtimeSource to localStorage on change
+  useEffect(() => {
+    if (isSourceHydrated) {
+      localStorage.setItem('tradybull-realtime-source', realtimeSource);
+    }
+  }, [realtimeSource, isSourceHydrated]);
+
+  const setRealtimeSource = useCallback((source: string) => {
+    setRealtimeSourceState(source);
+  }, []);
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -206,20 +233,22 @@ export function RealtimeProvider({ children }: RealtimeProviderProps) {
       const message: WebSocketMessage = JSON.parse(event.data);
 
       if (message.type === 'data_update') {
-        setData({
-          '1h': message.data['1h'] || [],
-          '1day': message.data['1day'] || [],
-          '15min': message.data['15min'] || [],
-        });
-        // Update signals from WebSocket
+        // Only update chart data from WebSocket when using yfinance
+        if (realtimeSourceRef.current !== 'etoro') {
+          setData({
+            '1h': message.data['1h'] || [],
+            '1day': message.data['1day'] || [],
+            '15min': message.data['15min'] || [],
+          });
+          setDataSource(message.symbol);
+        }
+        // Always update signals from WebSocket (they come from yfinance regardless)
         if (message.signals) {
-          // Check for new signals and trigger desktop notifications
           checkAndNotifyNewSignals(message.signals);
           setSignals(message.signals);
         }
         setMarketOpen(message.market_open);
         setStandby(message.standby || false);
-        setDataSource(message.symbol);
         setError(null);
         setLastFetchTime(message.last_fetch);
         setIsLoading(false);
@@ -315,6 +344,64 @@ export function RealtimeProvider({ children }: RealtimeProviderProps) {
     return () => clearInterval(intervalId);
   }, [fetchNotificationSettings]);
 
+  // eToro data polling when source is 'etoro'
+  useEffect(() => {
+    if (!isSourceHydrated || realtimeSource !== 'etoro') return;
+
+    let cancelled = false;
+
+    const fetchEtoroData = async () => {
+      try {
+        const [res15m, res1h, res1d] = await Promise.all([
+          fetch(`${API_URL}/etoro/candles?interval=15min&count=500`),
+          fetch(`${API_URL}/etoro/candles?interval=1h&count=500`),
+          fetch(`${API_URL}/etoro/candles?interval=1day&count=500`),
+        ]);
+
+        if (cancelled) return;
+
+        if (!res15m.ok || !res1h.ok || !res1d.ok) {
+          setError('Failed to fetch eToro data');
+          return;
+        }
+
+        const [data15m, data1h, data1d] = await Promise.all([
+          res15m.json(),
+          res1h.json(),
+          res1d.json(),
+        ]);
+
+        if (cancelled) return;
+
+        setData({
+          '15min': data15m.data || [],
+          '1h': data1h.data || [],
+          '1day': data1d.data || [],
+        });
+        setDataSource('NSDQ100');
+        setError(null);
+        setIsLoading(false);
+      } catch (err) {
+        if (!cancelled) {
+          setError('eToro connection error');
+          console.error('eToro fetch error:', err);
+        }
+      }
+    };
+
+    // Fetch immediately on switch
+    setIsLoading(true);
+    fetchEtoroData();
+
+    // Poll every FETCH_INTERVAL seconds
+    const intervalId = setInterval(fetchEtoroData, FETCH_INTERVAL * 1000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+  }, [realtimeSource, isSourceHydrated]);
+
   const value: RealtimeContextValue = {
     data,
     signals,
@@ -327,6 +414,8 @@ export function RealtimeProvider({ children }: RealtimeProviderProps) {
     countdown,
     isResetting,
     wsConnected,
+    realtimeSource,
+    setRealtimeSource,
   };
 
   return (
