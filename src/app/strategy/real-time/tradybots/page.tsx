@@ -68,8 +68,6 @@ export default function TradyBotsPage() {
 
   useEffect(() => {
     fetchBalances();
-    const interval = setInterval(fetchBalances, 30000);
-    return () => clearInterval(interval);
   }, [fetchBalances]);
 
   // Create modal state
