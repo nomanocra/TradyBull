@@ -28,6 +28,7 @@ import { strategyEvents } from '@/lib/strategy-events';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useBots } from '@/hooks/useBots';
 import { NotificationModal } from '@/components/notifications/notification-modal';
+import { BotCreateModal } from '@/components/bots/bot-create-modal';
 import { StrategyCreationModal } from '@/components/strategy/strategy-creation-modal';
 import packageJson from '../../../package.json';
 
@@ -170,11 +171,15 @@ export function Sidebar() {
   const [notificationModalOpen, setNotificationModalOpen] = useState(false);
   const [notificationModalStrategy, setNotificationModalStrategy] = useState<string | null>(null);
 
+  // Bot create modal state
+  const [botCreateModalOpen, setBotCreateModalOpen] = useState(false);
+  const [botCreateStrategy, setBotCreateStrategy] = useState<string | null>(null);
+
   // Strategy creation modal state
   const [strategyCreationModalOpen, setStrategyCreationModalOpen] = useState(false);
 
   // Fetch bots
-  const { bots } = useBots();
+  const { bots } = useBots({ poll: false });
 
   // Global refresh state
   const [isRefreshingAll, setIsRefreshingAll] = useState(false);
@@ -416,11 +421,16 @@ export function Sidebar() {
     return bots.some(b => b.strategy_name === strategySlug && b.status === 'active');
   }, [bots]);
 
-  // Handle bot icon click - navigate to TradyBots page
-  const handleBotClick = (e: React.MouseEvent) => {
+  // Handle bot icon click - open create modal or navigate to TradyBots
+  const handleBotClick = (e: React.MouseEvent, strategySlug: string, hasBot: boolean) => {
     e.preventDefault();
     e.stopPropagation();
-    router.push('/strategy/real-time/tradybots');
+    if (hasBot) {
+      router.push('/strategy/real-time/tradybots');
+    } else {
+      setBotCreateStrategy(strategySlug);
+      setBotCreateModalOpen(true);
+    }
   };
 
   // Handle resize
@@ -726,7 +736,7 @@ export function Sidebar() {
                                   <Tooltip>
                                     <TooltipTrigger asChild>
                                       <button
-                                        onClick={handleBotClick}
+                                        onClick={(e) => handleBotClick(e, item.strategySlug!, !!strategyHasActiveBot)}
                                         className={`p-1 rounded-md transition-colors hover:bg-muted-foreground/20 ${
                                           strategyHasActiveBot
                                             ? 'text-brand hover:text-brand'
@@ -808,6 +818,14 @@ export function Sidebar() {
         onSave={saveSettings}
         onTestTelegram={testTelegram}
         onTestDesktop={testDesktop}
+      />
+
+      {/* Bot Create Modal */}
+      <BotCreateModal
+        open={botCreateModalOpen}
+        onOpenChange={setBotCreateModalOpen}
+        strategies={allStrategies}
+        defaultStrategy={botCreateStrategy}
       />
 
       {/* Strategy Creation Modal */}

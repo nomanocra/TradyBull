@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { botEvents } from '@/lib/bot-events';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
 
@@ -56,7 +57,11 @@ interface CreateBotParams {
   signal_source: string;
 }
 
-export function useBots() {
+interface UseBotsOptions {
+  poll?: boolean;
+}
+
+export function useBots({ poll = true }: UseBotsOptions = {}) {
   const [bots, setBots] = useState<TradingBot[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -77,10 +82,18 @@ export function useBots() {
 
   useEffect(() => {
     fetchBots();
-    // Poll every 10 seconds for status updates
-    const interval = setInterval(fetchBots, 10000);
-    return () => clearInterval(interval);
-  }, [fetchBots]);
+    if (poll) {
+      const interval = setInterval(fetchBots, 10000);
+      return () => clearInterval(interval);
+    }
+  }, [fetchBots, poll]);
+
+  // Listen for bot events (create/delete from other components)
+  useEffect(() => {
+    if (!poll) {
+      return botEvents.subscribe(() => fetchBots());
+    }
+  }, [fetchBots, poll]);
 
   const createBot = useCallback(async (params: CreateBotParams) => {
     const response = await fetch(`${API_URL}/bots`, {
@@ -94,6 +107,7 @@ export function useBots() {
     }
     const data = await response.json();
     await fetchBots();
+    botEvents.emit();
     return data.bot;
   }, [fetchBots]);
 
@@ -103,6 +117,7 @@ export function useBots() {
     });
     if (!response.ok) throw new Error('Failed to delete bot');
     await fetchBots();
+    botEvents.emit();
   }, [fetchBots]);
 
   const startBot = useCallback(async (botId: number) => {
@@ -111,6 +126,7 @@ export function useBots() {
     });
     if (!response.ok) throw new Error('Failed to start bot');
     await fetchBots();
+    botEvents.emit();
   }, [fetchBots]);
 
   const stopBot = useCallback(async (botId: number) => {
@@ -119,6 +135,7 @@ export function useBots() {
     });
     if (!response.ok) throw new Error('Failed to stop bot');
     await fetchBots();
+    botEvents.emit();
   }, [fetchBots]);
 
   const getBotTrades = useCallback(async (botId: number, limit = 50): Promise<BotTrade[]> => {

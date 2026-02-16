@@ -51,7 +51,6 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
 export default function TradyBotsPage() {
   const { bots, isLoading, createBot, deleteBot, startBot, stopBot, getBotTrades } = useBots();
   const { strategies } = useStrategies();
-
   // Account balance state
   const [balances, setBalances] = useState<Record<string, { available: number; total_equity: number; error?: string }>>({});
 
@@ -229,7 +228,7 @@ export default function TradyBotsPage() {
                   className="flex items-center justify-between p-3 bg-card border border-border hover:border-muted-foreground/30 transition-colors"
                 >
                   {/* Bot Icon */}
-                  <Bot size={20} className="text-muted-foreground mr-4" />
+                  <Bot size={20} className={`mr-4 ${bot.enabled ? 'text-brand' : 'text-muted-foreground'}`} />
 
                   {/* Toggle (Kill Switch) */}
                   <div className="flex flex-col items-center gap-1 mr-4">

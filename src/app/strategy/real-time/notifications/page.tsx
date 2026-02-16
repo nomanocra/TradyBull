@@ -116,7 +116,7 @@ export default function NotificationsPage() {
                 className="flex items-center justify-between p-3 bg-card border border-border hover:border-muted-foreground/30 transition-colors"
               >
                 {/* Bell Icon */}
-                <Bell size={20} className="text-muted-foreground mr-4" />
+                <Bell size={20} className={`mr-4 ${setting.enabled ? 'text-brand' : 'text-muted-foreground'}`} />
 
                 {/* Toggle */}
                 <div className="flex flex-col items-center gap-1 mr-4">
