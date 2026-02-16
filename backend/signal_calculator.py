@@ -354,7 +354,7 @@ def recalculate_strategy(conn: sqlite3.Connection, strategy_name: str, symbol: s
     return new_count
 
 
-def recalculate_all_strategies(conn: sqlite3.Connection, symbol: str, data_source: str = 'yfinance', include_archived: bool = False) -> Dict[str, int]:
+def recalculate_all_strategies(conn: sqlite3.Connection, symbol: str, data_source: str = 'yfinance', skip_archived: bool = True) -> Dict[str, int]:
     """
     Force full recalculation of strategies (hardcoded + dynamic).
     Used on startup or after strategy code changes.
@@ -364,7 +364,7 @@ def recalculate_all_strategies(conn: sqlite3.Connection, symbol: str, data_sourc
         conn: Database connection
         symbol: Trading symbol
         data_source: 'yfinance' or 'firstrate' - determines which candles to use
-        include_archived: If False, skip archived strategies (default: False)
+        skip_archived: If True, exclude archived strategies (default: True)
 
     Returns:
         Dict mapping strategy name to signal count
@@ -373,7 +373,7 @@ def recalculate_all_strategies(conn: sqlite3.Connection, symbol: str, data_sourc
 
     # Get archived strategies set
     archived_set = set()
-    if not include_archived:
+    if skip_archived:
         archived_rows = conn.execute("SELECT strategy_name FROM archived_strategies").fetchall()
         archived_set = {row[0] for row in archived_rows}
 
@@ -525,17 +525,32 @@ def check_signal_on_latest_candle(
     return inserted_signals
 
 
-def check_all_strategies_latest_candle(conn: sqlite3.Connection, symbol: str, source: str = 'yfinance') -> Dict[str, List[Signal]]:
+def check_all_strategies_latest_candle(conn: sqlite3.Connection, symbol: str, source: str = 'yfinance', skip_archived: bool = True) -> Dict[str, List[Signal]]:
     """
     Check all strategies (hardcoded + dynamic) for signals on new candles.
+
+    Args:
+        conn: SQLite connection
+        symbol: Trading symbol (e.g. 'NQ=F')
+        source: Data source ('yfinance' or 'realtime')
+        skip_archived: If True, exclude strategies listed in archived_strategies table.
+                       Set to False for manual refresh to include all strategies.
 
     Returns:
         Dict mapping strategy name to list of new signals (can be empty)
     """
     results = {}
 
+    # Get archived strategy names to exclude from the loop
+    archived_names: set = set()
+    if skip_archived:
+        archived_rows = conn.execute("SELECT strategy_name FROM archived_strategies").fetchall()
+        archived_names = {row[0] for row in archived_rows}
+
     # Hardcoded strategies
     for strategy_name in STRATEGIES:
+        if strategy_name in archived_names:
+            continue
         signals = check_signal_on_latest_candle(conn, strategy_name, symbol, source=source)
         results[strategy_name] = signals
 
@@ -543,6 +558,8 @@ def check_all_strategies_latest_candle(conn: sqlite3.Connection, symbol: str, so
     dynamic_rows = conn.execute("SELECT name FROM dynamic_strategies").fetchall()
     for row in dynamic_rows:
         strategy_name = row[0]
+        if strategy_name in archived_names:
+            continue
         signals = check_signal_on_latest_candle(conn, strategy_name, symbol, source=source)
         results[strategy_name] = signals
 

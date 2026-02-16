@@ -623,10 +623,9 @@ def fetch_all_intervals():
             _, _, _, _, _, check_all_strategies_latest_candle, STRATEGIES = get_signal_calculator()
             with get_db() as conn:
                 # yFinance signals
-                print(f"  Checking yFinance signals for {len(STRATEGIES)} strategies + dynamic...")
                 results = check_all_strategies_latest_candle(conn, SYMBOL, source='yfinance')
                 new_signals_count = sum(len(signals) for signals in results.values())
-                print(f"  Signal check complete: {new_signals_count} new signals found")
+                print(f"  yFinance signals: {len(results)} strategies checked, {new_signals_count} new signals")
 
                 for strategy_name, signals in results.items():
                     if not signals:
@@ -695,16 +694,21 @@ def fetch_all_intervals():
                     print(f"  Warning: Bot engine error: {bot_err}")
 
                 # eToro signals
-                print(f"  Checking eToro signals for {len(STRATEGIES)} strategies + dynamic...")
                 etoro_results = check_all_strategies_latest_candle(conn, SYMBOL, source='etoro')
                 etoro_new_count = sum(len(s) for s in etoro_results.values() if s)
-                print(f"  eToro signal check complete: {etoro_new_count} new signals found")
+                print(f"  eToro signals: {len(etoro_results)} strategies checked, {etoro_new_count} new signals")
 
                 # Feed eToro signals to bot engine for auto-trading
                 try:
                     bot_engine.process_new_signals(etoro_results, source='etoro')
                 except Exception as bot_err:
                     print(f"  Warning: Bot engine error (eToro): {bot_err}")
+
+                # Sync open positions with eToro (detect SL/TP closures)
+                try:
+                    bot_engine.sync_open_positions()
+                except Exception as sync_err:
+                    print(f"  Warning: Position sync error: {sync_err}")
         except Exception as e:
             print(f"Warning: Could not calculate signals: {e}")
 

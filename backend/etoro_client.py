@@ -190,6 +190,8 @@ def open_position_by_cash(
     is_buy: bool,
     leverage: int = 1,
     account_type: str = "demo",
+    stop_loss_rate: Optional[float] = None,
+    take_profit_rate: Optional[float] = None,
 ) -> dict:
     """
     Open a position by cash amount.
@@ -200,6 +202,8 @@ def open_position_by_cash(
         is_buy: True for buy, False for sell (short)
         leverage: Leverage multiplier (default 1)
         account_type: 'demo' or 'real'
+        stop_loss_rate: Stop loss price level (optional)
+        take_profit_rate: Take profit price level (optional)
     """
     _check_credentials(account_type)
     prefix = "demo/" if account_type == "demo" else ""
@@ -211,6 +215,10 @@ def open_position_by_cash(
         "IsBuy": is_buy,
         "Leverage": leverage,
     }
+    if stop_loss_rate is not None:
+        body["StopLossRate"] = stop_loss_rate
+    if take_profit_rate is not None:
+        body["TakeProfitRate"] = take_profit_rate
 
     resp = httpx.post(
         f"{BASE_URL}{path}",

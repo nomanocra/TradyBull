@@ -299,6 +299,18 @@ class BotEngine:
         # Execute the trade
         self._execute_trade(bot, target_signal, conn)
 
+    def _get_strategy_stop_loss(self, strategy_name: str, conn) -> Optional[float]:
+        """Get the stop loss percentage from a strategy config. Returns None if no SL."""
+        # Try dynamic strategies first (most common for bots)
+        row = conn.execute(
+            "SELECT config FROM dynamic_strategies WHERE name = ?",
+            (strategy_name,),
+        ).fetchone()
+        if row:
+            config = json.loads(row[0])
+            return config.get("stop_loss")  # e.g. 1.0 for -1%
+        return None
+
     def _execute_trade(self, bot: dict, signal, conn):
         """Execute a trade on eToro for a bot signal."""
         bot_id = bot["id"]
@@ -321,6 +333,13 @@ class BotEngine:
                     print(f"[BotEngine] Bot #{bot_id} warning: could not check balance: {bal_err}")
                     # Continue with trade if balance check fails
 
+                # Calculate stop loss price from strategy config
+                sl_rate = None
+                sl_pct = self._get_strategy_stop_loss(bot["strategy_name"], conn)
+                if sl_pct:
+                    sl_rate = round(signal.price * (1 - sl_pct / 100), 2)
+                    print(f"[BotEngine] Bot #{bot_id} setting SL at {sl_rate} (-{sl_pct}% from {signal.price})")
+
                 # Open a long position
                 result = open_position_by_cash(
                     instrument_id=instrument_id,
@@ -328,6 +347,7 @@ class BotEngine:
                     is_buy=True,
                     leverage=bot.get("leverage", 1),
                     account_type=bot["account_type"],
+                    stop_loss_rate=sl_rate,
                 )
                 position_id = result.get("PositionId") or result.get("positionId") or result.get("OrderId") or result.get("orderId")
 
@@ -431,6 +451,149 @@ class BotEngine:
                     (now, bot_id),
                 )
                 conn.commit()
+
+    # =========================================================================
+    # Position sync (detect eToro-side closures like SL/TP)
+    # =========================================================================
+
+    def sync_open_positions(self):
+        """
+        Check if positions marked 'open' in DB are still open on eToro.
+        If eToro closed them (SL hit, TP hit, manual), update DB accordingly.
+        Called periodically from the fetch loop.
+        """
+        conn = self._get_db()
+        try:
+            # Get all open trades with their bot info
+            open_trades = conn.execute(
+                """SELECT bt.id as trade_id, bt.bot_id, bt.position_id, bt.price, bt.amount,
+                          tb.account_type, tb.leverage, tb.strategy_name
+                   FROM bot_trades bt
+                   JOIN trading_bots tb ON bt.bot_id = tb.id
+                   WHERE bt.status = 'open' AND bt.position_id IS NOT NULL"""
+            ).fetchall()
+
+            if not open_trades:
+                return
+
+            # Group by account_type to minimize API calls
+            by_account: dict[str, list] = {}
+            for trade in open_trades:
+                acct = trade["account_type"]
+                by_account.setdefault(acct, []).append(trade)
+
+            now = int(time.time())
+
+            for account_type, trades in by_account.items():
+                try:
+                    portfolio = get_portfolio(account_type)
+                except Exception as e:
+                    print(f"[BotEngine] sync: could not fetch portfolio ({account_type}): {e}")
+                    continue
+
+                # Extract open position IDs from eToro portfolio
+                client_portfolio = portfolio.get("clientPortfolio") or portfolio.get("ClientPortfolio") or {}
+                positions = client_portfolio.get("positions") or client_portfolio.get("Positions") or []
+                etoro_position_ids = set()
+                etoro_positions_map = {}
+                for pos in positions:
+                    pid = pos.get("positionId") or pos.get("PositionId") or pos.get("positionID")
+                    if pid:
+                        etoro_position_ids.add(int(pid))
+                        etoro_positions_map[int(pid)] = pos
+
+                # Check each open trade
+                for trade in trades:
+                    pos_id = trade["position_id"]
+                    if pos_id in etoro_position_ids:
+                        continue  # Still open on eToro, nothing to do
+
+                    # Position closed on eToro! Update DB.
+                    bot_id = trade["bot_id"]
+                    trade_id = trade["trade_id"]
+                    buy_price = trade["price"]
+                    amount = trade["amount"]
+                    leverage = trade["leverage"] or 1
+
+                    # Get P&L, close price and close time from eToro trading history
+                    info = self._get_closed_position_info(pos_id, account_type)
+                    pnl = info["pnl"]
+                    close_price = info["close_price"]
+                    close_time = info["close_time"] or now
+
+                    if pnl is None:
+                        # Fallback: estimate from last known price
+                        last_price_row = conn.execute(
+                            "SELECT close FROM backtest_candles WHERE source = 'yfinance' ORDER BY timestamp DESC LIMIT 1"
+                        ).fetchone()
+                        if last_price_row and buy_price:
+                            pnl = round(((last_price_row[0] - buy_price) / buy_price) * amount * leverage, 2)
+                            if close_price is None:
+                                close_price = last_price_row[0]
+
+                    # Close the buy trade
+                    conn.execute(
+                        "UPDATE bot_trades SET status = 'closed', closed_at = ?, pnl = ? WHERE id = ?",
+                        (close_time, pnl, trade_id),
+                    )
+
+                    # Record a sell trade for the closure
+                    sell_trade = BotTrade(
+                        bot_id=bot_id,
+                        position_id=pos_id,
+                        signal_type="sell",
+                        price=close_price or buy_price,
+                        amount=amount,
+                        status="closed",
+                        opened_at=close_time,
+                        pnl=pnl,
+                    )
+                    self._record_trade(sell_trade, conn)
+
+                    print(f"[BotEngine] Bot #{bot_id} position {pos_id} closed by eToro (SL/TP/manual). "
+                          f"Close price={close_price}, PnL={pnl}")
+
+                    conn.execute(
+                        "UPDATE trading_bots SET updated_at = ? WHERE id = ?",
+                        (now, bot_id),
+                    )
+                    conn.commit()
+
+        except Exception as e:
+            print(f"[BotEngine] sync error: {e}")
+        finally:
+            conn.close()
+
+    def _get_closed_position_info(self, position_id: int, account_type: str) -> dict:
+        """Try to get P&L and close price for a closed position from eToro trading history.
+        Returns {'pnl': float|None, 'close_price': float|None, 'close_time': int|None}."""
+        result = {"pnl": None, "close_price": None, "close_time": None}
+        try:
+            from etoro_client import get_trading_history
+            history = get_trading_history(account_type)
+            trades = history.get("trades") or history.get("Trades") or history.get("history") or history.get("History") or []
+            if isinstance(trades, list):
+                for t in trades:
+                    pid = t.get("positionId") or t.get("PositionId") or t.get("positionID")
+                    if pid == position_id:
+                        pnl = t.get("netProfit") or t.get("NetProfit") or t.get("profitLoss") or t.get("ProfitLoss")
+                        if pnl is not None:
+                            result["pnl"] = float(pnl)
+                        close_rate = t.get("closeRate") or t.get("CloseRate") or t.get("closePrice") or t.get("ClosePrice")
+                        if close_rate is not None:
+                            result["close_price"] = float(close_rate)
+                        close_date = t.get("closedDate") or t.get("ClosedDate") or t.get("closeDate") or t.get("CloseDate")
+                        if close_date:
+                            try:
+                                from datetime import datetime as _dt
+                                dt = _dt.fromisoformat(str(close_date).replace("Z", "+00:00"))
+                                result["close_time"] = int(dt.timestamp())
+                            except (ValueError, TypeError):
+                                pass
+                        break
+        except Exception:
+            pass
+        return result
 
     # =========================================================================
     # Stats
